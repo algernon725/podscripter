@@ -81,7 +81,7 @@ To transcribe an audio file named `example.mp3` containing French speech, with t
 | `audio_file` | Path to the audio file you want to transcribe                               |
 | `output_dir` | Directory where the transcription will be saved                             |
 | `language`   | (Optional) Output language code (`en`, `es`, `fr`, `de`) Default: `en` for English                 |
-| `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM. Default: `medium` requires ~5GB RAM|
+| `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`, `large-v3`). Larger models are more accurate, but require more RAM and are slower. Default: `medium` requires ~5GB RAM|
 | `output_format` | (Optional) Output format to use (`txt`, `srt`). Default: `txt`
 
 
