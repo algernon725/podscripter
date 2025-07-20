@@ -53,11 +53,12 @@
   ```
 
 ## 📄 Command-line Usage
+Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"
+
 To transcribe an audio file named `example.mp3` from the command prompt inside the container:
   ```bash
   python transcribe_sentences.py audio-files/example.mp3 audio-files
   ```
-```Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"```
 
 For example, to transcribe an audio file named `example.mp3` containing Spanish speech, you can specify the language `es`:
 
