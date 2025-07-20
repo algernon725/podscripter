@@ -7,12 +7,15 @@ import os
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-# Load Whisper model
-model = whisper.load_model("medium")
+def transcribe_with_sentences(audio_file, output_dir, language, model_size):
+    # Load Whisper model
+    model = whisper.load_model(model_size)
 
-def transcribe_with_sentences(audio_file, output_dir):
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
     # Transcribe audio
-    result = model.transcribe(audio_file, language="es")
+    result = model.transcribe(audio_file, language=language, verbose=True)
     text = result["text"]
 
     # Split text into sentences
@@ -25,9 +28,11 @@ def transcribe_with_sentences(audio_file, output_dir):
             f.write(f"{sentence.strip()}\n\n")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python transcribe_sentences.py <audio_file> <output_dir>")
+    if len(sys.argv) < 3 or len(sys.argv) > 5:
+        print("Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')]")
         sys.exit(1)
     audio_file = sys.argv[1]
     output_dir = sys.argv[2]
-    transcribe_with_sentences(audio_file, output_dir)
+    language = sys.argv[3] if len(sys.argv) >= 4 else "es"
+    model_size = sys.argv[4] if len(sys.argv) == 5 else "medium"
+    transcribe_with_sentences(audio_file, output_dir, language, model_size)
