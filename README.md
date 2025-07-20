@@ -4,13 +4,13 @@
 
 ---
 
-`whisper-podscribe` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. Popular languages such as English `en`, Spanish `es`, French `fr`, and German `de` are supported. Originally created for language learners, `whisper-podscribe` enables users to generate accurate transcriptions locally—perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
+`whisper-podscribe` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. Popular languages such as English `en`, Spanish `es`, French `fr`, and German `de` are supported. Originally created for language learners, `whisper-podscribe` enables users to generate accurate transcriptions locally, perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
 
 ---
 
 ## ✨ Features
 
-- **Local Processing**: No API keys or usage limits—run everything on your own machine.
+- **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
 - **Flexible Output**: Choose your transcription language and model size.
 - **Batch Transcription**: Transcribe multiple files with a simple loop.
@@ -72,7 +72,7 @@ done
 ```
 
 ## 📚 Why Use This?
-When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper—all on your own hardware.
+When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
 
 ## 📦 Output
 Transcriptions are saved in sentence-separated `.txt` format, ready for import into language learning platforms.
