@@ -20,25 +20,26 @@
 ## 🧰 Requirements
 
 - Apple Mac with M1, M2, M3, or M4 processor
-- [Docker](https://www.docker.com) installed
 
 ---
 
 ## 🚀 Getting Started
 
-1. Create the project folders:
+1. Install [Docker](https://www.docker.com) and [Git](https://git-scm.com/downloads)
+
+2. Create the project folders to store your Docker-related files and audio inputs/outputs:
 ```bash
 mkdir -p whisper-docker-nltk/audio-files
 mkdir -p whisper-docker-nltk/models
 cd whisper-docker-nltk
 ```
 
-2. Build the Docker image:
+3. Build the Docker image:
 ```bash
 docker build --platform linux/arm64 -t whisper-ai-nltk .
 ```
 
-3. Run the container:
+4. Run the container:
 ```bash
 docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
@@ -58,8 +59,8 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files
 | ------------ | --------------------------------------------------------------------------- |
 | `audio_file` | Path to the audio file you want to transcribe                               |
 | `output_dir` | Directory where the transcription will be saved                             |
-| `language`   | (Optional) Output language code (default: `es` for Spanish)                 |
-| `model_size` | (Optional) Whisper model to use (`small`, `medium`, `large-v2`, `large-v3`) |
+| `language`   | (Optional) Output language code for example `en` for English (default: `es` for Spanish)                 |
+| `model_size` | (Optional) Whisper model to use (`small`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM (default: `medium` requires ~5GB RAM)|
 
 
 ## Batch Transcription (all `.mp3` files):
