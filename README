@@ -1,0 +1,15 @@
+# Usage Instructions
+
+#Build the Docker Image
+docker build --platform linux/arm64 -t whisper-ai-nltk .
+
+#Run the Docker Container
+docker run --platform linux/arm64 -it -v $(pwd)/models:/root/.cache/whisper -v $(pwd)/audio-files:/app/audio-files whisper-ai-nltk
+
+# Start Whisper inside the Container using the script
+python transcribe_sentences.py audio-files/test.mp3 audio-files
+
+# --model base:Uses the base model, which is lightweight. Other options include tiny, small, medium, large-v3 (larger models require more memory)
+# --language en: Specifies the language of the audio file (English in this case)
+# --output_dir audio-files: Directory to save the transcription output
+# --output_format txt: Format of the output file (txt, srt, json)
