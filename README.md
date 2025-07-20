@@ -28,35 +28,35 @@
 1. Install [Docker](https://www.docker.com) and [Git](https://git-scm.com/downloads)
 
 2. Clone the repo:
-```bash
+  ```bash
    git clone https://github.com/algernon725/whisper-podscribe.git
-```
+  ```
 
 3. Create the Docker volume folders to store your Docker-related files and audio inputs/outputs:
-```bash
+  ```bash
   mkdir -p whisper-podscribe/audio-files
   mkdir -p whisper-podscribe/models
   cd whisper-podscribe
-```
+  ```
 
 4. Build the Docker image:
-```bash
+  ```bash
   docker build --platform linux/arm64 -t whisper-podscribe .
-```
+  ```
 
 5. Run the Docker container:
-```bash
+  ```bash
   docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
   -v $(pwd)/audio-files:/app/audio-files \
   whisper-podscribe
-```
+  ```
 
 ## 📄 Command-line Usage
 To transcribe an audio file from the command prompt inside the container:
-```bash
+  ```bash
   python transcribe_sentences.py audio-files/example.mp3 audio-files
-```
+  ```
 
 ## Command-Line Arguments
 
@@ -70,11 +70,11 @@ To transcribe an audio file from the command prompt inside the container:
 
 ## Batch Transcription (all `.mp3` files):
 To transcribe all mp3 files from the command prompt inside the container:
-```bash
+  ```bash
   for f in audio-files/*.mp3; do
     python transcribe_sentences.py "$f" audio-files
   done
-```
+  ```
 
 ## 📚 Why Use This?
 When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
