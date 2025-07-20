@@ -53,6 +53,8 @@
   ```
 
 ## 📄 Command-line Usage
+*Please note that these commands need to be run from the command prompt inside of your running Docker container, which will appear after you run the Docker container in step 5 above.*
+
 Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"
 
 To transcribe an audio file named `example.mp3` from the command prompt inside the container:
@@ -71,7 +73,6 @@ To transcribe an audio file named `example.mp3` containing French speech, with t
   ```bash
   python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
   ```
-*Please note that these commands need to be run from the command prompt inside of your running Docker container, which will appear after you run the Docker container in step 5 above.*
 
 ## Command-Line Arguments
 
