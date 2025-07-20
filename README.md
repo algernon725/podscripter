@@ -27,21 +27,26 @@
 
 1. Install [Docker](https://www.docker.com) and [Git](https://git-scm.com/downloads)
 
-2. Create the project folders to store your Docker-related files and audio inputs/outputs:
+2. Clone the repo:
 ```bash
-mkdir -p whisper-podscribe/audio-files
-mkdir -p whisper-podscribe/models
-cd whisper-podscribe
+   git clone https://github.com/algernon725/whisper-podscribe.git
 ```
 
-3. Build the Docker image:
+3. Create the Docker volume folders to store your Docker-related files and audio inputs/outputs:
 ```bash
-docker build --platform linux/arm64 -t whisper-podscribe .
+  mkdir -p whisper-podscribe/audio-files
+  mkdir -p whisper-podscribe/models
+  cd whisper-podscribe
 ```
 
-4. Run the container:
+4. Build the Docker image:
 ```bash
-docker run --platform linux/arm64 -it \
+  docker build --platform linux/arm64 -t whisper-podscribe .
+```
+
+5. Run the Docker container:
+```bash
+  docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
   -v $(pwd)/audio-files:/app/audio-files \
   whisper-podscribe
@@ -50,7 +55,7 @@ docker run --platform linux/arm64 -it \
 ## 📄 Command-line Usage
 To transcribe an audio file from the command prompt inside the container:
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files
+  python transcribe_sentences.py audio-files/example.mp3 audio-files
 ```
 
 ## Command-Line Arguments
@@ -66,9 +71,9 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files
 ## Batch Transcription (all `.mp3` files):
 To transcribe all mp3 files from the command prompt inside the container:
 ```bash
-for f in audio-files/*.mp3; do
-  python transcribe_sentences.py "$f" audio-files
-done
+  for f in audio-files/*.mp3; do
+    python transcribe_sentences.py "$f" audio-files
+  done
 ```
 
 ## 📚 Why Use This?
