@@ -57,6 +57,7 @@ To transcribe an audio file from the command prompt inside the container:
   ```bash
   python transcribe_sentences.py audio-files/example.mp3 audio-files
   ```
+```Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"```
 
 ## Command-Line Arguments
 
@@ -64,9 +65,9 @@ To transcribe an audio file from the command prompt inside the container:
 | ------------ | --------------------------------------------------------------------------- |
 | `audio_file` | Path to the audio file you want to transcribe                               |
 | `output_dir` | Directory where the transcription will be saved                             |
-| `language`   | (Optional) Output language code (`en`, `es`, `fr`, `de`) Default: `es` for Spanish.                 |
+| `language`   | (Optional) Output language code (`en`, `es`, `fr`, `de`) Default: `en` for English                 |
 | `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM. Default: `medium` requires ~5GB RAM|
-| `output_format` | (Optional) Output format to use (`txt`, `srt`). Default: `txt`.
+| `output_format` | (Optional) Output format to use (`txt`, `srt`). Default: `txt`
 
 
 ## Batch Transcription (all `.mp3` files):
