@@ -4,7 +4,7 @@
 
 ---
 
-`whisper-podscribe` is a lightweight tool designed to transcribe Spanish-language audio (or other supported languages) using OpenAI’s Whisper model inside a Docker container. Originally created for language learners, it enables users to generate accurate transcriptions locally—perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
+`whisper-podscribe` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. Popular languages such as English `en`, Spanish `es`, French `fr`, and German `de` are supported. Originally created for language learners, `whisper-podscribe` enables users to generate accurate transcriptions locally—perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
 
 ---
 
@@ -23,7 +23,7 @@
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Setup
 
 1. Install [Docker](https://www.docker.com) and [Git](https://git-scm.com/downloads)
 
@@ -47,7 +47,7 @@ docker run --platform linux/arm64 -it \
   whisper-podscribe
 ```
 
-## 📄 Usage
+## 📄 Command-line Usage
 To transcribe an audio file from the command prompt inside the container:
 ```bash
 python transcribe_sentences.py audio-files/example.mp3 audio-files
@@ -60,7 +60,7 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files
 | `audio_file` | Path to the audio file you want to transcribe                               |
 | `output_dir` | Directory where the transcription will be saved                             |
 | `language`   | (Optional) Output language code for example `en` for English (default: `es` for Spanish)                 |
-| `model_size` | (Optional) Whisper model size to use (`small`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM (default: `medium` requires ~5GB RAM)|
+| `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM (default: `medium` requires ~5GB RAM)|
 
 
 ## Batch Transcription (all `.mp3` files):
