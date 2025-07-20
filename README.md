@@ -1,10 +1,10 @@
-# whisper-docker-nltk
+# whisper-podscribe
 
 **Local audio transcription for language learners using OpenAI Whisper, powered by Docker.**
 
 ---
 
-`whisper-docker-nltk` is a lightweight tool designed to transcribe Spanish-language audio (or other supported languages) using OpenAI’s Whisper model inside a Docker container. Originally created for language learners, it enables users to generate accurate transcriptions locally—perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
+`whisper-podscribe` is a lightweight tool designed to transcribe Spanish-language audio (or other supported languages) using OpenAI’s Whisper model inside a Docker container. Originally created for language learners, it enables users to generate accurate transcriptions locally—perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
 
 ---
 
@@ -29,14 +29,14 @@
 
 2. Create the project folders to store your Docker-related files and audio inputs/outputs:
 ```bash
-mkdir -p whisper-docker-nltk/audio-files
-mkdir -p whisper-docker-nltk/models
-cd whisper-docker-nltk
+mkdir -p whisper-podscribe/audio-files
+mkdir -p whisper-podscribe/models
+cd whisper-podscribe
 ```
 
 3. Build the Docker image:
 ```bash
-docker build --platform linux/arm64 -t whisper-ai-nltk .
+docker build --platform linux/arm64 -t whisper-podscribe .
 ```
 
 4. Run the container:
@@ -44,7 +44,7 @@ docker build --platform linux/arm64 -t whisper-ai-nltk .
 docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
   -v $(pwd)/audio-files:/app/audio-files \
-  whisper-ai-nltk
+  whisper-podscribe
 ```
 
 ## 📄 Usage
