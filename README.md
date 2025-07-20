@@ -19,7 +19,7 @@
 
 ## 🧰 Requirements
 
-- Apple Mac with M1, M2, M3, or M4 processor.
+- Apple Mac with an M series processor.
 
 ---
 
@@ -76,9 +76,3 @@ When learning a new language, especially through podcasts, having accurate, alig
 
 ## 📦 Output
 Transcriptions are saved in sentence-separated `.txt` format, ready for import into language learning platforms.
-
----
-
-## 📝 License
-
-This project is licensed under the [MIT License](LICENSE).
