@@ -19,7 +19,7 @@
 
 ## 🧰 Requirements
 
-- Apple Mac with M1, M2, M3, or M4 processor
+- Apple Mac with M1, M2, M3, or M4 processor.
 
 ---
 
@@ -48,7 +48,7 @@ docker run --platform linux/arm64 -it \
 ```
 
 ## 📄 Usage
-To transcribe an audio file from within the container:
+To transcribe an audio file from the command prompt inside the container:
 ```bash
 python transcribe_sentences.py audio-files/example.mp3 audio-files
 ```
@@ -60,10 +60,11 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files
 | `audio_file` | Path to the audio file you want to transcribe                               |
 | `output_dir` | Directory where the transcription will be saved                             |
 | `language`   | (Optional) Output language code for example `en` for English (default: `es` for Spanish)                 |
-| `model_size` | (Optional) Whisper model to use (`small`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM (default: `medium` requires ~5GB RAM)|
+| `model_size` | (Optional) Whisper model size to use (`small`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM (default: `medium` requires ~5GB RAM)|
 
 
 ## Batch Transcription (all `.mp3` files):
+To transcribe all mp3 files from the command prompt inside the container:
 ```bash
 for f in audio-files/*.mp3; do
   python transcribe_sentences.py "$f" audio-files
