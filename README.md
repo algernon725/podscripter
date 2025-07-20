@@ -64,8 +64,9 @@ To transcribe an audio file from the command prompt inside the container:
 | ------------ | --------------------------------------------------------------------------- |
 | `audio_file` | Path to the audio file you want to transcribe                               |
 | `output_dir` | Directory where the transcription will be saved                             |
-| `language`   | (Optional) Output language code for example `en` for English (default: `es` for Spanish)                 |
-| `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM (default: `medium` requires ~5GB RAM)|
+| `language`   | (Optional) Output language code (`en`, `es`, `fr`, `de`) Default: `es` for Spanish.                 |
+| `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`, `large-v3`). Larger models require more RAM. Default: `medium` requires ~5GB RAM|
+| `output_format` | (Optional) Output format to use (`txt`, `srt`). Default: `txt`.
 
 
 ## Batch Transcription (all `.mp3` files):
