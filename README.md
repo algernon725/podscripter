@@ -1,56 +1,82 @@
 # whisper-docker-nltk
+
+**Local audio transcription for language learners using OpenAI Whisper, powered by Docker.**
+
 ---
 
-## Pre-requisites:
+`whisper-docker-nltk` is a lightweight tool designed to transcribe Spanish-language audio (or other supported languages) using OpenAI’s Whisper model inside a Docker container. Originally created for language learners, it enables users to generate accurate transcriptions locally—perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
 
-1. An Apple Mac computer with M1, M2, M3, or M4 processor
-2. Install [Docker](https://www.docker.com)
+---
 
-## Setup Instructions
+## ✨ Features
 
-1. Create these 3  folders on your local drive:
+- **Local Processing**: No API keys or usage limits—run everything on your own machine.
+- **Dockerized Environment**: Easily install and run the tool in an isolated container.
+- **Flexible Output**: Choose your transcription language and model size.
+- **Batch Transcription**: Transcribe multiple files with a simple loop.
+
+---
+
+## 🧰 Requirements
+
+- Apple Mac with M1, M2, M3, or M4 processor
+- [Docker](https://www.docker.com) installed
+
+---
+
+## 🚀 Getting Started
+
+1. Create the project folders:
 ```bash
-mkdir whisper-docker-nltk
-mkdir whisper-docker-nltk/audio-files
-mkdir whisper-docker-nltk/models
-```
-
-2. Navigate to the whisper-docker-nltk directory:
-```bash
+mkdir -p whisper-docker-nltk/audio-files
+mkdir -p whisper-docker-nltk/models
 cd whisper-docker-nltk
 ```
 
-3. Build the Docker Image
+2. Build the Docker image:
 ```bash
 docker build --platform linux/arm64 -t whisper-ai-nltk .
 ```
 
-4. Run the Docker Container
+3. Run the container:
 ```bash
-docker run --platform linux/arm64 -it -v $(pwd)/models:/root/.cache/whisper -v $(pwd)/audio-files:/app/audio-files whisper-ai-nltk
+docker run --platform linux/arm64 -it \
+  -v $(pwd)/models:/root/.cache/whisper \
+  -v $(pwd)/audio-files:/app/audio-files \
+  whisper-ai-nltk
 ```
 
-## Usage Instructions
-
-Start transcribing using Whisper by executing this script inside the Container
-Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')]"
+## 📄 Usage
+To transcribe an audio file from within the container:
 ```bash
-python transcribe_sentences.py audio-files/test.mp3 audio-files
+python transcribe_sentences.py audio-files/example.mp3 audio-files
 ```
 
-How to batch process all mp3 files in the audio-files folder:
-You need to loop over the files in a shell script or in Python.
-For example, in your terminal (bash/zsh):
+## Command-Line Arguments
+
+| Argument     | Description                                                                 |
+| ------------ | --------------------------------------------------------------------------- |
+| `audio_file` | Path to the audio file you want to transcribe                               |
+| `output_dir` | Directory where the transcription will be saved                             |
+| `language`   | (Optional) Output language code (default: `es` for Spanish)                 |
+| `model_size` | (Optional) Whisper model to use (`small`, `medium`, `large-v2`, `large-v3`) |
+
+
+## Batch Transcription (all `.mp3` files):
 ```bash
 for f in audio-files/*.mp3; do
-    python transcribe_sentences.py "$f" audio-files
+  python transcribe_sentences.py "$f" audio-files
 done
 ```
 
-## Command line arguments:
-| Argument   | Description |
-| ---------- | ----------- |
-| audio_file | audio file to be transcribed |
-| output_dir | Directory to save the transcription output |
-| language   | Specifies the language of the transcribed output file (es is the default) |
-| model_size | Specifies the Whisper model size. Options include small, medium, large-v2, large-v3 (larger models require more memory) |
+## 📚 Why Use This?
+When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper—all on your own hardware.
+
+## 📦 Output
+Transcriptions are saved in sentence-separated `.txt` format, ready for import into language learning platforms.
+
+---
+
+## 📝 License
+
+This project is licensed under the [MIT License](LICENSE).
