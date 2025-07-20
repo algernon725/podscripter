@@ -8,18 +8,24 @@
 
 ## Setup Instructions
 
-1. Create these 2  folders in the current directory:
+1. Create these 3  folders on your local drive:
 ```bash
-mkdir audio-files
-mkdir models
+mkdir whisper-docker-nltk
+mkdir whisper-docker-nltk/audio-files
+mkdir whisper-docker-nltk/models
 ```
 
-2. Build the Docker Image
+2. Navigate to the whisper-docker-nltk directory:
+```bash
+cd whisper-docker-nltk
+```
+
+3. Build the Docker Image
 ```bash
 docker build --platform linux/arm64 -t whisper-ai-nltk .
 ```
 
-3. Run the Docker Container
+4. Run the Docker Container
 ```bash
 docker run --platform linux/arm64 -it -v $(pwd)/models:/root/.cache/whisper -v $(pwd)/audio-files:/app/audio-files whisper-ai-nltk
 ```
@@ -32,7 +38,7 @@ Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (defau
 python transcribe_sentences.py audio-files/test.mp3 audio-files
 ```
 
-How to batch process all mp3 files in the folder:
+How to batch process all mp3 files in the audio-files folder:
 You need to loop over the files in a shell script or in Python.
 For example, in your terminal (bash/zsh):
 ```bash
@@ -42,8 +48,9 @@ done
 ```
 
 ## Command line arguments:
-
---audio_file: audio file to be transcribed
---output_dir audio-files: Directory to save the transcription output
---language en: Specifies the language of the transcribed output file (English in this case)
---model_size base:Uses the base model, which is lightweight. Other options include tiny, small, medium, large-v2, large-v3 (larger models require more memory)
+| Argument   | Description |
+| ---------- | ----------- |
+| audio_file | audio file to be transcribed |
+| output_dir | Directory to save the transcription output |
+| language   | Specifies the language of the transcribed output file (es is the default) |
+| model_size | Specifies the Whisper model size. Options include small, medium, large-v2, large-v3 (larger models require more memory) |
