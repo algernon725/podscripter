@@ -29,7 +29,7 @@
 
 2. Clone the repo:
   ```bash
-   git clone https://github.com/algernon725/whisper-podscribe.git
+  git clone https://github.com/algernon725/whisper-podscribe.git
   ```
 
 3. Create the Docker volume folders to store your Docker-related files and audio inputs/outputs:
