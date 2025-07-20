@@ -70,7 +70,7 @@ To transcribe an audio file named `example.mp3` containing French speech, with t
   ```bash
   python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
   ```
-**Please note that these commands need to be run from the command prompt inside of your running Docker container, which will appear after you run the Docker container in step 5 above.**
+*Please note that these commands need to be run from the command prompt inside of your running Docker container, which will appear after you run the Docker container in step 5 above.*
 
 ## Command-Line Arguments
 
