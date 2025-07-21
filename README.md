@@ -2,8 +2,6 @@
 
 **Transcribe your podcasts. No limits. No cloud.**
 
-A Whisper-based CLI tool for creating podcast-ready .srt and .txt transcripts locally using Docker.
-
 ---
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. Popular languages such as English `en`, Spanish `es`, French `fr`, and German `de` are supported. Originally created for language learners, `podscripter` enables users to generate accurate transcriptions locally, perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
