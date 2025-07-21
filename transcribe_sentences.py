@@ -36,9 +36,10 @@ def write_srt(segments, output_file):
         sys.exit(1)
 
 def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
-    # Load Whisper model
-    try:
-        model = whisper.load_model(model_size)
+    # Load Whisper model using full precision (fp16=False), which prevents 
+    # punctuation degradation and instability in long files.
+    try: 
+        model = whisper.load_model(model_size, device="cpu", fp16=False)
     except Exception as e:
         print(f"Error loading Whisper model: {e}")
         sys.exit(1)
