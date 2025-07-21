@@ -2,22 +2,10 @@ import whisper
 import nltk
 import sys
 import os
-import glob
-from pydub import AudioSegment
 
 # Ensure NLTK punkt is available
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
-
-def split_audio(audio_file, chunk_length_sec=900):
-    audio = AudioSegment.from_file(audio_file)
-    chunks = []
-    for i in range(0, len(audio), chunk_length_sec * 1000):
-        chunk = audio[i:i + chunk_length_sec * 1000]
-        chunk_path = f"{audio_file}_chunk_{i // (chunk_length_sec * 1000)}.wav"
-        chunk.export(chunk_path, format="wav")
-        chunks.append(chunk_path)
-    return chunks
 
 def write_txt(sentences, output_file):
     try:
@@ -48,7 +36,8 @@ def write_srt(segments, output_file):
         sys.exit(1)
 
 def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
-    # Load Whisper model
+    # Load Whisper model using full precision (fp16=False), which prevents 
+    # punctuation degradation and instability in long files.
     try: 
         model = whisper.load_model(model_size, device="cpu")
     except Exception as e:
@@ -57,56 +46,25 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
 
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Transcribe audio
+    try:
+        result = model.transcribe(audio_file, language=language, verbose=True)
+    except Exception as e:
+        print(f"Error during transcription: {e}")
+        sys.exit(1)
 
-    # Split audio into chunks
-    chunk_files = split_audio(audio_file, chunk_length_sec=900)  # 15 min chunks
-    
-    all_text = ""
-    all_segments = []
-    offset = 0.0
+    text = result["text"]
+    base_name = os.path.splitext(os.path.basename(audio_file))[0]  # Strip extension
 
-    # for chunk_file in chunk_files:
-    for idx, chunk_file in enumerate(chunk_files, 1):
-        print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
-        try:
-            result = model.transcribe(chunk_file, language=language)
-            text = result["text"]
-            segments = result.get("segments", [])
-            # Adjust segment timestamps by offset
-            for seg in segments:
-                seg['start'] += offset
-                seg['end'] += offset
-                all_segments.append(seg)
-            offset += AudioSegment.from_file(chunk_file).duration_seconds
-            all_text += text + "\n"
-        except Exception as e:
-            print(f"Error during transcription: {e}")
-            sys.exit(1)
-        finally:
-            if os.path.exists(chunk_file):
-                os.remove(chunk_file)  # Ensure cleanup
-    
-    base_name = os.path.splitext(os.path.basename(audio_file))[0]
-    
     if output_format == "srt":
-        # Write segments to .srt file
         output_file = os.path.join(output_dir, base_name + ".srt")
-        write_srt(all_segments, output_file)
+        write_srt(result["segments"], output_file)
     else:
-        # Split text into sentences and write to .txt file
-        sentences = nltk.sent_tokenize(all_text)
+        # Split text into sentences
+        sentences = nltk.sent_tokenize(text) # Use NLTK to split into sentences
         output_file = os.path.join(output_dir, base_name + ".txt")
         write_txt(sentences, output_file)
-
-def cleanup_chunks(audio_file):
-    audio_dir = os.path.dirname(os.path.abspath(audio_file))
-    pattern = os.path.join(audio_dir, "*_chunk_*.wav")
-    for chunk_path in glob.glob(pattern):
-        try:
-            os.remove(chunk_path)
-            print(f"Removed leftover chunk file: {chunk_path}")
-        except Exception as e:
-            print(f"Error removing chunk file {chunk_path}: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3 or len(sys.argv) > 6:
@@ -117,7 +75,4 @@ if __name__ == "__main__":
     language = sys.argv[3] if len(sys.argv) >= 4 else "en"
     model_size = sys.argv[4] if len(sys.argv) >= 5 else "medium"
     output_format = sys.argv[5] if len(sys.argv) == 6 else "txt"
-
-    cleanup_chunks(audio_file)  # Cleanup any existing chunks before starting
-
     transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format)
