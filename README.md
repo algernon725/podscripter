@@ -1,6 +1,7 @@
 # PodScripter
 
-**Local audio transcription for language learners using OpenAI Whisper, powered by Docker.**
+**Transcribe your podcasts. No limits. No cloud.**
+A Whisper-based CLI tool for creating podcast-ready .srt and .txt transcripts locally using Docker.
 
 ---
 
