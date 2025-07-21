@@ -27,12 +27,12 @@
 
 1. Install [Docker](https://www.docker.com) and [Git](https://git-scm.com/downloads)
 
-2. Clone the repo:
+2. Clone the GitHub repo:
   ```bash
   git clone https://github.com/algernon725/podscripter.git
   ```
 
-3. Create the Docker volume folders to store your Docker-related files and audio inputs/outputs:
+3. Create the Docker volume `audio-files` and `models` folders to store your Docker-related files and audio inputs/outputs:
   ```bash
   mkdir -p podscripter/audio-files
   mkdir -p podscripter/models
