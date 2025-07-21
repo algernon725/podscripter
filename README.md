@@ -97,4 +97,4 @@ To transcribe all mp3 files from the command prompt inside the container:
 When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
 
 ## 📦 Output
-Transcriptions are saved in sentence-separated `.txt` format, ready for import into language learning platforms.
+Transcriptions are saved in sentence-separated `.txt` or `.srt` format, ready for import into language learning platforms.
