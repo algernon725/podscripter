@@ -39,7 +39,7 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
     # Load Whisper model using full precision (fp16=False), which prevents 
     # punctuation degradation and instability in long files.
     try: 
-        model = whisper.load_model(model_size, device="cpu", fp16=False)
+        model = whisper.load_model(model_size, device="cpu")
     except Exception as e:
         print(f"Error loading Whisper model: {e}")
         sys.exit(1)
