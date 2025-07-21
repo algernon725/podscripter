@@ -1,10 +1,10 @@
-# whisper-podscribe
+# PodScripter
 
 **Local audio transcription for language learners using OpenAI Whisper, powered by Docker.**
 
 ---
 
-`whisper-podscribe` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. Popular languages such as English `en`, Spanish `es`, French `fr`, and German `de` are supported. Originally created for language learners, `whisper-podscribe` enables users to generate accurate transcriptions locally, perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
+`podscripter` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. Popular languages such as English `en`, Spanish `es`, French `fr`, and German `de` are supported. Originally created for language learners, `podscripter` enables users to generate accurate transcriptions locally, perfect for platforms like [LingQ](https://www.lingq.com/) where text + audio integration improves comprehension.
 
 ---
 
@@ -29,19 +29,19 @@
 
 2. Clone the repo:
   ```bash
-  git clone https://github.com/algernon725/whisper-podscribe.git
+  git clone https://github.com/algernon725/podscripter.git
   ```
 
 3. Create the Docker volume folders to store your Docker-related files and audio inputs/outputs:
   ```bash
-  mkdir -p whisper-podscribe/audio-files
-  mkdir -p whisper-podscribe/models
-  cd whisper-podscribe
+  mkdir -p podscripter/audio-files
+  mkdir -p podscripter/models
+  cd podscripter
   ```
 
 4. Build the Docker image:
   ```bash
-  docker build --platform linux/arm64 -t whisper-podscribe .
+  docker build --platform linux/arm64 -t podscripter .
   ```
 
 5. Run the Docker container:
@@ -49,7 +49,7 @@
   docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
   -v $(pwd)/audio-files:/app/audio-files \
-  whisper-podscribe
+  podscripter
   ```
 
 ## 📄 Command-line Usage
