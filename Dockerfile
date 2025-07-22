@@ -5,13 +5,12 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    pydub \
     git \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 RUN pip install --upgrade pip
-RUN pip install git+https://github.com/openai/whisper.git nltk
+RUN pip install git+https://github.com/openai/whisper.git nltk pydub
 
 # Download NLTK data
 RUN python -m nltk.downloader punkt

@@ -1,15 +1,18 @@
+import warnings
+warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
 import whisper
 import nltk
 import sys
 import os
 import glob
+import time
 from pydub import AudioSegment
 
 # Ensure NLTK punkt is available
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-def split_audio(audio_file, chunk_length_sec=900):
+def split_audio(audio_file, chunk_length_sec=300):
     audio = AudioSegment.from_file(audio_file)
     chunks = []
     for i in range(0, len(audio), chunk_length_sec * 1000):
@@ -59,12 +62,14 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
     os.makedirs(output_dir, exist_ok=True)
 
     # Split audio into chunks
-    chunk_files = split_audio(audio_file, chunk_length_sec=900)  # 15 min chunks
+    print("Splitting audio into chunks...")
+    chunk_files = split_audio(audio_file, chunk_length_sec=300)  # 5 min chunks
     
     all_text = ""
     all_segments = []
     offset = 0.0
 
+    print("Transcribing chunks...")
     # for chunk_file in chunk_files:
     for idx, chunk_file in enumerate(chunk_files, 1):
         print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
@@ -117,7 +122,14 @@ if __name__ == "__main__":
     language = sys.argv[3] if len(sys.argv) >= 4 else "en"
     model_size = sys.argv[4] if len(sys.argv) >= 5 else "medium"
     output_format = sys.argv[5] if len(sys.argv) == 6 else "txt"
+    start_time = time.time()
 
     cleanup_chunks(audio_file)  # Cleanup any existing chunks before starting
 
     transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format)
+
+    end_time = time.time()
+    elapsed = end_time - start_time
+    minutes = int(elapsed // 60)
+    seconds = int(elapsed % 60)
+    print(f"Script completed in {minutes} minutes and {seconds} seconds.")
