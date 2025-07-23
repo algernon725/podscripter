@@ -1,12 +1,13 @@
 import warnings
-warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
-import whisper
 import nltk
 import sys
 import os
 import glob
 import time
+#import whisper
 from pydub import AudioSegment
+from faster_whisper import WhisperModel
+warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
 
 # Ensure NLTK punkt is available
 nltk.download('punkt', quiet=True)
@@ -51,55 +52,51 @@ def write_srt(segments, output_file):
         sys.exit(1)
 
 def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
-    # Load Whisper model
-    try: 
-        model = whisper.load_model(model_size, device="cpu")
+    # Load faster-whisper model
+    try:
+        model = WhisperModel(model_size, device="cpu")  # or "cuda" for GPU
     except Exception as e:
-        print(f"Error loading Whisper model: {e}")
+        print(f"Error loading faster-whisper model: {e}")
         sys.exit(1)
 
-    # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
-
-    # Split audio into chunks
     print("Splitting audio into chunks...")
-    chunk_files = split_audio(audio_file, chunk_length_sec=300)  # 5 min chunks
-    
+    chunk_files = split_audio(audio_file, chunk_length_sec=300)  # 5 minute chunk size
+
     all_text = ""
     all_segments = []
     offset = 0.0
 
     print("Transcribing chunks...")
-    # for chunk_file in chunk_files:
     for idx, chunk_file in enumerate(chunk_files, 1):
         print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
         try:
-            result = model.transcribe(chunk_file, language=language)
-            text = result["text"]
-            segments = result.get("segments", [])
-            # Adjust segment timestamps by offset
+            segments, info = model.transcribe(chunk_file, language=language)
+            text = ""
+            chunk_segments = []
             for seg in segments:
-                seg['start'] += offset
-                seg['end'] += offset
-                all_segments.append(seg)
+                seg_dict = {
+                    "start": seg.start + offset,
+                    "end": seg.end + offset,
+                    "text": seg.text
+                }
+                chunk_segments.append(seg_dict)
+                text += seg.text + " "
+            all_segments.extend(chunk_segments)
+            all_text += text.strip() + "\n"
             offset += AudioSegment.from_file(chunk_file).duration_seconds
-            all_text += text + "\n"
         except Exception as e:
             print(f"Error during transcription: {e}")
             sys.exit(1)
         finally:
             if os.path.exists(chunk_file):
-                os.remove(chunk_file)  # Ensure cleanup
-    
+                os.remove(chunk_file)
+
     base_name = os.path.splitext(os.path.basename(audio_file))[0]
-    
     if output_format == "srt":
-        # Write segments to .srt file
         output_file = os.path.join(output_dir, base_name + ".srt")
         write_srt(all_segments, output_file)
     else:
-        # Split text into sentences and write to .txt file
-        #sentences = nltk.sent_tokenize(all_text)
         lang_map = {
             'en': 'english',
             'es': 'spanish',
@@ -107,12 +104,7 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
             'fr': 'french'
         }
         nltk_lang = lang_map.get(language, 'english')
-        #from deepsegment import DeepSegment
-        #segmenter = DeepSegment(nltk_lang)
-        #punctuated_text = ' '.join(segmenter.segment_long(all_text))
-        #sentences = nltk.sent_tokenize(punctuated_text, language=nltk_lang)
         sentences = nltk.sent_tokenize(all_text, language=nltk_lang)
-        
         output_file = os.path.join(output_dir, base_name + ".txt")
         write_txt(sentences, output_file)
 
