@@ -99,7 +99,20 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
         write_srt(all_segments, output_file)
     else:
         # Split text into sentences and write to .txt file
-        sentences = nltk.sent_tokenize(all_text)
+        #sentences = nltk.sent_tokenize(all_text)
+        lang_map = {
+            'en': 'english',
+            'es': 'spanish',
+            'de': 'german',
+            'fr': 'french'
+        }
+        nltk_lang = lang_map.get(language, 'english')
+        #from deepsegment import DeepSegment
+        #segmenter = DeepSegment(nltk_lang)
+        #punctuated_text = ' '.join(segmenter.segment_long(all_text))
+        #sentences = nltk.sent_tokenize(punctuated_text, language=nltk_lang)
+        sentences = nltk.sent_tokenize(all_text, language=nltk_lang)
+        
         output_file = os.path.join(output_dir, base_name + ".txt")
         write_txt(sentences, output_file)
 
