@@ -1,17 +1,53 @@
-import warnings
+#import warnings
 import nltk
 import sys
 import os
 import glob
 import time
+import platform
+import os
+import subprocess
+
 #import whisper
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
-warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
+
+#warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
 
 # Ensure NLTK punkt is available
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
+
+def set_omp_threads_for_apple_silicon():
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        try:
+            # Get the CPU brand string using sysctl
+            cpu_brand = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
+            ).strip().lower()
+            if "m1" in cpu_brand:
+                os.environ["OMP_NUM_THREADS"] = "4"
+                print("Detected Apple M1 CPU. Set OMP_NUM_THREADS=4")
+            elif "m2" in cpu_brand:
+                os.environ["OMP_NUM_THREADS"] = "8"
+                print("Detected Apple M2 CPU. Set OMP_NUM_THREADS=8")
+            elif "m3" in cpu_brand:
+                os.environ["OMP_NUM_THREADS"] = "12"
+                print("Detected Apple M3 CPU. Set OMP_NUM_THREADS=12")
+            elif "m4" in cpu_brand:
+                os.environ["OMP_NUM_THREADS"] = "16"
+                print("Detected Apple M4 CPU. Set OMP_NUM_THREADS=16")
+            else:
+                os.environ["OMP_NUM_THREADS"] = "8"
+                print("Detected Apple Silicon (unknown model). Set OMP_NUM_THREADS=8")
+        except Exception as e:
+            print(f"Could not detect Apple Silicon model: {e}")
+            os.environ["OMP_NUM_THREADS"] = "8"
+    else:
+        # Default for non-Apple Silicon
+        os.environ["OMP_NUM_THREADS"] = "8"
+
+set_omp_threads_for_apple_silicon()
 
 def split_audio(audio_file, chunk_length_sec=300):
     audio = AudioSegment.from_file(audio_file)
@@ -54,7 +90,8 @@ def write_srt(segments, output_file):
 def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
     # Load faster-whisper model
     try:
-        model = WhisperModel(model_size, device="cpu")  # or "cuda" for GPU
+        model = WhisperModel(model_size, device="cpu", compute_type="int8")  # or "cuda" for GPU
+        #model = WhisperModel("turbo", device="cpu", compute_type="int8")  # or "cuda" for GPU
     except Exception as e:
         print(f"Error loading faster-whisper model: {e}")
         sys.exit(1)
@@ -71,7 +108,7 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
     for idx, chunk_file in enumerate(chunk_files, 1):
         print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
         try:
-            segments, info = model.transcribe(chunk_file, language=language)
+            segments, info = model.transcribe(chunk_file, language=language, beam_size=3)
             text = ""
             chunk_segments = []
             for seg in segments:

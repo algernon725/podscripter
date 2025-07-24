@@ -18,6 +18,6 @@ RUN python -m nltk.downloader punkt
 
 COPY . .
 
-#EXPOSE 5000
+ENV OMP_NUM_THREADS=8
 
 CMD ["bash"]
