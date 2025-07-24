@@ -4,9 +4,9 @@ import sys
 import os
 import glob
 import time
-import platform
+#import platform
 import os
-import subprocess
+#import subprocess
 
 #import whisper
 from pydub import AudioSegment
@@ -17,37 +17,6 @@ from faster_whisper import WhisperModel
 # Ensure NLTK punkt is available
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
-
-def set_omp_threads_for_apple_silicon():
-    if platform.system() == "Darwin" and platform.machine() == "arm64":
-        try:
-            # Get the CPU brand string using sysctl
-            cpu_brand = subprocess.check_output(
-                ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
-            ).strip().lower()
-            if "m1" in cpu_brand:
-                os.environ["OMP_NUM_THREADS"] = "4"
-                print("Detected Apple M1 CPU. Set OMP_NUM_THREADS=4")
-            elif "m2" in cpu_brand:
-                os.environ["OMP_NUM_THREADS"] = "8"
-                print("Detected Apple M2 CPU. Set OMP_NUM_THREADS=8")
-            elif "m3" in cpu_brand:
-                os.environ["OMP_NUM_THREADS"] = "12"
-                print("Detected Apple M3 CPU. Set OMP_NUM_THREADS=12")
-            elif "m4" in cpu_brand:
-                os.environ["OMP_NUM_THREADS"] = "16"
-                print("Detected Apple M4 CPU. Set OMP_NUM_THREADS=16")
-            else:
-                os.environ["OMP_NUM_THREADS"] = "8"
-                print("Detected Apple Silicon (unknown model). Set OMP_NUM_THREADS=8")
-        except Exception as e:
-            print(f"Could not detect Apple Silicon model: {e}")
-            os.environ["OMP_NUM_THREADS"] = "8"
-    else:
-        # Default for non-Apple Silicon
-        os.environ["OMP_NUM_THREADS"] = "8"
-
-set_omp_threads_for_apple_silicon()
 
 def split_audio(audio_file, chunk_length_sec=300):
     audio = AudioSegment.from_file(audio_file)
@@ -88,6 +57,7 @@ def write_srt(segments, output_file):
         sys.exit(1)
 
 def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
+    os.environ["OMP_NUM_THREADS"] = "8"
     # Load faster-whisper model
     try:
         model = WhisperModel(model_size, device="cpu", compute_type="int8")  # or "cuda" for GPU

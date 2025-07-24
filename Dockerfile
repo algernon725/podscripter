@@ -18,6 +18,7 @@ RUN python -m nltk.downloader punkt
 
 COPY . .
 
-ENV OMP_NUM_THREADS=8
+#ENV OMP_NUM_THREADS=8
+ENV WHISPER_CACHE_DIR=/app/models
 
 CMD ["bash"]
