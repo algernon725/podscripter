@@ -9,7 +9,7 @@ from pydub import AudioSegment
 from faster_whisper import WhisperModel
 
 # Ensure NLTK punkt is available
-nltk.download('punkt', quiet=True)
+#nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
 def split_audio(audio_file, chunk_length_sec=300):
