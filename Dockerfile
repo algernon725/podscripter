@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies
 RUN pip install --upgrade pip
-#RUN pip install git+https://github.com/openai/whisper.git nltk pydub
 RUN pip install faster-whisper nltk pydub
 
 # Download NLTK data

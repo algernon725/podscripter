@@ -1,18 +1,12 @@
-#import warnings
 import nltk
 import sys
 import os
 import glob
 import time
-#import platform
-import os
-#import subprocess
 
 #import whisper
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
-
-#warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
 
 # Ensure NLTK punkt is available
 nltk.download('punkt', quiet=True)
@@ -134,6 +128,10 @@ if __name__ == "__main__":
     language = sys.argv[3] if len(sys.argv) >= 4 else "en"
     model_size = sys.argv[4] if len(sys.argv) >= 5 else "medium"
     output_format = sys.argv[5] if len(sys.argv) == 6 else "txt"
+    if output_format not in ("txt", "srt"):
+        print(f"Warning: Output format '{output_format}' not recognized. Defaulting to 'txt'.")
+        output_format = "txt"    
+    
     start_time = time.time()
 
     cleanup_chunks(audio_file)  # Cleanup any existing chunks before starting
