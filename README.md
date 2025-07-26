@@ -41,33 +41,16 @@
   ```
 
 4. Build the Docker image:
-
-   **Option A: Full version with advanced punctuation (recommended)**
   ```bash
   docker build --platform linux/arm64 -t podscripter .
   ```
 
-   **Option B: Lightweight version (smaller image, basic punctuation)**
-  ```bash
-  docker build --platform linux/arm64 -f Dockerfile.lightweight -t podscripter-light .
-  ```
-
 5. Run the Docker container:
-
-   **For full version (recommended):**
   ```bash
   docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter
-  ```
-
-   **For lightweight version:**
-  ```bash
-  docker run --platform linux/arm64 -it \
-  -v $(pwd)/models:/root/.cache/whisper \
-  -v $(pwd)/audio-files:/app/audio-files \
-  podscripter-light
   ```
 
 ## 📄 Command-line Usage
