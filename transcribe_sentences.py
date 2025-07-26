@@ -299,8 +299,17 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
         }
         nltk_lang = lang_map.get(language, 'english')
         sentences = nltk.sent_tokenize(punctuated_text, language=nltk_lang)
+        # Remove leading ', ', '"', or whitespace from each sentence and capitalize first letter
+        cleaned_sentences = []
+        for s in sentences:
+            # Remove leading punctuation and whitespace
+            cleaned = re.sub(r'^[",\s]+', '', s)
+            # Capitalize first letter if it's a letter
+            if cleaned and cleaned[0].isalpha():
+                cleaned = cleaned[0].upper() + cleaned[1:]
+            cleaned_sentences.append(cleaned)
         output_file = os.path.join(output_dir, base_name + ".txt")
-        write_txt(sentences, output_file)
+        write_txt(cleaned_sentences, output_file)
 
 def cleanup_chunks(audio_file):
     audio_dir = os.path.dirname(os.path.abspath(audio_file))
