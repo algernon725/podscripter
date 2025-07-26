@@ -13,6 +13,7 @@
 - **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
 - **Flexible Output**: Choose your transcription language and model size.
+- **Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in English, Spanish, German, and French transcriptions.
 - **Batch Transcription**: Transcribe multiple files with a simple loop.
 
 ---
@@ -40,11 +41,20 @@
   ```
 
 4. Build the Docker image:
+
+   **Option A: Full version with advanced punctuation (recommended)**
   ```bash
   docker build --platform linux/arm64 -t podscripter .
   ```
 
+   **Option B: Lightweight version (smaller image, basic punctuation)**
+  ```bash
+  docker build --platform linux/arm64 -f Dockerfile.lightweight -t podscripter-light .
+  ```
+
 5. Run the Docker container:
+
+   **For full version (recommended):**
   ```bash
   docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
@@ -52,10 +62,18 @@
   podscripter
   ```
 
+   **For lightweight version:**
+  ```bash
+  docker run --platform linux/arm64 -it \
+  -v $(pwd)/models:/root/.cache/whisper \
+  -v $(pwd)/audio-files:/app/audio-files \
+  podscripter-light
+  ```
+
 ## 📄 Command-line Usage
 *Please note that these commands need to be run from the command prompt inside of your running Docker container, which will appear after you run the Docker container in step 5 above.*
 
-Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'es')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"
+Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'en')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"
 
 To transcribe an audio file named `example.mp3` from the command prompt inside the container:
   ```bash
@@ -97,4 +115,4 @@ To transcribe all mp3 files from the command prompt inside the container:
 When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
 
 ## 📦 Output
-Transcriptions are saved in sentence-separated `.txt` or `.srt` format, ready for import into language learning platforms.
+Transcriptions are saved in sentence-separated `.txt` or `.srt` format, ready for import into language learning platforms. The tool automatically restores proper punctuation using DeepSegment for better sentence segmentation in supported languages (English, Spanish, German, French).
