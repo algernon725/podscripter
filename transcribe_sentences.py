@@ -114,7 +114,30 @@ def advanced_punctuation_restoration(text, language='en'):
     
     lang_patterns = patterns.get(language, patterns['en'])
     
-    # Step 1: Add punctuation after sentence endings
+    # Step 1: Handle repeated words for emphasis in Spanish, French, and German
+    if language == 'es':
+        # Add commas between repeated "si" or "no" for emphasis
+        text = re.sub(r'\b(sí)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'\b(no)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
+        # Handle more than 2 repetitions
+        text = re.sub(r'\b(sí)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'\b(no)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+    elif language == 'fr':
+        # Add commas between repeated "oui" or "non" for emphasis
+        text = re.sub(r'\b(oui)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'\b(non)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
+        # Handle more than 2 repetitions
+        text = re.sub(r'\b(oui)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'\b(non)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+    elif language == 'de':
+        # Add commas between repeated "ja" or "nein" for emphasis
+        text = re.sub(r'\b(ja)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'\b(nein)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
+        # Handle more than 2 repetitions
+        text = re.sub(r'\b(ja)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'\b(nein)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+    
+    # Step 2: Add punctuation after sentence endings
     for pattern in lang_patterns['sentence_endings']:
         text = re.sub(f'({pattern})(?!\s*[.!?])', r'\1.', text, flags=re.IGNORECASE)
     
