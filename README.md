@@ -23,7 +23,6 @@ I welcome contributions from people of any skill level to help make this softwar
 ## 🧰 Requirements
 
 - Apple Mac with an M series processor.
-  or
 - Windows x86 PC support by modifying the Docker build command (but I need testers to validate this)
 
 ---
