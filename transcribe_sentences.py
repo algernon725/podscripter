@@ -201,7 +201,7 @@ def basic_punctuation_restoration(text, language='en'):
     
     return text.strip()
 
-def split_audio(audio_file, chunk_length_sec=300):
+def split_audio(audio_file, chunk_length_sec=480):
     audio = AudioSegment.from_file(audio_file)
     chunks = []
     for i in range(0, len(audio), chunk_length_sec * 1000):
@@ -251,7 +251,7 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
 
     os.makedirs(output_dir, exist_ok=True)
     print("Splitting audio into chunks...")
-    chunk_files = split_audio(audio_file, chunk_length_sec=300)  # 5 minute chunk size
+    chunk_files = split_audio(audio_file, chunk_length_sec=480)  # 8 minute chunk size
 
     all_text = ""
     all_segments = []
