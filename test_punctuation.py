@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for DeepSegment punctuation restoration functionality
+Test script for sentence transformer punctuation restoration functionality
 """
 
 try:

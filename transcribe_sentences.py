@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Transcribe audio files into sentences and save as TXT or SRT files.
+Supports English, Spanish, French, and German.
+"""
+
 import nltk
 import sys
 import os
@@ -16,8 +22,10 @@ from punctuation_restorer import restore_punctuation
 #nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-
 def split_audio(audio_file, chunk_length_sec=480):
+    """
+    Split audio file into chunks of a specified length.
+    """
     audio = AudioSegment.from_file(audio_file)
     chunks = []
     for i in range(0, len(audio), chunk_length_sec * 1000):
@@ -28,6 +36,9 @@ def split_audio(audio_file, chunk_length_sec=480):
     return chunks
 
 def write_txt(sentences, output_file):
+    """
+    Write sentences to a TXT file.
+    """
     try:
         with open(output_file, "w") as f:
             for sentence in sentences:
@@ -37,6 +48,9 @@ def write_txt(sentences, output_file):
         sys.exit(1)
 
 def write_srt(segments, output_file):
+    """
+    Write SRT file with timestamps.
+    """
     def format_timestamp(seconds):
         h = int(seconds // 3600)
         m = int((seconds % 3600) // 60)
@@ -56,6 +70,9 @@ def write_srt(segments, output_file):
         sys.exit(1)
 
 def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
+    """
+    Transcribe audio file into sentences and save as TXT or SRT file.
+    """
     os.environ["OMP_NUM_THREADS"] = "8"
     # Load faster-whisper model
     try:
@@ -128,6 +145,9 @@ def transcribe_with_sentences(audio_file, output_dir, language, model_size, outp
         write_txt(cleaned_sentences, output_file)
 
 def cleanup_chunks(audio_file):
+    """
+    Clean up any leftover chunk files.
+    """
     audio_dir = os.path.dirname(os.path.abspath(audio_file))
     pattern = os.path.join(audio_dir, "*_chunk_*.wav")
     for chunk_path in glob.glob(pattern):
