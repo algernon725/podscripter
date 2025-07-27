@@ -23,6 +23,8 @@ I welcome contributions from people of any skill level to help make this softwar
 ## 🧰 Requirements
 
 - Apple Mac with an M series processor.
+  or
+- Windows x86 PC support by modifying the Docker build command (but I need testers to validate this)
 
 ---
 
@@ -89,10 +91,10 @@ To transcribe an audio file named `example.mp3` containing French speech, with t
 
 
 ## Batch Transcription (all `.mp3` files):
-To transcribe all mp3 files from the command prompt inside the container:
+To transcribe all mp3 files from the command prompt in spanish inside the container:
   ```bash
   for f in audio-files/*.mp3; do
-    python transcribe_sentences.py "$f" audio-files
+    python transcribe_sentences.py "$f" audio-files es
   done
   ```
 
