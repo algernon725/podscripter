@@ -6,7 +6,7 @@
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. It supports popular languages including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). Originally, I created this project to help with my own language learning journey. My goal was to build a free podcast transcription tool, practice coding in Python, and learn how to use Docker. `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
 
-I welcome contributions from people of any skill level to help make this software better! Right now, the most urgent need is for someone with x86 Windows hardware to help build and test the tool on Windows, as well as for testers who can try out French and German transcriptions. To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: ["Contributing to a Project"](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
+I welcome contributions from people of any skill level to help make this software better! Right now, the most urgent need is for someone with x86 Windows hardware to help build and test the tool on Windows, as well as for testers who can try out French and German transcriptions. To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: [Contributing to a Project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
 
 ---
 
@@ -101,3 +101,11 @@ When learning a new language, especially through podcasts, having accurate, alig
 
 ## 📦 Output
 Transcriptions are saved in sentence-separated `.txt` or `.srt` format, ready for import into language learning platforms. The tool automatically restores proper punctuation using DeepSegment for better sentence segmentation in supported languages (English, Spanish, German, French).
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 Algernon Greenidge
