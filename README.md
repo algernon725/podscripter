@@ -83,8 +83,10 @@ python transcribe_sentences.py <audio_file> <output_dir> [language] [model_size]
 
 **Example:**
 
+To transcribe example.mp3 using default settings (english language, medium model, txt output):
+
 ```bash
-To transcribe example.mp3 using default settings:
+python transcribe_sentences.py audio-files/example.mp3 audio-files
 ```
 
 ## Optional Parameters
@@ -116,7 +118,7 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
 >🔧 Tip: Larger models (like large-v2) produce more accurate transcriptions but use more memory and are slower.
 
 
-## Batch Transcription: All MP3 Files
+## 🔁 Batch Transcription: All MP3 Files
 
 To transcribe all `.mp3` files in the audio-files folder (e.g., in Spanish), run this from inside the container:
 
