@@ -27,70 +27,99 @@ I welcome contributions from people of any skill level to help make this softwar
 
 ---
 
-## 🚀 Setup
+## 🚀 Quick Setup Guide
 
-1. Install [Docker](https://www.docker.com) and [Git](https://git-scm.com/downloads)
+### 1. Install Prerequisites
 
-2. Clone the GitHub repo:
+Make sure you have the following tools installed on your system:
+
+- [Docker](https://www.docker.com)
+- [Git](https://git-scm.com/downloads)
+
+### 2. Clone the Repository
+
+Open a terminal and run:
   ```bash
   git clone https://github.com/algernon725/podscripter.git
-  ```
-
-3. Create the Docker volume `audio-files` and `models` folders to store your Docker-related files and audio inputs/outputs:
-  ```bash
-  mkdir -p podscripter/audio-files
-  mkdir -p podscripter/models
   cd podscripter
   ```
 
-4. Build the Docker image:
+### 3. Set Up Required Folders
+
+Create folders to store audio files and model data:
+  ```bash
+  mkdir -p audio-files
+  mkdir -p models
+  ```
+
+### 4. Build the Docker Image
+
+Build the container image that will run the transcription tool:
   ```bash
   docker build --platform linux/arm64 -t podscripter .
   ```
+>💡 If you’re on an Intel Mac or other architecture, remove --platform linux/arm64
 
-5. Run the Docker container:
+### 5. Start the Docker Container
+
+Run the container and mount the folders you just created:
   ```bash
   docker run --platform linux/arm64 -it \
   -v $(pwd)/models:/root/.cache/whisper \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter
   ```
+  This opens an interactive terminal inside the container. You'll run all transcription commands from here.
 
-## 📄 Command-line Usage
-*Please note that these commands need to be run from the command prompt inside of your running Docker container, which will appear after you run the Docker container in step 5 above.*
+## 📄 How to Use The Transcription Tool
 
-Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'en')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]"
+### Basic Usage
 
-To transcribe an audio file named `example.mp3` from the command prompt inside the container:
-  ```bash
-  python transcribe_sentences.py audio-files/example.mp3 audio-files
-  ```
+From inside the Docker Container, run:
 
-For example, to transcribe an audio file named `example.mp3` containing Spanish speech, you can specify the language `es`:
+```bash
+python transcribe_sentences.py <audio_file> <output_dir> [language] [model_size] [output_format]
+```
 
-  ```bash
-  python transcribe_sentences.py audio-files/example.mp3 audio-files es
-  ```
+**Example:**
 
-To transcribe an audio file named `example.mp3` containing French speech, with the `medium` model size, and output in `.srt` format, use:
+```bash
+To transcribe example.mp3 using default settings:
+```
 
-  ```bash
-  python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
-  ```
+## Optional Parameters
 
-## Command-Line Arguments
+You can optionally customize the transcription language, model size, and output format.
 
-| Argument     | Description                                                                 |
-| ------------ | --------------------------------------------------------------------------- |
-| `audio_file` | Path to the audio file you want to transcribe                               |
-| `output_dir` | Directory where the transcription will be saved                             |
-| `language`   | (Optional) Output language code (`en`, `es`, `fr`, `de`) Default: `en` for English                 |
-| `model_size` | (Optional) Whisper model size to use (`small.multilingual`, `medium`, `large-v2`). Larger models are more accurate, but require more RAM and are slower. Default: `medium` requires ~5GB RAM|
-| `output_format` | (Optional) Output format to use (`txt`, `srt`). Default: `txt`
+**Example: Spanish Transcription**
+
+```bash
+python transcribe_sentences.py audio-files/example.mp3 audio-files es
+```
+
+**Example: French with a specific model and .srt output**
+
+```bash
+python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
+```
+
+## Command-Line Options
+
+| Argument        | Description                                                                           |
+| --------------- | ------------------------------------------------------------------------------------- |
+| `audio_file`    | Path to the audio file (e.g. audio-files/example.mp3)                                 |
+| `output_dir`    | Directory where the transcription file will be saved                                  |
+| `language`      | (Optional) Language code (`en`, `es`, `fr`, `de`) - default is `en`                   |
+| `model_size`    | (Optional) Whisper model  to use (`small`, `medium`, `large-v2`) - default is `medium`|
+| `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
+
+>🔧 Tip: Larger models (like large-v2) produce more accurate transcriptions but use more memory and are slower.
 
 
-## Batch Transcription (all `.mp3` files):
-To transcribe all mp3 files from the command prompt in spanish inside the container:
+## Batch Transcription: All MP3 Files
+
+To transcribe all `.mp3` files in the audio-files folder (e.g., in Spanish), run this from inside the container:
+
   ```bash
   for f in audio-files/*.mp3; do
     python transcribe_sentences.py "$f" audio-files es
