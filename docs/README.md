@@ -10,7 +10,7 @@ I welcome contributions from people of any skill level to help make this softwar
 
 - **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
-- **Flexible Output**: Choose your transcription language and model size.
+- **Flexible Output**: Choose your transcription language and output format.
 - **Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in English, Spanish, German, and French transcriptions.
 - **Batch Transcription**: Transcribe multiple files with a simple loop.
 
@@ -74,12 +74,12 @@ Run the container and mount the folders you just created:
 From inside the Docker Container, run:
 
 ```bash
-python transcribe_sentences.py <audio_file> <output_dir> [language] [model_size] [output_format]
+python transcribe_sentences.py <audio_file> <output_dir> [language] [output_format]
 ```
 
 **Example:**
 
-To transcribe example.mp3 using default settings (english language, medium model, txt output):
+To transcribe example.mp3 using default settings (english language, txt output):
 
 ```bash
 python transcribe_sentences.py audio-files/example.mp3 audio-files
@@ -87,7 +87,7 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files
 
 ## Optional Parameters
 
-You can optionally customize the transcription language, model size, and output format.
+You can optionally customize the transcription language, and output format.
 
 **Example: Spanish Transcription**
 
@@ -95,10 +95,10 @@ You can optionally customize the transcription language, model size, and output 
 python transcribe_sentences.py audio-files/example.mp3 audio-files es
 ```
 
-**Example: French with a specific model and .srt output**
+**Example: French with .srt output**
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
+python transcribe_sentences.py audio-files/example.mp3 audio-files fr srt
 ```
 
 ## Command-Line Options
@@ -108,7 +108,6 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files fr medium srt
 | `audio_file`    | Path to the audio file (e.g. audio-files/example.mp3)                                 |
 | `output_dir`    | Directory where the transcription file will be saved                                  |
 | `language`      | (Optional) Language code (`en`, `es`, `fr`, `de`) - default is `en`                   |
-| `model_size`    | (Optional) Whisper model  to use (`small`, `medium`, `large-v2`) - default is `medium`|
 | `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
 
 >🔧 Tip: Larger models (like large-v2) produce more accurate transcriptions but use more memory and are slower.

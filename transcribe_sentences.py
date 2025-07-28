@@ -93,14 +93,14 @@ def write_srt(segments, output_file):
         print(f"Error writing SRT file: {e}")
         sys.exit(1)
 
-def transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format):
+def transcribe_with_sentences(audio_file, output_dir, language, output_format):
     """
     Transcribe audio file into sentences and save as TXT or SRT file.
     """
     os.environ["OMP_NUM_THREADS"] = "8"
     # Load faster-whisper model
     try:
-        model = WhisperModel(model_size, device="cpu", compute_type="int8")  # or "cuda" for GPU
+        model = WhisperModel("medium", device="cpu", compute_type="int8")  # or "cuda" for GPU
         #model = WhisperModel("turbo", device="cpu", compute_type="int8")  # or "cuda" for GPU
     except Exception as e:
         print(f"Error loading faster-whisper model: {e}")
@@ -182,14 +182,13 @@ def cleanup_chunks(audio_file):
             print(f"Error removing chunk file {chunk_path}: {e}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or len(sys.argv) > 6:
-        print("Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'en')] [model_size (default 'medium')] [output_format (txt|srt, default 'txt')]")
+    if len(sys.argv) < 3 or len(sys.argv) > 5:
+        print("Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'en')] [output_format (txt|srt, default 'txt')]")
         sys.exit(1)
     audio_file = sys.argv[1]
     output_dir = sys.argv[2]
     language = sys.argv[3] if len(sys.argv) >= 4 else "en"
-    model_size = sys.argv[4] if len(sys.argv) >= 5 else "medium"
-    output_format = sys.argv[5] if len(sys.argv) == 6 else "txt"
+    output_format = sys.argv[4] if len(sys.argv) == 5 else "txt"
     if output_format not in ("txt", "srt"):
         print(f"Warning: Output format '{output_format}' not recognized. Defaulting to 'txt'.")
         output_format = "txt"    
@@ -198,7 +197,7 @@ if __name__ == "__main__":
 
     cleanup_chunks(audio_file)  # Cleanup any existing chunks before starting
 
-    transcribe_with_sentences(audio_file, output_dir, language, model_size, output_format)
+    transcribe_with_sentences(audio_file, output_dir, language, output_format)
 
     end_time = time.time()
     elapsed = end_time - start_time
