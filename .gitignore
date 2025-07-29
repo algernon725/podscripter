@@ -1,3 +1,4 @@
 /audio-files/*
 /models/*
 .DS_Store
+/media-files/*

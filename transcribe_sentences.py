@@ -46,15 +46,16 @@ from punctuation_restorer import restore_punctuation
 #nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-def split_audio(audio_file, chunk_length_sec=480):
+def split_audio(media_file, chunk_length_sec=480):
     """
-    Split audio file into chunks of a specified length.
+    Split audio/video file into chunks of a specified length.
     """
-    audio = AudioSegment.from_file(audio_file)
+    audio = AudioSegment.from_file(media_file)
     chunks = []
+    base_name = os.path.splitext(os.path.basename(media_file))[0]
     for i in range(0, len(audio), chunk_length_sec * 1000):
         chunk = audio[i:i + chunk_length_sec * 1000]
-        chunk_path = f"{audio_file}_chunk_{i // (chunk_length_sec * 1000)}.wav"
+        chunk_path = f"{base_name}_chunk_{i // (chunk_length_sec * 1000)}.wav"
         chunk.export(chunk_path, format="wav")
         chunks.append(chunk_path)
     return chunks
@@ -93,9 +94,9 @@ def write_srt(segments, output_file):
         print(f"Error writing SRT file: {e}")
         sys.exit(1)
 
-def transcribe_with_sentences(audio_file, output_dir, language, output_format):
+def transcribe_with_sentences(media_file, output_dir, language, output_format):
     """
-    Transcribe audio file into sentences and save as TXT or SRT file.
+    Transcribe audio/video file into sentences and save as TXT or SRT file.
     """
     os.environ["OMP_NUM_THREADS"] = "8"
     # Load faster-whisper model
@@ -107,8 +108,8 @@ def transcribe_with_sentences(audio_file, output_dir, language, output_format):
         sys.exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
-    print("Splitting audio into chunks...")
-    chunk_files = split_audio(audio_file, chunk_length_sec=480)  # 8 minute chunk size
+    print("Splitting media into chunks...")
+    chunk_files = split_audio(media_file, chunk_length_sec=480)  # 8 minute chunk size
 
     all_text = ""
     all_segments = []
@@ -139,7 +140,7 @@ def transcribe_with_sentences(audio_file, output_dir, language, output_format):
             if os.path.exists(chunk_file):
                 os.remove(chunk_file)
 
-    base_name = os.path.splitext(os.path.basename(audio_file))[0]
+    base_name = os.path.splitext(os.path.basename(media_file))[0]
     if output_format == "srt":
         output_file = os.path.join(output_dir, base_name + ".srt")
         write_srt(all_segments, output_file)
@@ -168,12 +169,12 @@ def transcribe_with_sentences(audio_file, output_dir, language, output_format):
         output_file = os.path.join(output_dir, base_name + ".txt")
         write_txt(cleaned_sentences, output_file)
 
-def cleanup_chunks(audio_file):
+def cleanup_chunks(media_file):
     """
     Clean up any leftover chunk files.
     """
-    audio_dir = os.path.dirname(os.path.abspath(audio_file))
-    pattern = os.path.join(audio_dir, "*_chunk_*.wav")
+    media_dir = os.path.dirname(os.path.abspath(media_file))
+    pattern = os.path.join(media_dir, "*_chunk_*.wav")
     for chunk_path in glob.glob(pattern):
         try:
             os.remove(chunk_path)
@@ -183,9 +184,9 @@ def cleanup_chunks(audio_file):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3 or len(sys.argv) > 5:
-        print("Usage: python transcribe_sentences.py <audio_file> <output_dir> [language (default 'en')] [output_format (txt|srt, default 'txt')]")
+        print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default 'en')] [output_format (txt|srt, default 'txt')]")
         sys.exit(1)
-    audio_file = sys.argv[1]
+    media_file = sys.argv[1]
     output_dir = sys.argv[2]
     language = sys.argv[3] if len(sys.argv) >= 4 else "en"
     output_format = sys.argv[4] if len(sys.argv) == 5 else "txt"
@@ -195,9 +196,9 @@ if __name__ == "__main__":
     
     start_time = time.time()
 
-    cleanup_chunks(audio_file)  # Cleanup any existing chunks before starting
+    cleanup_chunks(media_file)  # Cleanup any existing chunks before starting
 
-    transcribe_with_sentences(audio_file, output_dir, language, output_format)
+    transcribe_with_sentences(media_file, output_dir, language, output_format)
 
     end_time = time.time()
     elapsed = end_time - start_time

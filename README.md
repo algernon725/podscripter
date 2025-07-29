@@ -2,7 +2,7 @@
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. It supports popular languages including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). Originally, I created this project to help with my own language learning journey. My goal was to build a free podcast transcription tool, practice coding in Python, and learn how to use Docker. `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
 
-I welcome contributions from people of any skill level to help make this software better! Right now, the most urgent need is for someone with x86 Windows hardware to help build and test the tool on Windows, as well as for testers who can try out French and German transcriptions. To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: [Contributing to a Project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
+I welcome contributions from people of any skill level to help make this software better! To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: [Contributing to a Project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
 
 ---
 
@@ -10,6 +10,7 @@ I welcome contributions from people of any skill level to help make this softwar
 
 - **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
+- **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
 - **Flexible Output**: Choose your transcription language and output format.
 - **Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in English, Spanish, German, and French transcriptions.
 - **Batch Transcription**: Transcribe multiple files with a simple loop.
@@ -74,7 +75,7 @@ Run the container and mount the folders you just created:
 From inside the Docker Container, run:
 
 ```bash
-python transcribe_sentences.py <audio_file> <output_dir> [language] [output_format]
+python transcribe_sentences.py <media_file> <output_dir> [language] [output_format]
 ```
 
 **Example:**
@@ -83,6 +84,14 @@ To transcribe example.mp3 using default settings (english language, txt output):
 
 ```bash
 python transcribe_sentences.py audio-files/example.mp3 audio-files
+```
+
+**Example with video file:**
+
+To transcribe example.mp4:
+
+```bash
+python transcribe_sentences.py audio-files/example.mp4 audio-files
 ```
 
 ## Optional Parameters
@@ -105,7 +114,7 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files fr srt
 
 | Argument        | Description                                                                           |
 | --------------- | ------------------------------------------------------------------------------------- |
-| `audio_file`    | Path to the audio file (e.g. audio-files/example.mp3)                                 |
+| `media_file`    | Path to the audio or video file (e.g. audio-files/example.mp3 or audio-files/example.mp4) |
 | `output_dir`    | Directory where the transcription file will be saved                                  |
 | `language`      | (Optional) Language code (`en`, `es`, `fr`, `de`) - default is `en`                   |
 | `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
@@ -113,12 +122,12 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files fr srt
 >🔧 Tip: Larger models (like large-v2) produce more accurate transcriptions but use more memory and are slower.
 
 
-## 🔁 Batch Transcription: All MP3 Files
+## 🔁 Batch Transcription: All Media Files
 
-To transcribe all `.mp3` files in the audio-files folder (e.g., in Spanish), run this from inside the container:
+To transcribe all `.mp3` and `.mp4` files in the audio-files folder (e.g., in Spanish), run this from inside the container:
 
   ```bash
-  for f in audio-files/*.mp3; do
+  for f in audio-files/*.{mp3,mp4}; do
     python transcribe_sentences.py "$f" audio-files es
   done
   ```
