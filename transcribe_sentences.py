@@ -87,6 +87,21 @@ def validate_language_code(language_code):
         print("Whisper supports many more languages. The code will still work if it's valid.")
         return language_code
 
+def display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format):
+    """
+    Display transcription parameters and settings.
+    """
+    print("\n" + "="*60)
+    print("TRANSCRIPTION PARAMETERS")
+    print("="*60)
+    print(f"File name:        {os.path.basename(media_file)}")
+    print(f"Model:            {model_name}")
+    print(f"Language:         {'Auto-detect' if language is None else language}")
+    print(f"Beam size:        {beam_size}")
+    print(f"Compute type:     {compute_type}")
+    print(f"Output format:    {output_format.upper()}")
+    print("="*60 + "\n")
+
 def split_audio(media_file, chunk_length_sec=480):
     """
     Split audio/video file into chunks of a specified length.
@@ -140,9 +155,19 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
     Transcribe audio/video file into sentences and save as TXT or SRT file.
     """
     os.environ["OMP_NUM_THREADS"] = "8"
+    
+    # Model configuration
+    model_name = "medium"
+    beam_size = 3
+    compute_type = "int8"
+    device = "cpu"
+    
+    # Display transcription information
+    display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
+    
     # Load faster-whisper model
     try:
-        model = WhisperModel("medium", device="cpu", compute_type="int8")  # or "cuda" for GPU
+        model = WhisperModel(model_name, device=device, compute_type=compute_type)  # or "cuda" for GPU
         #model = WhisperModel("turbo", device="cpu", compute_type="int8")  # or "cuda" for GPU
     except Exception as e:
         print(f"Error loading faster-whisper model: {e}")
@@ -161,7 +186,7 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
     for idx, chunk_file in enumerate(chunk_files, 1):
         print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
         try:
-            segments, info = model.transcribe(chunk_file, language=language, beam_size=3)
+            segments, info = model.transcribe(chunk_file, language=language, beam_size=beam_size)
             # Store detected language from first chunk
             if idx == 1 and language is None:
                 detected_language = info.language
