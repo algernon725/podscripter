@@ -36,7 +36,7 @@ try:
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
-    print("Warning: SentenceTransformers not available. Using basic punctuation restoration.")
+    print("Warning: SentenceTransformers not available. Advanced punctuation restoration may be limited.")
 
 
 def restore_punctuation(text, language='en'):
@@ -56,16 +56,13 @@ def restore_punctuation(text, language='en'):
     # Clean up the text first
     text = re.sub(r'\s+', ' ', text.strip())
     
-    # Use advanced punctuation restoration if available
-    if SENTENCE_TRANSFORMERS_AVAILABLE:
-        try:
-            return advanced_punctuation_restoration(text, language)
-        except Exception as e:
-            print(f"Warning: Advanced punctuation restoration failed: {e}")
-            print("Falling back to basic punctuation restoration...")
-    
-    # Fallback: basic punctuation restoration
-    return basic_punctuation_restoration(text, language)
+    # Use advanced punctuation restoration
+    try:
+        return advanced_punctuation_restoration(text, language)
+    except Exception as e:
+        print(f"Warning: Advanced punctuation restoration failed: {e}")
+        print("Returning original text without punctuation restoration.")
+        return text
 
 
 def advanced_punctuation_restoration(text, language='en'):
@@ -190,59 +187,6 @@ def advanced_punctuation_restoration(text, language='en'):
     result = re.sub(r'\s+\.', '.', result)
     
     return result.strip()
-
-
-def basic_punctuation_restoration(text, language='en'):
-    """
-    Basic punctuation restoration using regex patterns for multiple languages.
-    
-    Args:
-        text (str): The transcribed text without proper punctuation
-        language (str): Language code ('en', 'es', 'de', 'fr')
-    
-    Returns:
-        str: Text with restored punctuation
-    """
-    # Language-specific sentence endings
-    sentence_endings = {
-        'en': [
-            r'\b(thank you|thanks|goodbye|bye|see you|talk to you later)\b',
-            r'\b(okay|ok|alright|all right)\b',
-            r'\b(yes|no|yeah|nope|yep|nah)\b',
-            r'\b(please|excuse me|sorry|pardon)\b'
-        ],
-        'es': [
-            r'\b(gracias|adiós|hasta luego|nos vemos|chao)\b',
-            r'\b(vale|ok|bien|está bien)\b',
-            r'\b(sí|no|claro|por supuesto)\b',
-            r'\b(por favor|perdón|disculpa|lo siento)\b'
-        ],
-        'de': [
-            r'\b(danke|tschüss|auf wiedersehen|bis später)\b',
-            r'\b(okay|ok|gut|in ordnung)\b',
-            r'\b(ja|nein|klar|natürlich)\b',
-            r'\b(bitte|entschuldigung|sorry)\b'
-        ],
-        'fr': [
-            r'\b(merci|au revoir|à bientôt|salut)\b',
-            r'\b(okay|ok|d\'accord|ça va)\b',
-            r'\b(oui|non|bien sûr|évidemment)\b',
-            r'\b(s\'il vous plaît|pardon|désolé)\b'
-        ]
-    }
-    
-    # Get sentence endings for the specified language
-    endings = sentence_endings.get(language, sentence_endings['en'])
-    
-    # Add periods after common sentence endings
-    for pattern in endings:
-        text = re.sub(f'({pattern})(?!\s*[.!?])', r'\1.', text, flags=re.IGNORECASE)
-    
-    # Add periods after long phrases that don't end with punctuation
-    if len(text) > 50 and not text.endswith(('.', '!', '?')):
-        text += '.'
-    
-    return text.strip()
 
 
 # For testing the module directly

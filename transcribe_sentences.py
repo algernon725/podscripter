@@ -25,7 +25,7 @@ SOFTWARE.
 
 """
 Transcribe audio files into sentences and save as TXT or SRT files.
-Supports English, Spanish, French, and German.
+Supports multiple languages with auto-detection.
 """
 
 import nltk
@@ -45,6 +45,47 @@ from punctuation_restorer import restore_punctuation
 # Ensure NLTK punkt is available
 #nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
+
+def get_supported_languages():
+    """Return a dictionary of commonly used language codes."""
+    return {
+        'en': 'English',
+        'es': 'Spanish', 
+        'fr': 'French',
+        'de': 'German',
+        'ja': 'Japanese',
+        'ru': 'Russian',
+        'cs': 'Czech',
+        'it': 'Italian',
+        'pt': 'Portuguese',
+        'nl': 'Dutch',
+        'pl': 'Polish',
+        'tr': 'Turkish',
+        'ar': 'Arabic',
+        'zh': 'Chinese',
+        'ko': 'Korean',
+        'hi': 'Hindi',
+        'sv': 'Swedish',
+        'da': 'Danish',
+        'no': 'Norwegian',
+        'fi': 'Finnish'
+    }
+
+def validate_language_code(language_code):
+    """Validate and provide helpful information about language codes."""
+    if language_code is None:
+        return None
+    
+    supported = get_supported_languages()
+    if language_code in supported:
+        return language_code
+    else:
+        print(f"Warning: Language code '{language_code}' not in common list.")
+        print("Common language codes:")
+        for code, name in supported.items():
+            print(f"  {code}: {name}")
+        print("Whisper supports many more languages. The code will still work if it's valid.")
+        return language_code
 
 def split_audio(media_file, chunk_length_sec=480):
     """
@@ -116,10 +157,16 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
     offset = 0.0
 
     print("Transcribing chunks...")
+    detected_language = None
     for idx, chunk_file in enumerate(chunk_files, 1):
         print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
         try:
             segments, info = model.transcribe(chunk_file, language=language, beam_size=3)
+            # Store detected language from first chunk
+            if idx == 1 and language is None:
+                detected_language = info.language
+                print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+            
             text = ""
             chunk_segments = []
             for seg in segments:
@@ -147,15 +194,33 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
     else:
         # Restore punctuation before sentence tokenization
         print("Restoring punctuation...")
-        punctuated_text = restore_punctuation(all_text, language)
+        # Use detected language if auto-detection was used, otherwise use provided language
+        lang_for_punctuation = detected_language if language is None else language
+        punctuated_text = restore_punctuation(all_text, lang_for_punctuation)
         
         lang_map = {
             'en': 'english',
             'es': 'spanish',
             'de': 'german',
-            'fr': 'french'
+            'fr': 'french',
+            'ja': 'english',  # Japanese not directly supported by NLTK, fallback to English
+            'ru': 'english',  # Russian not directly supported by NLTK, fallback to English
+            'cs': 'english',  # Czech not directly supported by NLTK, fallback to English
+            'it': 'english',  # Italian not directly supported by NLTK, fallback to English
+            'pt': 'english',  # Portuguese not directly supported by NLTK, fallback to English
+            'nl': 'english',  # Dutch not directly supported by NLTK, fallback to English
+            'pl': 'english',  # Polish not directly supported by NLTK, fallback to English
+            'tr': 'english',  # Turkish not directly supported by NLTK, fallback to English
+            'ar': 'english',  # Arabic not directly supported by NLTK, fallback to English
+            'zh': 'english',  # Chinese not directly supported by NLTK, fallback to English
+            'ko': 'english',  # Korean not directly supported by NLTK, fallback to English
+            'hi': 'english',  # Hindi not directly supported by NLTK, fallback to English
+            'sv': 'english',  # Swedish not directly supported by NLTK, fallback to English
+            'da': 'english',  # Danish not directly supported by NLTK, fallback to English
+            'no': 'english',  # Norwegian not directly supported by NLTK, fallback to English
+            'fi': 'english'   # Finnish not directly supported by NLTK, fallback to English
         }
-        nltk_lang = lang_map.get(language, 'english')
+        nltk_lang = lang_map.get(lang_for_punctuation, 'english')
         sentences = nltk.sent_tokenize(punctuated_text, language=nltk_lang)
         # Remove leading ', ', '"', or whitespace from each sentence and capitalize first letter
         cleaned_sentences = []
@@ -184,15 +249,26 @@ def cleanup_chunks(media_file):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3 or len(sys.argv) > 5:
-        print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default 'en')] [output_format (txt|srt, default 'txt')]")
+        print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default auto-detect)] [output_format (txt|srt, default 'txt')]")
+        print("\nSupported language codes:")
+        supported = get_supported_languages()
+        for code, name in supported.items():
+            print(f"  {code}: {name}")
+        print("\nNote: Whisper supports many more languages. Use 'auto' or omit language parameter for auto-detection.")
         sys.exit(1)
     media_file = sys.argv[1]
     output_dir = sys.argv[2]
-    language = sys.argv[3] if len(sys.argv) >= 4 else "en"
+    language = sys.argv[3] if len(sys.argv) >= 4 else None  # Default to None for auto-detection
     output_format = sys.argv[4] if len(sys.argv) == 5 else "txt"
     if output_format not in ("txt", "srt"):
         print(f"Warning: Output format '{output_format}' not recognized. Defaulting to 'txt'.")
         output_format = "txt"    
+    
+    # Validate language code if provided
+    if language:
+        language = validate_language_code(language)
+        if language == "auto":
+            language = None  # Convert "auto" to None for auto-detection
     
     start_time = time.time()
 
