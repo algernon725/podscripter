@@ -1,6 +1,6 @@
 # PodScripter
 
-`podscripter` is a lightweight tool designed to transcribe audio using OpenAI’s Whisper model inside a Docker container. It supports popular languages including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). Originally, I created this project to help with my own language learning journey. My goal was to build a free podcast transcription tool, practice coding in Python, and learn how to use Docker. `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
+`podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), German (`de`), Japanese (`ja`), Russian (`ru`), Czech (`cs`), Italian (`it`), Portuguese (`pt`), Dutch (`nl`), Polish (`pl`), Turkish (`tr`), Arabic (`ar`), Chinese (`zh`), Korean (`ko`), Hindi (`hi`), Swedish (`sv`), Danish (`da`), Norwegian (`no`), and Finnish (`fi`). `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
 
 I welcome contributions from people of any skill level to help make this software better! To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: [Contributing to a Project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
 
@@ -11,8 +11,10 @@ I welcome contributions from people of any skill level to help make this softwar
 - **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
 - **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
+- **Automatic Language Detection**: Automatically detects the language of your audio content by default.
+- **Multi-Language Support**: Supports 20+ languages with manual language selection option.
 - **Flexible Output**: Choose your transcription language and output format.
-- **Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in English, Spanish, German, and French transcriptions.
+- **Advanced Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in multiple languages.
 - **Batch Transcription**: Transcribe multiple files with a simple loop.
 
 ---
@@ -20,7 +22,7 @@ I welcome contributions from people of any skill level to help make this softwar
 ## 🧰 Requirements
 
 - Apple Mac with an M series processor.
-- Windows x86 PC support by modifying the Docker build command (testers needed)
+- Windows x86 PC support by modifying the Docker build command
 
 ---
 
@@ -80,7 +82,7 @@ python transcribe_sentences.py <media_file> <output_dir> [language] [output_form
 
 **Example:**
 
-To transcribe example.mp3 using default settings (english language, txt output):
+To transcribe example.mp3 using default settings (auto-detect language, txt output):
 
 ```bash
 python transcribe_sentences.py audio-files/example.mp3 audio-files
@@ -110,21 +112,52 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files es
 python transcribe_sentences.py audio-files/example.mp3 audio-files fr srt
 ```
 
+**Example: Force auto-detection**
+
+```bash
+python transcribe_sentences.py audio-files/example.mp3 audio-files auto
+```
+
 ## Command-Line Options
 
 | Argument        | Description                                                                           |
 | --------------- | ------------------------------------------------------------------------------------- |
 | `media_file`    | Path to the audio or video file (e.g. audio-files/example.mp3 or audio-files/example.mp4) |
 | `output_dir`    | Directory where the transcription file will be saved                                  |
-| `language`      | (Optional) Language code (`en`, `es`, `fr`, `de`) - default is `en`                   |
+| `language`      | (Optional) Language code (`en`, `es`, `fr`, `de`, `ja`, `ru`, `cs`, etc.) - default is auto-detect |
 | `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
 
->🔧 Tip: Larger models (like large-v2) produce more accurate transcriptions but use more memory and are slower.
 
+## 🌍 Supported Languages
+
+PodScripter supports automatic language detection and manual language selection for the following languages:
+
+| Language | Code | Language | Code |
+|----------|------|----------|------|
+| English | `en` | Japanese | `ja` |
+| Spanish | `es` | Russian | `ru` |
+| French | `fr` | Czech | `cs` |
+| German | `de` | Italian | `it` |
+| Portuguese | `pt` | Dutch | `nl` |
+| Polish | `pl` | Turkish | `tr` |
+| Arabic | `ar` | Chinese | `zh` |
+| Korean | `ko` | Hindi | `hi` |
+| Swedish | `sv` | Danish | `da` |
+| Norwegian | `no` | Finnish | `fi` |
+
+**Note**: Whisper supports many more languages beyond this list. These are the most commonly used ones. When using auto-detection, Whisper will automatically identify the language of your audio content.
 
 ## 🔁 Batch Transcription: All Media Files
 
-To transcribe all `.mp3` and `.mp4` files in the audio-files folder (e.g., in Spanish), run this from inside the container:
+To transcribe all `.mp3` and `.mp4` files in the audio-files folder with auto-detection (default), run this from inside the container:
+
+  ```bash
+  for f in audio-files/*.{mp3,mp4}; do
+    python transcribe_sentences.py "$f" audio-files
+  done
+  ```
+
+To transcribe all files in a specific language (e.g., Spanish), run:
 
   ```bash
   for f in audio-files/*.{mp3,mp4}; do
@@ -136,12 +169,4 @@ To transcribe all `.mp3` and `.mp4` files in the audio-files folder (e.g., in Sp
 When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
 
 ## 📦 Output
-Transcriptions are saved in sentence-separated `.txt` or `.srt` format, ready for import into language learning platforms.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-Copyright (c) 2025 Algernon Greenidge
+Transcriptions are saved in sentence-separated `.txt` or `.srt`
