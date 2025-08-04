@@ -30,6 +30,10 @@ Supports English, Spanish, French, and German with advanced NLP techniques.
 
 import re
 import numpy as np
+import warnings
+
+# Suppress PyTorch FutureWarnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
 
 # Try to import sentence transformers for better punctuation restoration
 try:
