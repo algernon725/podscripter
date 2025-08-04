@@ -161,14 +161,6 @@ To transcribe all `.mp3` and `.mp4` files in the audio-files folder with auto-de
   done
   ```
 
-To transcribe all files in a specific language (e.g., Spanish), run:
-
-  ```bash
-  for f in audio-files/*.{mp3,mp4}; do
-    python transcribe_sentences.py "$f" audio-files es
-  done
-  ```
-
 ## 📚 Why Use This?
 When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
 
