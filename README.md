@@ -139,16 +139,16 @@ PodScripter supports automatic language detection and manual language selection 
 
 | Language | Code | Language | Code |
 |----------|------|----------|------|
-| English | `en` | Japanese | `ja` |
-| Spanish | `es` | Russian | `ru` |
-| French | `fr` | Czech | `cs` |
-| German | `de` | Italian | `it` |
-| Portuguese | `pt` | Dutch | `nl` |
-| Polish | `pl` | Turkish | `tr` |
-| Arabic | `ar` | Chinese | `zh` |
-| Korean | `ko` | Hindi | `hi` |
-| Swedish | `sv` | Danish | `da` |
-| Norwegian | `no` | Finnish | `fi` |
+| Arabic   | `ar` | Italian  | `it`|
+| Chinese  | `zh` | Japanese | `ja`|
+| Czech    | `cs` | Korean   | `ko` |
+| Danish   | `da` | Norwegian | `no` |
+| Dutch    | `nl` | Polish   | `pl` |
+| English  | `en` | Portuguese | `pt` |
+| Finnish  | `fi` | Russian  | `ru` |
+| French   | `fr` | Spanish  | `es` |
+| German   | `de` | Swedish  | `sv` |
+| Hindi    | `hi` | Turkish  | `tr` |
 
 **Note**: Whisper supports many more languages beyond this list. These are the most commonly used ones. When using auto-detection, Whisper will automatically identify the language of your audio content.
 
