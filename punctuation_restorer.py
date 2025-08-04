@@ -29,10 +29,12 @@ Supports English, Spanish, French, and German with advanced NLP techniques.
 """
 
 import re
+import numpy as np
 
 # Try to import sentence transformers for better punctuation restoration
 try:
     from sentence_transformers import SentenceTransformer
+    from sklearn.metrics.pairwise import cosine_similarity
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
@@ -58,135 +60,224 @@ def restore_punctuation(text, language='en'):
     
     # Use advanced punctuation restoration
     try:
-        return advanced_punctuation_restoration(text, language)
+        return advanced_punctuation_restoration(text, language, True)  # Enable custom patterns by default
     except Exception as e:
         print(f"Warning: Advanced punctuation restoration failed: {e}")
         print("Returning original text without punctuation restoration.")
         return text
 
 
-def advanced_punctuation_restoration(text, language='en'):
+def advanced_punctuation_restoration(text, language='en', use_custom_patterns=True):
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
     
     Args:
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
+        use_custom_patterns (bool): Whether to use custom sentence endings and question word patterns
     
     Returns:
         str: Text with restored punctuation
     """
-    # Language-specific sentence endings and patterns
-    patterns = {
-        'en': {
-            'sentence_endings': [
-                r'\b(thank you|thanks|goodbye|bye|see you|talk to you later)\b',
-                r'\b(okay|ok|alright|all right)\b',
-                r'\b(yes|no|yeah|nope|yep|nah)\b',
-                r'\b(please|excuse me|sorry|pardon)\b'
-            ],
-            'question_words': [
-                r'\b(what|where|when|why|how|who|which)\b',
-                r'\b(can you|could you|would you|will you|do you|are you)\b'
-            ]
-        },
-        'es': {
-            'sentence_endings': [
-                r'\b(gracias|adiós|hasta luego|nos vemos|chao)\b',
-                r'\b(vale|ok|bien|está bien)\b',
-                r'\b(sí|no|claro|por supuesto)\b',
-                r'\b(por favor|perdón|disculpa|lo siento)\b'
-            ],
-            'question_words': [
-                r'\b(qué|dónde|cuándo|por qué|cómo|quién|cuál)\b',
-                r'\b(puedes|podrías|te gustaría|vas a|haces|eres)\b'
-            ]
-        },
-        'de': {
-            'sentence_endings': [
-                r'\b(danke|tschüss|auf wiedersehen|bis später)\b',
-                r'\b(okay|ok|gut|in ordnung)\b',
-                r'\b(ja|nein|klar|natürlich)\b',
-                r'\b(bitte|entschuldigung|sorry)\b'
-            ],
-            'question_words': [
-                r'\b(was|wo|wann|warum|wie|wer|welche)\b',
-                r'\b(kannst du|könntest du|würdest du|wirst du|machst du|bist du)\b'
-            ]
-        },
-        'fr': {
-            'sentence_endings': [
-                r'\b(merci|au revoir|à bientôt|salut)\b',
-                r'\b(okay|ok|d\'accord|ça va)\b',
-                r'\b(oui|non|bien sûr|évidemment)\b',
-                r'\b(s\'il vous plaît|pardon|désolé)\b'
-            ],
-            'question_words': [
-                r'\b(quoi|où|quand|pourquoi|comment|qui|quel)\b',
-                r'\b(peux-tu|pourrais-tu|voudrais-tu|vas-tu|fais-tu|es-tu)\b'
-            ]
-        }
-    }
     
-    lang_patterns = patterns.get(language, patterns['en'])
+    # Use SentenceTransformers for better sentence boundary detection
+    if SENTENCE_TRANSFORMERS_AVAILABLE:
+        return transformer_based_restoration(text, language, use_custom_patterns)
+    else:
+        # Simple fallback: just clean up whitespace and add basic punctuation
+        text = re.sub(r'\s+', ' ', text.strip())
+        if text and not text.endswith(('.', '!', '?')):
+            text += '.'
+        return text
+
+
+def transformer_based_restoration(text, language='en', use_custom_patterns=True):
+    """
+    Punctuation restoration using SentenceTransformers for semantic understanding.
     
-    # Step 1: Handle repeated words for emphasis in Spanish, French, and German
-    if language == 'es':
-        # Add commas between repeated "si" or "no" for emphasis
-        text = re.sub(r'\b(sí)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'\b(no)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
-        # Handle more than 2 repetitions
-        text = re.sub(r'\b(sí)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'\b(no)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
-    elif language == 'fr':
-        # Add commas between repeated "oui" or "non" for emphasis
-        text = re.sub(r'\b(oui)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'\b(non)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
-        # Handle more than 2 repetitions
-        text = re.sub(r'\b(oui)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'\b(non)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
-    elif language == 'de':
-        # Add commas between repeated "ja" or "nein" for emphasis
-        text = re.sub(r'\b(ja)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'\b(nein)\s+\1\b', r'\1, \1', text, flags=re.IGNORECASE)
-        # Handle more than 2 repetitions
-        text = re.sub(r'\b(ja)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'\b(nein)\s+\1\s+\1\b', r'\1, \1, \1', text, flags=re.IGNORECASE)
+    Args:
+        text (str): The transcribed text without proper punctuation
+        language (str): Language code ('en', 'es', 'de', 'fr')
+        use_custom_patterns (bool): Whether to use custom patterns
     
-    # Step 2: Add punctuation after sentence endings
-    for pattern in lang_patterns['sentence_endings']:
-        text = re.sub(f'({pattern})(?!\s*[.!?])', r'\1.', text, flags=re.IGNORECASE)
+    Returns:
+        str: Text with restored punctuation
+    """
+    # Initialize the model (use multilingual model for better language support)
+    model = SentenceTransformer('all-MiniLM-L6-v2')
     
-    # Step 3: Add question marks after question patterns
-    for pattern in lang_patterns['question_words']:
-        # Look for question patterns followed by text without punctuation
-        text = re.sub(f'({pattern})\s+([^.!?]+?)(?=\s|$)', r'\1 \2?', text, flags=re.IGNORECASE)
+    # Split text into potential sentence chunks
+    words = text.split()
+    if len(words) < 3:
+        return text
     
-    # Step 4: Smart sentence splitting based on length and content
-    sentences = re.split(r'[.!?]+', text)
+    # Create potential sentence boundaries based on semantic breaks
+    potential_sentences = []
+    current_sentence = []
+    
+    for i, word in enumerate(words):
+        current_sentence.append(word)
+        
+        # Consider sentence boundary at natural breaks
+        if (i < len(words) - 1 and 
+            (len(current_sentence) > 15 or  # Long sentence break
+             (i < len(words) - 1 and words[i+1][0].isupper() and len(current_sentence) > 5))):  # Capital letter after reasonable length
+            
+            potential_sentences.append(' '.join(current_sentence))
+            current_sentence = []
+    
+    # Add remaining words
+    if current_sentence:
+        potential_sentences.append(' '.join(current_sentence))
+    
+    # Process each sentence chunk using semantic understanding
     processed_sentences = []
     
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
+    for i, sentence in enumerate(potential_sentences):
+        if not sentence.strip():
             continue
+            
+        # Apply basic punctuation rules first
+        sentence = apply_basic_punctuation_rules(sentence, language, use_custom_patterns)
         
-        # Add period to sentences that don't end with punctuation
-        if sentence and not sentence.endswith(('.', '!', '?')):
-            # Don't add period if it ends with a conjunction
-            if not sentence.lower().endswith(('and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'since', 'although')):
-                sentence += '.'
+        # Use semantic similarity to determine if this should be a question
+        question_patterns = get_question_patterns(language)
+        if question_patterns:
+            similarities = []
+            for pattern in question_patterns:
+                try:
+                    # Encode sentences and calculate similarity
+                    embeddings = model.encode([sentence, pattern])
+                    similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+                    similarities.append(similarity)
+                except:
+                    continue
+            
+            # If high similarity to question patterns, add question mark
+            if similarities and max(similarities) > 0.6:
+                if not sentence.endswith('?'):
+                    sentence = sentence.rstrip('.!') + '?'
         
         processed_sentences.append(sentence)
     
-    # Rejoin sentences
     result = ' '.join(processed_sentences)
     
-    # Clean up
+    # Final cleanup
     result = re.sub(r'\s+', ' ', result)
     result = re.sub(r'\s+\.', '.', result)
     
     return result.strip()
+
+
+def apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
+    """
+    Apply basic punctuation rules to a sentence.
+    
+    Args:
+        sentence (str): The sentence to process
+        language (str): Language code
+        use_custom_patterns (bool): Whether to use custom patterns (now deprecated with SentenceTransformers)
+    
+    Returns:
+        str: Sentence with basic punctuation applied
+    """
+    # Handle repeated words for emphasis (still useful for some languages)
+    if language == 'es':
+        # Add commas between repeated "sí" or "no" for emphasis
+        sentence = re.sub(r'\b(sí)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+        sentence = re.sub(r'\b(no)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+    elif language == 'fr':
+        # Add commas between repeated "oui" or "non" for emphasis
+        sentence = re.sub(r'\b(oui)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+        sentence = re.sub(r'\b(non)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+    elif language == 'de':
+        # Add commas between repeated "ja" or "nein" for emphasis
+        sentence = re.sub(r'\b(ja)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+        sentence = re.sub(r'\b(nein)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+    
+    # Add period if sentence doesn't end with punctuation
+    if sentence and not sentence.endswith(('.', '!', '?')):
+        # Don't add period if it ends with a conjunction
+        if not sentence.lower().endswith(('and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'since', 'although')):
+            sentence += '.'
+    
+    return sentence
+
+
+def get_question_patterns(language):
+    """
+    Get question patterns for semantic similarity comparison.
+    
+    Args:
+        language (str): Language code
+    
+    Returns:
+        list: List of question patterns
+    """
+    question_patterns = {
+        'en': [
+            "What is this?",
+            "Where are you?",
+            "When will it happen?",
+            "Why did you do that?",
+            "How does it work?",
+            "Who is there?",
+            "Which one do you prefer?",
+            "Can you help me?",
+            "Could you explain?",
+            "Would you like to go?",
+            "Will you come?",
+            "Do you understand?",
+            "Are you ready?"
+        ],
+        'es': [
+            "¿Qué es esto?",
+            "¿Dónde estás?",
+            "¿Cuándo pasará?",
+            "¿Por qué lo hiciste?",
+            "¿Cómo funciona?",
+            "¿Quién está ahí?",
+            "¿Cuál prefieres?",
+            "¿Puedes ayudarme?",
+            "¿Podrías explicar?",
+            "¿Te gustaría ir?",
+            "¿Vas a venir?",
+            "¿Haces esto?",
+            "¿Eres listo?"
+        ],
+        'de': [
+            "Was ist das?",
+            "Wo bist du?",
+            "Wann passiert es?",
+            "Warum hast du das gemacht?",
+            "Wie funktioniert es?",
+            "Wer ist da?",
+            "Welches bevorzugst du?",
+            "Kannst du mir helfen?",
+            "Könntest du erklären?",
+            "Würdest du gerne gehen?",
+            "Wirst du kommen?",
+            "Machst du das?",
+            "Bist du bereit?"
+        ],
+        'fr': [
+            "Qu'est-ce que c'est?",
+            "Où es-tu?",
+            "Quand cela arrivera-t-il?",
+            "Pourquoi as-tu fait cela?",
+            "Comment ça marche?",
+            "Qui est là?",
+            "Lequel préfères-tu?",
+            "Peux-tu m'aider?",
+            "Pourrais-tu expliquer?",
+            "Voudrais-tu aller?",
+            "Vas-tu venir?",
+            "Fais-tu cela?",
+            "Es-tu prêt?"
+        ]
+    }
+    
+    return question_patterns.get(language, question_patterns['en'])
 
 
 # For testing the module directly
