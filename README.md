@@ -72,7 +72,8 @@ Run the container and mount the folders you just created:
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter
   ```
-  This opens an interactive terminal inside the container. You'll run all transcription commands from here.
+This opens an interactive terminal inside the container. You'll run all transcription commands from here.
+>💡 If you’re on an Intel Mac or other architecture, remove --platform linux/arm64
 
 ## 📄 How to Use The Transcription Tool
 
