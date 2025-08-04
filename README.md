@@ -1,6 +1,10 @@
 # PodScripter
 
-`podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), German (`de`), Japanese (`ja`), Russian (`ru`), Czech (`cs`), Italian (`it`), Portuguese (`pt`), Dutch (`nl`), Polish (`pl`), Turkish (`tr`), Arabic (`ar`), Chinese (`zh`), Korean (`ko`), Hindi (`hi`), Swedish (`sv`), Danish (`da`), Norwegian (`no`), and Finnish (`fi`). `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
+`podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. 
+
+It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), German (`de`), Japanese (`ja`), Russian (`ru`), Czech (`cs`), Italian (`it`), Portuguese (`pt`), Dutch (`nl`), Polish (`pl`), Turkish (`tr`), Arabic (`ar`), Chinese (`zh`), Korean (`ko`), Hindi (`hi`), Swedish (`sv`), Danish (`da`), Norwegian (`no`), and Finnish (`fi`). 
+
+`podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
 
 I welcome contributions from people of any skill level to help make this software better! To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: [Contributing to a Project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
 
