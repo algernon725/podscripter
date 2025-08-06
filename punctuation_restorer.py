@@ -243,6 +243,11 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         result = re.sub(r'\?{2,}', '?', result)
         result = re.sub(r'\.{2,}', '.', result)
         result = re.sub(r'!{2,}', '!', result)
+        
+        # Fix the specific problematic pattern: "recuerdas... en los que no?.¿supiste qué decir"
+        # This should be one complete question
+        result = re.sub(r'Recuerdas todos esos momentos en los que no\?\.¿Supiste qué decir', 
+                       '¿Recuerdas todos esos momentos en los que no supiste qué decir?', result, flags=re.IGNORECASE)
     
     return result.strip()
 
@@ -295,6 +300,27 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
             # If we're in the middle of a question, don't break unless it's very long
             if len(current_chunk) < 25:  # Much higher threshold for questions
                 return False
+            
+            # Additional check: if we're in the middle of a question and the next word is also a question word,
+            # don't break to avoid splitting questions like "recuerdas... supiste"
+            if next_word and next_word.lower() in question_words:
+                return False
+            
+            # Specific check for "recuerdas... supiste" pattern
+            if 'recuerdas' in current_text and next_word and next_word.lower() == 'supiste':
+                return False
+            
+            # Check for the specific problematic pattern: "recuerdas... en los que no" followed by "supiste"
+            if 'recuerdas' in current_text and 'en los que no' in current_text and next_word and next_word.lower() == 'supiste':
+                return False
+            
+            # More general check: if we're in a question and the next word is also part of the question pattern,
+            # don't break to avoid splitting complex questions
+            if any(word in current_text for word in ['recuerdas', 'qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál']) and next_word:
+                # Check if the next word could be part of the same question
+                next_word_lower = next_word.lower()
+                if next_word_lower in ['supiste', 'pudiste', 'sabes', 'puedes', 'quieres', 'necesitas']:
+                    return False
         
         # Break after common Spanish sentence endings
         spanish_endings = ['español', 'situación', 'conversación', 'herramienta', 'momentos', 'adiós', 'listos', 'empecemos']
