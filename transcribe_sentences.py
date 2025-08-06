@@ -156,7 +156,7 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
     
     # Model configuration
     model_name = "medium"
-    beam_size = 5
+    beam_size = 3
     compute_type = "int8"
     device = "cpu"
     

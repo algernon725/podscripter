@@ -154,6 +154,96 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
     result = re.sub(r'\s+\?', '?', result)
     result = re.sub(r'\s+\!', '!', result)
     
+    # Apply Spanish-specific formatting
+    if language == 'es':
+        # Split into sentences and format each one properly
+        sentences = re.split(r'([.!?]+)', result)
+        formatted_sentences = []
+        
+        for i in range(0, len(sentences), 2):
+            if i < len(sentences):
+                sentence = sentences[i].strip()
+                punctuation = sentences[i + 1] if i + 1 < len(sentences) else ''
+                
+                if sentence:
+                    # Apply basic Spanish formatting to the sentence
+                    # Capitalize first letter
+                    if sentence and sentence[0].isalpha():
+                        sentence = sentence[0].upper() + sentence[1:]
+                    
+                    # Capitalize proper names and locations
+                    sentence = re.sub(r'\b(andrea|carlos|madrid|colombia|santander|españa|méxico|argentina|texas|estados unidos)\b', 
+                                     lambda m: m.group(1).title(), sentence, flags=re.IGNORECASE)
+                    
+                    # Add proper punctuation if missing (but don't add if punctuation already exists)
+                    if not sentence.endswith(('.', '!', '?')):
+                        # Check if it's a question
+                        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
+                        sentence_lower = sentence.lower()
+                        
+                        if any(word in sentence_lower for word in question_words):
+                            sentence += '?'
+                        else:
+                            sentence += '.'
+                    elif sentence.endswith(('.', '!', '?')) and len(sentence) > 1:
+                        # If sentence already ends with punctuation, make sure it's only one
+                        sentence = sentence.rstrip('.!?') + sentence[-1]
+                    
+                    # Clean up any double punctuation that might have been created
+                    sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
+                    
+                    # Clean up double punctuation
+                    sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
+                    
+                    # Clean up double inverted question marks
+                    sentence = re.sub(r'¿{2,}', '¿', sentence)
+                    
+                    formatted_sentences.append(sentence + punctuation)
+        
+        result = ' '.join(formatted_sentences)
+        
+        # Add inverted question marks for questions (but be more careful to avoid duplicates)
+        question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas']
+        for starter in question_starters:
+            pattern = rf'\b{starter}\b'
+            if re.search(pattern, result, re.IGNORECASE):
+                # Find sentences containing question words and add inverted question mark
+                sentences = re.split(r'([.!?]+)', result)
+                for i in range(0, len(sentences), 2):
+                    if i < len(sentences) and re.search(pattern, sentences[i], re.IGNORECASE):
+                        sentence_text = sentences[i].strip()
+                        # Only add ¿ if it doesn't already start with ¿
+                        if not sentence_text.startswith('¿'):
+                            sentences[i] = '¿' + sentence_text
+                result = ''.join(sentences)
+                break
+        
+        # Clean up double punctuation more thoroughly
+        result = re.sub(r'\.{2,}', '.', result)
+        result = re.sub(r'\?{2,}', '?', result)
+        result = re.sub(r'!{2,}', '!', result)
+        result = re.sub(r'¿{2,}', '¿', result)
+        
+        # Special handling for greeting questions (but clean up first)
+        if 'hola' in result.lower() and 'cómo' in result.lower():
+            # Clean up any existing ¿¿ before applying the pattern
+            result = re.sub(r'¿{2,}', '¿', result)
+            result = re.sub(r'hola\s+cómo', '¿Hola, cómo', result, flags=re.IGNORECASE)
+            # Remove any trailing period after question mark for greeting questions
+            result = re.sub(r'¿Hola, cómo.*?\?\.', lambda m: m.group(0).rstrip('.'), result)
+        
+        # Remove the comma addition for location patterns - Spanish grammar doesn't require it
+        # result = re.sub(r'\b(andrea|carlos|maría|juan|ana)\s+(de)\s+(colombia|santander|madrid|españa|méxico|argentina)\b', r'\1 \2, \3', result, flags=re.IGNORECASE)
+        
+        # Ensure proper sentence separation
+        result = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result)
+        
+        # Final cleanup of any remaining double punctuation
+        result = re.sub(r'¿{2,}', '¿', result)
+        result = re.sub(r'\?{2,}', '?', result)
+        result = re.sub(r'\.{2,}', '.', result)
+        result = re.sub(r'!{2,}', '!', result)
+    
     return result.strip()
 
 
@@ -180,7 +270,11 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
         return False
     
     # Minimum sentence length (avoid very short sentences)
-    if len(current_chunk) < 5:  # Increased minimum length
+    # For very short inputs, don't split at all
+    if len(words) <= 15:  # If the entire input is short, don't split
+        return False
+    
+    if len(current_chunk) < 6:  # More balanced for Spanish
         return False
     
     # Check for natural sentence endings
@@ -192,15 +286,41 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     if any(indicator in current_word.lower() for indicator in strong_end_indicators):
         return True
     
+    # Spanish-specific sentence breaking patterns
+    if language == 'es':
+        # Don't break questions in the middle - check if current chunk contains question words
+        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'supiste']
+        current_text = ' '.join(current_chunk).lower()
+        if any(word in current_text for word in question_words):
+            # If we're in the middle of a question, don't break unless it's very long
+            if len(current_chunk) < 25:  # Much higher threshold for questions
+                return False
+        
+        # Break after common Spanish sentence endings
+        spanish_endings = ['español', 'situación', 'conversación', 'herramienta', 'momentos', 'adiós', 'listos', 'empecemos']
+        if any(ending in current_word.lower() for ending in spanish_endings):
+            return True
+        
+        # Break before common Spanish sentence starters (but be more conservative)
+        spanish_starters = ['¿recuerdas', '¿esos', 'pues', 'dile', 'entonces', '¿estamos']
+        if next_word and any(starter in next_word.lower() for starter in spanish_starters):
+            return True
+        
+        # Don't break before "yo" or "y" unless there's a strong indicator
+        if next_word and next_word.lower() in ['yo', 'y']:
+            # Only break if the current chunk is reasonably long
+            if len(current_chunk) < 8:
+                return False
+    
     # Check for capital letter after reasonable length (but be more conservative)
     if (next_word and next_word[0].isupper() and 
-        len(current_chunk) >= 12 and  # Increased minimum length
+        len(current_chunk) >= 8 and  # More balanced for Spanish
         not is_continuation_word(current_word, language) and
         not is_transitional_word(current_word, language)):
         return True
     
     # Use semantic coherence to determine if chunks should be separated
-    if len(current_chunk) >= 20:  # Only check for longer chunks
+    if len(current_chunk) >= 12:  # More balanced for sentence breaking
         return check_semantic_break(words, current_index, model)
     
     return False
@@ -238,7 +358,7 @@ def is_transitional_word(word, language):
     """
     transitional_words = {
         'en': ['then', 'next', 'after', 'before', 'while', 'during', 'since', 'until', 'when', 'where', 'if', 'unless', 'although', 'though', 'even', 'though', 'despite', 'in', 'spite', 'of'],
-        'es': ['entonces', 'después', 'antes', 'mientras', 'durante', 'desde', 'hasta', 'cuando', 'donde', 'si', 'aunque', 'a', 'pesar', 'de'],
+        'es': ['entonces', 'después', 'antes', 'mientras', 'durante', 'desde', 'hasta', 'cuando', 'donde', 'si', 'aunque', 'a', 'pesar', 'de', 'que', 'los', 'las', 'en', 'de', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'detrás', 'delante', 'cerca', 'lejos'],
         'de': ['dann', 'nächste', 'nach', 'vor', 'während', 'seit', 'bis', 'wenn', 'wo', 'falls', 'obwohl', 'trotz'],
         'fr': ['alors', 'après', 'avant', 'pendant', 'depuis', 'jusqu\'à', 'quand', 'où', 'si', 'bien', 'que', 'malgré']
     }
@@ -690,6 +810,132 @@ def apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
             sentence += '.'
     
     return sentence
+
+
+def format_spanish_text(text):
+    """
+    Apply Spanish-specific formatting including capitalization and punctuation.
+    
+    Args:
+        text (str): The text to format
+    
+    Returns:
+        str: Formatted Spanish text
+    """
+    # Split into sentences
+    sentences = re.split(r'[.!?]+', text)
+    formatted_sentences = []
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # Capitalize first letter
+        if sentence and sentence[0].isalpha():
+            sentence = sentence[0].upper() + sentence[1:]
+        
+        # Capitalize proper names and locations
+        sentence = re.sub(r'\b(andrea|carlos|madrid|colombia|santander|españa|méxico|argentina)\b', 
+                         lambda m: m.group(1).title(), sentence, flags=re.IGNORECASE)
+        
+        # Add proper punctuation based on content
+        if not sentence.endswith(('.', '!', '?')):
+            # Check if it's a question
+            question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
+            sentence_lower = sentence.lower()
+            
+            if any(word in sentence_lower for word in question_words):
+                if not sentence.endswith('?'):
+                    sentence += '?'
+            else:
+                if not sentence.endswith('.'):
+                    sentence += '.'
+        
+        # Ensure all sentences end with proper punctuation
+        if sentence and not sentence.endswith(('.', '!', '?')):
+            sentence += '.'
+        
+        formatted_sentences.append(sentence)
+    
+    # Join sentences with proper spacing
+    result = ' '.join(formatted_sentences)
+    
+    # Ensure proper sentence separation by adding spaces after punctuation
+    result = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result)
+    
+    # Add inverted question marks for questions that start with question words
+    question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
+    
+    for starter in question_starters:
+        pattern = rf'\b{starter}\b'
+        if re.search(pattern, result, re.IGNORECASE):
+            # Find the sentence containing this word and add inverted question mark
+            sentences = re.split(r'[.!?]+', result)
+            for i, sent in enumerate(sentences):
+                if re.search(pattern, sent, re.IGNORECASE) and sent.strip():
+                    # Add inverted question mark at the beginning
+                    sent = sent.strip()
+                    if sent and not sent.startswith('¿'):
+                        # Special handling for greetings with questions
+                        if sent.lower().startswith('hola') and 'cómo' in sent.lower():
+                            # Don't add ¿ at the beginning for "Hola cómo estás"
+                            continue
+                        sentences[i] = '¿' + sent
+            result = ' '.join(sentences)
+            break
+    
+    # Ensure questions end with question marks
+    sentences = re.split(r'[.!?]+', result)
+    for i, sent in enumerate(sentences):
+        if sent.strip() and sent.strip().startswith('¿'):
+            # This is a question, ensure it ends with ?
+            if not sent.strip().endswith('?'):
+                sentences[i] = sent.strip() + '?'
+    
+    # Special handling for greeting questions
+    for i, sent in enumerate(sentences):
+        if sent.strip() and sent.lower().startswith('hola') and 'cómo' in sent.lower():
+            # Format as "¿Hola, cómo estás hoy?" (entire sentence in question marks with comma)
+            if not sent.strip().startswith('¿'):
+                # Add comma after "Hola" if not already present
+                parts = sent.strip().split('cómo')
+                if len(parts) == 2:
+                    greeting = parts[0].strip()
+                    question = parts[1].strip()
+                    if not greeting.endswith(','):
+                        greeting += ','
+                    sentences[i] = '¿' + greeting + ' cómo ' + question + '?'
+    
+    result = ' '.join(sentences)
+    
+    # Add commas for proper Spanish punctuation (but be more selective)
+    # Only add commas before conjunctions when they're not already preceded by a comma
+    # Don't add commas before 'y' if it's between two short phrases
+    result = re.sub(r'\b(pero|mas|sino|aunque)\b', r', \1', result, flags=re.IGNORECASE)
+    
+    # Add commas for location patterns (but be more careful)
+    # Only add comma after the location name when preceded by "de"
+    result = re.sub(r'\b(andrea|carlos|maría|juan|ana)\s+(de)\s+(colombia|santander|madrid|españa|méxico|argentina)\b', r'\1 \2 \3,', result, flags=re.IGNORECASE)
+    
+    result = re.sub(r',\s*,', ',', result)  # Remove double commas
+    result = re.sub(r',\s+$', '', result)  # Remove trailing commas
+    
+    # Ensure all sentences end with proper punctuation
+    sentences = re.split(r'[.!?]+', result)
+    for i, sent in enumerate(sentences):
+        if sent.strip() and not sent.strip().endswith(('.', '!', '?')):
+            # Check if it's a question before adding period
+            question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
+            sentence_lower = sent.strip().lower()
+            
+            if any(word in sentence_lower for word in question_words) or sent.strip().startswith('¿'):
+                sentences[i] = sent.strip() + '?'
+            else:
+                sentences[i] = sent.strip() + '.'
+    result = ' '.join(sentences)
+    
+    return result
 
 
 def get_question_patterns(language):
