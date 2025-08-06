@@ -2,3 +2,7 @@
 /models/*
 .DS_Store
 /media-files/*
+
+# Python
+__pycache__/
+*.pyc

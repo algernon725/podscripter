@@ -352,6 +352,29 @@ def is_question_semantic(sentence, model, language):
     if has_question_indicators(sentence, language):
         return True
     
+    # For Spanish, be extra careful with introductions and statements
+    if language == 'es':
+        sentence_lower = sentence.lower()
+        
+        # Check for strong question indicators first
+        strong_question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+        has_strong_question = any(word in sentence_lower for word in strong_question_words)
+        starts_with_question = any(sentence_lower.startswith(word + ' ') for word in strong_question_words)
+        
+        # If it doesn't have strong question indicators, check for introduction patterns
+        if not has_strong_question and not starts_with_question:
+            # If it's clearly an introduction or statement, don't use semantic similarity
+            introduction_patterns = [
+                'soy', 'es', 'estoy', 'está', 'están', 'somos', 'son',
+                'mi nombre', 'me llamo', 'vivo en', 'trabajo en', 'estudio en',
+                'soy de', 'es de', 'estoy de', 'está de', 'están de',
+                'de acuerdo', 'de colombia', 'de españa', 'de méxico', 'de argentina'
+            ]
+            
+            # If it contains introduction patterns, it's likely a statement
+            if any(pattern in sentence_lower for pattern in introduction_patterns):
+                return False
+    
     question_patterns = get_question_patterns(language)
     if not question_patterns:
         return False
@@ -370,8 +393,13 @@ def is_question_semantic(sentence, model, language):
             similarity = cosine_similarity([sentence_embedding], [q_emb])[0][0]
             similarities.append(similarity)
         
-        # Lower threshold for better question detection
-        return max(similarities) > 0.6
+        # Lower threshold for better question detection, but be more conservative for Spanish
+        max_similarity = max(similarities)
+        if language == 'es':
+            # Be more conservative for Spanish to avoid false positives
+            return max_similarity > 0.75
+        else:
+            return max_similarity > 0.6
         
     except Exception:
         return False
@@ -423,6 +451,24 @@ def has_question_indicators(sentence, language):
                     continue
                 if any(statement in sentence_lower for statement in ['gracias', 'por favor', 'de nada', 'no hay problema']):
                     continue
+                
+                # Avoid false positives for "ser" and "estar" verbs in introductions
+                if word in ['soy', 'es', 'estoy', 'está', 'están', 'somos', 'son']:
+                    # Check if it's likely an introduction or statement
+                    if any(intro_pattern in sentence_lower for intro_pattern in [
+                        'yo soy', 'mi nombre es', 'me llamo', 'vivo en', 'trabajo en',
+                        'soy de', 'es de', 'estoy de', 'está de', 'están de'
+                    ]):
+                        continue
+                
+                # Avoid false positives for "de" when used in locations/descriptions
+                if word == 'de':
+                    # Check if "de" is used in location patterns (not questions)
+                    if any(location_pattern in sentence_lower for location_pattern in [
+                        'de colombia', 'de españa', 'de méxico', 'de argentina', 'de santander',
+                        'de acuerdo', 'de nada', 'de verdad', 'de hecho'
+                    ]):
+                        continue
             return True
     
     # Check for question marks already present
@@ -444,6 +490,39 @@ def has_question_indicators(sentence, language):
             has_strong_question = any(word in sentence_lower for word in ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál'])
             if not has_strong_question:
                 return False
+        
+        # Prevent false positives with "ser" and "estar" verbs in statements
+        # These are common in introductions and descriptions
+        if any(pattern in sentence_lower for pattern in [
+            'yo soy', 'yo es', 'yo estoy', 'yo está', 'yo están',
+            'soy de', 'es de', 'estoy de', 'está de', 'están de',
+            'mi nombre es', 'me llamo', 'vivo en', 'trabajo en'
+        ]):
+            # Only consider it a question if it has strong question indicators
+            has_strong_question = any(word in sentence_lower for word in ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál'])
+            if not has_strong_question:
+                return False
+        
+        # Additional comprehensive check for introduction and statement patterns
+        # These patterns are almost never questions in Spanish
+        introduction_patterns = [
+            'soy', 'es', 'estoy', 'está', 'están', 'somos', 'son',
+            'mi nombre', 'me llamo', 'vivo en', 'trabajo en', 'estudio en',
+            'soy de', 'es de', 'estoy de', 'está de', 'están de',
+            'de acuerdo', 'de colombia', 'de españa', 'de méxico', 'de argentina'
+        ]
+        
+        # If the sentence contains these patterns and doesn't have strong question words, it's likely a statement
+        if any(pattern in sentence_lower for pattern in introduction_patterns):
+            # Check for strong question indicators
+            strong_question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+            has_strong_question = any(word in sentence_lower for word in strong_question_words)
+            
+            # Also check if it starts with a question word
+            starts_with_question = any(sentence_lower.startswith(word + ' ') for word in strong_question_words)
+            
+            if not has_strong_question and not starts_with_question:
+                return False
     
     # Check for question intonation patterns (common in speech)
     if language == 'en':
@@ -455,10 +534,11 @@ def has_question_indicators(sentence, language):
             return True
     elif language == 'es':
         # Common question patterns in Spanish
+        # Be more specific to avoid false positives with "ser" and "estar" verbs
         if any(pattern in sentence_lower for pattern in [
             'puedes', 'puede', 'podrías', 'podría', 'vas a', 'va a', 'vas', 'va',
             'tienes', 'tiene', 'tienes que', 'tiene que', 'necesitas', 'necesita',
-            'sabes', 'sabe', 'conoces', 'conoce', 'hay', 'está', 'estás', 'es', 'eres',
+            'sabes', 'sabe', 'conoces', 'conoce', 'hay',
             'te gusta', 'le gusta', 'te gustaría', 'le gustaría', 'quieres', 'quiere',
             'te parece', 'le parece', 'crees', 'cree', 'piensas', 'piensa'
         ]):
