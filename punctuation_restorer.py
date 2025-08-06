@@ -97,7 +97,7 @@ def advanced_punctuation_restoration(text, language='en', use_custom_patterns=Tr
 
 def transformer_based_restoration(text, language='en', use_custom_patterns=True):
     """
-    Punctuation restoration using SentenceTransformers for semantic understanding.
+    Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
     Args:
         text (str): The transcribed text without proper punctuation
@@ -108,69 +108,473 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         str: Text with restored punctuation
     """
     # Initialize the model (use multilingual model for better language support)
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     
-    # Split text into potential sentence chunks
+    # Split text into words
     words = text.split()
     if len(words) < 3:
         return text
     
-    # Create potential sentence boundaries based on semantic breaks
-    potential_sentences = []
-    current_sentence = []
+    # Create potential sentence boundaries using semantic coherence
+    sentences = []
+    current_chunk = []
     
     for i, word in enumerate(words):
-        current_sentence.append(word)
+        current_chunk.append(word)
         
-        # Consider sentence boundary at natural breaks
-        if (i < len(words) - 1 and 
-            (len(current_sentence) > 15 or  # Long sentence break
-             (i < len(words) - 1 and words[i+1][0].isupper() and len(current_sentence) > 5))):  # Capital letter after reasonable length
-            
-            potential_sentences.append(' '.join(current_sentence))
-            current_sentence = []
+        # Check if we should end the sentence here
+        if should_end_sentence_here(words, i, current_chunk, model, language):
+            sentence_text = ' '.join(current_chunk)
+            if sentence_text.strip():
+                sentences.append(sentence_text)
+            current_chunk = []
     
-    # Add remaining words
-    if current_sentence:
-        potential_sentences.append(' '.join(current_sentence))
+    # Add remaining words as the last sentence
+    if current_chunk:
+        sentence_text = ' '.join(current_chunk)
+        if sentence_text.strip():
+            sentences.append(sentence_text)
     
-    # Process each sentence chunk using semantic understanding
+    # Process each sentence with appropriate punctuation
     processed_sentences = []
     
-    for i, sentence in enumerate(potential_sentences):
+    for i, sentence in enumerate(sentences):
         if not sentence.strip():
             continue
             
-        # Apply basic punctuation rules first
-        sentence = apply_basic_punctuation_rules(sentence, language, use_custom_patterns)
-        
-        # Use semantic similarity to determine if this should be a question
-        question_patterns = get_question_patterns(language)
-        if question_patterns:
-            similarities = []
-            for pattern in question_patterns:
-                try:
-                    # Encode sentences and calculate similarity
-                    embeddings = model.encode([sentence, pattern])
-                    similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
-                    similarities.append(similarity)
-                except:
-                    continue
-            
-            # If high similarity to question patterns, add question mark
-            if similarities and max(similarities) > 0.6:
-                if not sentence.endswith('?'):
-                    sentence = sentence.rstrip('.!') + '?'
-        
-        processed_sentences.append(sentence)
+        # Apply punctuation based on semantic analysis
+        punctuated_sentence = apply_semantic_punctuation(sentence, model, language, i, len(sentences))
+        processed_sentences.append(punctuated_sentence)
     
     result = ' '.join(processed_sentences)
     
     # Final cleanup
     result = re.sub(r'\s+', ' ', result)
     result = re.sub(r'\s+\.', '.', result)
+    result = re.sub(r'\s+\?', '?', result)
+    result = re.sub(r'\s+\!', '!', result)
     
     return result.strip()
+
+
+def should_end_sentence_here(words, current_index, current_chunk, model, language):
+    """
+    Determine if a sentence should end at the current position using semantic coherence.
+    
+    Args:
+        words (list): List of all words in the text
+        current_index (int): Current word index
+        current_chunk (list): Current sentence chunk
+        model: SentenceTransformer model
+        language (str): Language code
+    
+    Returns:
+        bool: True if sentence should end here
+    """
+    # Don't end sentence if we're at the beginning
+    if current_index < 2:
+        return False
+    
+    # Don't end sentence if we're at the very end
+    if current_index >= len(words) - 1:
+        return False
+    
+    # Minimum sentence length (avoid very short sentences)
+    if len(current_chunk) < 5:  # Increased minimum length
+        return False
+    
+    # Check for natural sentence endings
+    current_word = words[current_index]
+    next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
+    
+    # Strong indicators for sentence end
+    strong_end_indicators = get_strong_end_indicators(language)
+    if any(indicator in current_word.lower() for indicator in strong_end_indicators):
+        return True
+    
+    # Check for capital letter after reasonable length (but be more conservative)
+    if (next_word and next_word[0].isupper() and 
+        len(current_chunk) >= 12 and  # Increased minimum length
+        not is_continuation_word(current_word, language) and
+        not is_transitional_word(current_word, language)):
+        return True
+    
+    # Use semantic coherence to determine if chunks should be separated
+    if len(current_chunk) >= 20:  # Only check for longer chunks
+        return check_semantic_break(words, current_index, model)
+    
+    return False
+
+
+def get_strong_end_indicators(language):
+    """
+    Get strong indicators that suggest a sentence should end.
+    
+    Args:
+        language (str): Language code
+    
+    Returns:
+        list: List of strong end indicators
+    """
+    indicators = {
+        'en': ['thank', 'thanks', 'goodbye', 'bye', 'okay', 'ok', 'right', 'sure', 'yes', 'no'],
+        'es': ['gracias', 'adiós', 'hasta', 'vale', 'bien', 'sí', 'no', 'claro'],
+        'de': ['danke', 'tschüss', 'auf', 'wiedersehen', 'okay', 'ja', 'nein', 'klar'],
+        'fr': ['merci', 'au', 'revoir', 'salut', 'okay', 'oui', 'non', 'd\'accord']
+    }
+    return indicators.get(language, indicators['en'])
+
+
+def is_transitional_word(word, language):
+    """
+    Check if a word is a transitional word that suggests the sentence should continue.
+    
+    Args:
+        word (str): The word to check
+        language (str): Language code
+    
+    Returns:
+        bool: True if word suggests continuation
+    """
+    transitional_words = {
+        'en': ['then', 'next', 'after', 'before', 'while', 'during', 'since', 'until', 'when', 'where', 'if', 'unless', 'although', 'though', 'even', 'though', 'despite', 'in', 'spite', 'of'],
+        'es': ['entonces', 'después', 'antes', 'mientras', 'durante', 'desde', 'hasta', 'cuando', 'donde', 'si', 'aunque', 'a', 'pesar', 'de'],
+        'de': ['dann', 'nächste', 'nach', 'vor', 'während', 'seit', 'bis', 'wenn', 'wo', 'falls', 'obwohl', 'trotz'],
+        'fr': ['alors', 'après', 'avant', 'pendant', 'depuis', 'jusqu\'à', 'quand', 'où', 'si', 'bien', 'que', 'malgré']
+    }
+    
+    words = transitional_words.get(language, transitional_words['en'])
+    return word.lower() in words
+
+
+def is_continuation_word(word, language):
+    """
+    Check if a word suggests the sentence should continue.
+    
+    Args:
+        word (str): The word to check
+        language (str): Language code
+    
+    Returns:
+        bool: True if word suggests continuation
+    """
+    continuation_words = {
+        'en': ['and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'since', 'although', 'however', 'therefore', 'thus', 'hence', 'then', 'next', 'also', 'as', 'well', 'as', 'in', 'addition', 'furthermore', 'moreover', 'besides', 'additionally'],
+        'es': ['y', 'o', 'pero', 'así', 'porque', 'si', 'cuando', 'mientras', 'desde', 'aunque', 'sin', 'embargo', 'por', 'tanto', 'entonces', 'también', 'además', 'furthermore', 'más', 'aún'],
+        'de': ['und', 'oder', 'aber', 'also', 'weil', 'wenn', 'während', 'seit', 'obwohl', 'jedoch', 'daher', 'deshalb', 'dann', 'auch', 'außerdem', 'ferner', 'zudem'],
+        'fr': ['et', 'ou', 'mais', 'donc', 'parce', 'si', 'quand', 'pendant', 'depuis', 'bien', 'que', 'cependant', 'donc', 'alors', 'aussi', 'de', 'plus', 'en', 'outre', 'par', 'ailleurs']
+    }
+    
+    words = continuation_words.get(language, continuation_words['en'])
+    return word.lower() in words
+
+
+def check_semantic_break(words, current_index, model):
+    """
+    Check if there's a semantic break at the current position.
+    
+    Args:
+        words (list): List of all words
+        current_index (int): Current position
+        model: SentenceTransformer model
+    
+    Returns:
+        bool: True if there's a semantic break
+    """
+    try:
+        # Create text chunks before and after current position
+        before_text = ' '.join(words[:current_index + 1])
+        after_text = ' '.join(words[current_index + 1:current_index + 10])  # Look ahead 10 words
+        
+        if not before_text.strip() or not after_text.strip():
+            return False
+        
+        # Calculate semantic similarity
+        embeddings = model.encode([before_text, after_text])
+        similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+        
+        # Lower similarity suggests a semantic break
+        return similarity < 0.6
+        
+    except Exception:
+        # If semantic analysis fails, be conservative
+        return False
+
+
+def apply_semantic_punctuation(sentence, model, language, sentence_index, total_sentences):
+    """
+    Apply appropriate punctuation to a sentence using semantic analysis.
+    
+    Args:
+        sentence (str): The sentence to punctuate
+        model: SentenceTransformer model
+        language (str): Language code
+        sentence_index (int): Index of current sentence
+        total_sentences (int): Total number of sentences
+    
+    Returns:
+        str: Sentence with appropriate punctuation
+    """
+    # Check if it's a question using semantic similarity
+    if is_question_semantic(sentence, model, language):
+        if not sentence.endswith('?'):
+            sentence = sentence.rstrip('.!') + '?'
+        return sentence
+    
+    # Check for exclamation patterns
+    if is_exclamation_semantic(sentence, model, language):
+        if not sentence.endswith('!'):
+            sentence = sentence.rstrip('.?') + '!'
+        return sentence
+    
+    # Default to period if no other punctuation
+    if sentence and not sentence.endswith(('.', '!', '?')):
+        # Don't add period if it ends with a continuation word
+        if not is_continuation_word(sentence.split()[-1] if sentence.split() else '', language):
+            sentence += '.'
+    
+    return sentence
+
+
+def is_question_semantic(sentence, model, language):
+    """
+    Determine if a sentence is a question using semantic similarity.
+    
+    Args:
+        sentence (str): The sentence to analyze
+        model: SentenceTransformer model
+        language (str): Language code
+    
+    Returns:
+        bool: True if sentence is a question
+    """
+    # First check for obvious question indicators
+    if has_question_indicators(sentence, language):
+        return True
+    
+    question_patterns = get_question_patterns(language)
+    if not question_patterns:
+        return False
+    
+    try:
+        # Encode sentence and question patterns
+        texts_to_encode = [sentence] + question_patterns
+        embeddings = model.encode(texts_to_encode)
+        
+        # Calculate similarities with question patterns
+        sentence_embedding = embeddings[0]
+        question_embeddings = embeddings[1:]
+        
+        similarities = []
+        for q_emb in question_embeddings:
+            similarity = cosine_similarity([sentence_embedding], [q_emb])[0][0]
+            similarities.append(similarity)
+        
+        # Lower threshold for better question detection
+        return max(similarities) > 0.6
+        
+    except Exception:
+        return False
+
+
+def has_question_indicators(sentence, language):
+    """
+    Check for obvious question indicators in the sentence.
+    
+    Args:
+        sentence (str): The sentence to check
+        language (str): Language code
+    
+    Returns:
+        bool: True if sentence has question indicators
+    """
+    sentence_lower = sentence.lower()
+    
+    # Question words
+    question_words = {
+        'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'whose', 'whom'],
+        'es': ['qué', 'dónde', 'cuándo', 'por', 'qué', 'cómo', 'quién', 'cuál', 'cuáles', 'de', 'quién'],
+        'de': ['was', 'wo', 'wann', 'warum', 'wie', 'wer', 'welche', 'welches', 'wessen'],
+        'fr': ['quoi', 'où', 'quand', 'pourquoi', 'comment', 'qui', 'quel', 'quelle', 'quels', 'quelles']
+    }
+    
+    words = question_words.get(language, question_words['en'])
+    
+    # Check if sentence starts with question words
+    for word in words:
+        if sentence_lower.startswith(word + ' '):
+            return True
+    
+    # Special case for Spanish: check for question words at the beginning even without ¿
+    if language == 'es':
+        spanish_question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'cuáles', 'por qué']
+        for starter in spanish_question_starters:
+            if sentence_lower.startswith(starter + ' '):
+                return True
+    
+    # Check for question words anywhere in the sentence (for embedded questions)
+    # But be more conservative to avoid false positives
+    for word in words:
+        if ' ' + word + ' ' in sentence_lower:
+            # Only consider it a question if it's not a common greeting or statement
+            if language == 'es':
+                # Avoid false positives for common greetings and statements
+                if any(greeting in sentence_lower for greeting in ['hola', 'buenos días', 'buenas tardes', 'buenas noches']):
+                    continue
+                if any(statement in sentence_lower for statement in ['gracias', 'por favor', 'de nada', 'no hay problema']):
+                    continue
+            return True
+    
+    # Check for question marks already present
+    if '?' in sentence:
+        return True
+    
+    # Additional Spanish-specific checks to avoid false positives
+    if language == 'es':
+        # Check if sentence starts with common non-question patterns
+        if sentence_lower.startswith(('hola ', 'buenos días ', 'buenas tardes ', 'buenas noches ', 'gracias ', 'por favor ')):
+            return False
+        
+        # Check if sentence contains common statement patterns
+        if any(pattern in sentence_lower for pattern in [
+            'el proyecto', 'la reunión', 'necesito', 'quiero', 'voy a', 'tengo que',
+            'es importante', 'es necesario', 'es correcto', 'está bien'
+        ]):
+            # Only consider it a question if it has strong question indicators
+            has_strong_question = any(word in sentence_lower for word in ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál'])
+            if not has_strong_question:
+                return False
+    
+    # Check for question intonation patterns (common in speech)
+    if language == 'en':
+        # Common question patterns in English
+        if any(pattern in sentence_lower for pattern in [
+            'can you', 'could you', 'would you', 'will you', 'do you', 'does', 'did you',
+            'are you', 'is this', 'is that', 'are they', 'is it', 'am i'
+        ]):
+            return True
+    elif language == 'es':
+        # Common question patterns in Spanish
+        if any(pattern in sentence_lower for pattern in [
+            'puedes', 'puede', 'podrías', 'podría', 'vas a', 'va a', 'vas', 'va',
+            'tienes', 'tiene', 'tienes que', 'tiene que', 'necesitas', 'necesita',
+            'sabes', 'sabe', 'conoces', 'conoce', 'hay', 'está', 'estás', 'es', 'eres',
+            'te gusta', 'le gusta', 'te gustaría', 'le gustaría', 'quieres', 'quiere',
+            'te parece', 'le parece', 'crees', 'cree', 'piensas', 'piensa'
+        ]):
+            return True
+        # Check for Spanish question word combinations
+        if any(pattern in sentence_lower for pattern in [
+            'qué hora', 'qué día', 'qué fecha', 'qué tiempo', 'qué tal', 'qué pasa',
+            'dónde está', 'dónde vas', 'dónde queda', 'dónde puedo',
+            'cuándo es', 'cuándo va', 'cuándo viene', 'cuándo sale',
+            'cómo está', 'cómo va', 'cómo te', 'cómo se', 'cómo puedo',
+            'quién es', 'quién está', 'quién va', 'quién puede',
+            'cuál es', 'cuáles son', 'cuál prefieres', 'cuál te gusta'
+        ]):
+            return True
+    
+    return False
+
+
+def is_exclamation_semantic(sentence, model, language):
+    """
+    Determine if a sentence is an exclamation using semantic similarity.
+    
+    Args:
+        sentence (str): The sentence to analyze
+        model: SentenceTransformer model
+        language (str): Language code
+    
+    Returns:
+        bool: True if sentence is an exclamation
+    """
+    exclamation_patterns = get_exclamation_patterns(language)
+    if not exclamation_patterns:
+        return False
+    
+    try:
+        # Encode sentence and exclamation patterns
+        texts_to_encode = [sentence] + exclamation_patterns
+        embeddings = model.encode(texts_to_encode)
+        
+        # Calculate similarities with exclamation patterns
+        sentence_embedding = embeddings[0]
+        exclamation_embeddings = embeddings[1:]
+        
+        similarities = []
+        for e_emb in exclamation_embeddings:
+            similarity = cosine_similarity([sentence_embedding], [e_emb])[0][0]
+            similarities.append(similarity)
+        
+        return max(similarities) > 0.7
+        
+    except Exception:
+        return False
+
+
+def get_exclamation_patterns(language):
+    """
+    Get exclamation patterns for semantic similarity comparison.
+    
+    Args:
+        language (str): Language code
+    
+    Returns:
+        list: List of exclamation patterns
+    """
+    exclamation_patterns = {
+        'en': [
+            "That's amazing!",
+            "How wonderful!",
+            "What a surprise!",
+            "I can't believe it!",
+            "That's incredible!",
+            "How exciting!",
+            "What a great idea!",
+            "That's fantastic!",
+            "How beautiful!",
+            "What a relief!"
+        ],
+        'es': [
+            "¡Qué increíble!",
+            "¡Qué maravilloso!",
+            "¡Qué sorpresa!",
+            "¡No puedo creerlo!",
+            "¡Qué fantástico!",
+            "¡Qué emocionante!",
+            "¡Qué gran idea!",
+            "¡Qué alivio!",
+            "¡Qué hermoso!",
+            "¡Qué bueno!"
+        ],
+        'de': [
+            "Das ist unglaublich!",
+            "Wie wunderbar!",
+            "Was für eine Überraschung!",
+            "Ich kann es nicht glauben!",
+            "Das ist fantastisch!",
+            "Wie aufregend!",
+            "Was für eine tolle Idee!",
+            "Was für eine Erleichterung!",
+            "Wie schön!",
+            "Das ist großartig!"
+        ],
+        'fr': [
+            "C'est incroyable!",
+            "Comme c'est merveilleux!",
+            "Quelle surprise!",
+            "Je n'en reviens pas!",
+            "C'est fantastique!",
+            "Comme c'est excitant!",
+            "Quelle excellente idée!",
+            "Quel soulagement!",
+            "Comme c'est beau!",
+            "C'est génial!"
+        ]
+    }
+    
+    return exclamation_patterns.get(language, exclamation_patterns['en'])
 
 
 def apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
@@ -247,7 +651,26 @@ def get_question_patterns(language):
             "¿Te gustaría ir?",
             "¿Vas a venir?",
             "¿Haces esto?",
-            "¿Eres listo?"
+            "¿Eres listo?",
+            "¿Qué hora es?",
+            "¿Qué día es hoy?",
+            "¿Dónde está la reunión?",
+            "¿Cuándo es la cita?",
+            "¿Cómo estás?",
+            "¿Quién puede ayudarme?",
+            "¿Cuál es tu nombre?",
+            "¿Puedes enviarme la agenda?",
+            "¿Tienes tiempo?",
+            "¿Sabes dónde queda?",
+            "¿Hay algo más?",
+            "¿Está todo bien?",
+            "¿Te parece bien?",
+            "¿Quieres que vayamos?",
+            "¿Crees que es correcto?",
+            "¿Necesitas ayuda?",
+            "¿Va a llover hoy?",
+            "¿Estás listo?",
+            "¿Puedo ayudarte?"
         ],
         'de': [
             "Was ist das?",
