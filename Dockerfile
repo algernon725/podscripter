@@ -10,11 +10,10 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies
 RUN pip install --upgrade pip
-RUN pip install faster-whisper nltk pydub
+RUN pip install faster-whisper pydub
 RUN pip install sentence-transformers
 
-# Download NLTK data
-RUN python -m nltk.downloader punkt
+# No longer need NLTK - using simple sentence splitting
 
 COPY . .
 

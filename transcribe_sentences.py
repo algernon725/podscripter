@@ -28,7 +28,7 @@ Transcribe audio files into sentences and save as TXT or SRT files.
 Supports multiple languages with auto-detection.
 """
 
-import nltk
+import re
 import sys
 import os
 import glob
@@ -42,9 +42,7 @@ from faster_whisper import WhisperModel
 # Import punctuation restoration module
 from punctuation_restorer import restore_punctuation
 
-# Ensure NLTK punkt is available
-#nltk.download('punkt', quiet=True)
-nltk.download('punkt_tab', quiet=True)
+# No longer need NLTK - using simple sentence splitting
 
 def get_supported_languages():
     """Return a dictionary of commonly used language codes."""
@@ -158,7 +156,7 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
     
     # Model configuration
     model_name = "medium"
-    beam_size = 3
+    beam_size = 5
     compute_type = "int8"
     device = "cpu"
     
@@ -223,30 +221,11 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
         lang_for_punctuation = detected_language if language is None else language
         punctuated_text = restore_punctuation(all_text, lang_for_punctuation)
         
-        lang_map = {
-            'en': 'english',
-            'es': 'spanish',
-            'de': 'german',
-            'fr': 'french',
-            'ja': 'english',  # Japanese not directly supported by NLTK, fallback to English
-            'ru': 'english',  # Russian not directly supported by NLTK, fallback to English
-            'cs': 'english',  # Czech not directly supported by NLTK, fallback to English
-            'it': 'english',  # Italian not directly supported by NLTK, fallback to English
-            'pt': 'english',  # Portuguese not directly supported by NLTK, fallback to English
-            'nl': 'english',  # Dutch not directly supported by NLTK, fallback to English
-            'pl': 'english',  # Polish not directly supported by NLTK, fallback to English
-            'tr': 'english',  # Turkish not directly supported by NLTK, fallback to English
-            'ar': 'english',  # Arabic not directly supported by NLTK, fallback to English
-            'zh': 'english',  # Chinese not directly supported by NLTK, fallback to English
-            'ko': 'english',  # Korean not directly supported by NLTK, fallback to English
-            'hi': 'english',  # Hindi not directly supported by NLTK, fallback to English
-            'sv': 'english',  # Swedish not directly supported by NLTK, fallback to English
-            'da': 'english',  # Danish not directly supported by NLTK, fallback to English
-            'no': 'english',  # Norwegian not directly supported by NLTK, fallback to English
-            'fi': 'english'   # Finnish not directly supported by NLTK, fallback to English
-        }
-        nltk_lang = lang_map.get(lang_for_punctuation, 'english')
-        sentences = nltk.sent_tokenize(punctuated_text, language=nltk_lang)
+        # Simple sentence splitting using punctuation marks
+        # Split on sentence-ending punctuation followed by whitespace or end of string
+        sentences = re.split(r'[.!?]+(?:\s+|$)', punctuated_text)
+        # Remove empty sentences and strip whitespace
+        sentences = [s.strip() for s in sentences if s.strip()]
         # Remove leading ', ', '"', or whitespace from each sentence and capitalize first letter
         cleaned_sentences = []
         for s in sentences:
