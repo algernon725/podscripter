@@ -6,8 +6,6 @@ It supports multiple languages with automatic language detection, including Engl
 
 `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
 
-I welcome contributions from people of any skill level to help make this software better! To contribute code, simply clone this repo and submit a pull request. For more information, see the GitHub documentation: [Contributing to a Project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
-
 ---
 
 ## ✨ Features
