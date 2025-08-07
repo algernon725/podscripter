@@ -27,7 +27,7 @@ It supports multiple languages with automatic language detection, including Engl
 ## 🧰 Requirements
 
 - Apple Mac with an M series processor.
-- Windows x86 PC support by modifying the Docker build command
+- Other architectures supported by modifying the Docker build command
 
 ---
 
