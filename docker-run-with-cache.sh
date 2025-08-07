@@ -10,6 +10,6 @@ docker run --platform linux/arm64 -it \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
-  podscripter-debug
+  podscripter
 
 echo "Container finished."
