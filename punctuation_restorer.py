@@ -291,6 +291,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         result = re.sub(r'\b(también sí)\s*$', r'\1.', result, flags=re.IGNORECASE)
         result = re.sub(r'\b(sí)\s*$', r'\1.', result, flags=re.IGNORECASE)
         result = re.sub(r'\b(no)\s*$', r'\1.', result, flags=re.IGNORECASE)
+        result = re.sub(r'\b(pues tranquilo)\s*$', r'\1.', result, flags=re.IGNORECASE)
         
         # Additional comprehensive fix for any remaining sentences without punctuation
         # Split by sentences and ensure each one ends with punctuation
@@ -299,8 +300,8 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
             if i < len(sentences):
                 sentence = sentences[i].strip()
                 if sentence and not sentence.endswith(('.', '!', '?')):
-                    # Special handling for "También sí" and similar short phrases
-                    if sentence.lower() in ['también sí', 'sí', 'no', 'claro', 'exacto', 'perfecto', 'vale', 'bien']:
+                    # Special handling for short phrases
+                    if sentence.lower() in ['también sí', 'sí', 'no', 'claro', 'exacto', 'perfecto', 'vale', 'bien', 'pues tranquilo']:
                         sentence += '.'
                     else:
                         sentence += '.'

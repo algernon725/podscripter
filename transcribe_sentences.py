@@ -219,24 +219,43 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
         print("Restoring punctuation...")
         # Use detected language if auto-detection was used, otherwise use provided language
         lang_for_punctuation = detected_language if language is None else language
-        punctuated_text = restore_punctuation(all_text, lang_for_punctuation)
         
-        # Simple sentence splitting using punctuation marks
-        # Split on sentence-ending punctuation followed by whitespace or end of string
-        sentences = re.split(r'[.!?]+(?:\s+|$)', punctuated_text)
-        # Remove empty sentences and strip whitespace
-        sentences = [s.strip() for s in sentences if s.strip()]
-        # Remove leading ', ', '"', or whitespace from each sentence and capitalize first letter
-        cleaned_sentences = []
-        for s in sentences:
-            # Remove leading punctuation and whitespace
-            cleaned = re.sub(r'^[",\s]+', '', s)
-            # Capitalize first letter if it's a letter
-            if cleaned and cleaned[0].isalpha():
-                cleaned = cleaned[0].upper() + cleaned[1:]
-            cleaned_sentences.append(cleaned)
+        # First, split the text into individual segments (as they come from Whisper)
+        # Split by double newlines (which separate sentences in the transcription)
+        text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
+        
+        sentences = []
+        for segment in text_segments:
+            # Process each segment individually for better punctuation
+            processed_segment = restore_punctuation(segment, lang_for_punctuation)
+            
+            # Split the processed segment into sentences while preserving punctuation
+            # Split by sentence-ending punctuation but capture the punctuation
+            parts = re.split(r'([.!?]+)', processed_segment)
+            
+            for i in range(0, len(parts), 2):
+                if i < len(parts):
+                    sentence_text = parts[i].strip()
+                    punctuation = parts[i + 1] if i + 1 < len(parts) else ""
+                    
+                    if sentence_text:
+                        # Combine sentence text with its punctuation
+                        full_sentence = sentence_text + punctuation
+                        
+                        # Remove leading punctuation and whitespace
+                        cleaned = re.sub(r'^[",\s]+', '', full_sentence)
+                        
+                        # Capitalize first letter if it's a letter
+                        if cleaned and cleaned[0].isalpha():
+                            cleaned = cleaned[0].upper() + cleaned[1:]
+                        
+                        if cleaned:
+                            # Ensure the sentence ends with punctuation
+                            if not cleaned.endswith(('.', '!', '?')):
+                                cleaned += '.'
+                            sentences.append(cleaned)
         output_file = os.path.join(output_dir, base_name + ".txt")
-        write_txt(cleaned_sentences, output_file)
+        write_txt(sentences, output_file)
 
 def cleanup_chunks(media_file):
     """
