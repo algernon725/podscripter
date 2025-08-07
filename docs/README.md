@@ -188,12 +188,6 @@ PodScripter uses several AI models that are cached locally to avoid re-downloadi
 - **Sentence-Transformers** (`models/sentence-transformers/`): Punctuation restoration models (~100-200 MB)
 - **HuggingFace Cache** (`models/huggingface/`): Transformer models and datasets (~50-100 MB)
 
-**Benefits:**
-- ✅ Faster startup after first run
-- ✅ Works offline once models are downloaded
-- ✅ No bandwidth usage on subsequent runs
-- ✅ Consistent model versions
-
 **To clear cache and re-download models:**
 ```bash
 rm -rf models/whisper/* models/sentence-transformers/* models/huggingface/*
