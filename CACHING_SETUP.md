@@ -62,9 +62,10 @@ docker run --platform linux/arm64 -it \
 - Downloaded by `sentence-transformers` library
 
 ### HuggingFace Cache (`/root/.cache/huggingface`)
-- Transformer models and datasets
+- Transformer models, datasets, and all HuggingFace resources
 - Used by sentence-transformers and other HuggingFace libraries
-- Includes tokenizers, configs, and model weights
+- Includes tokenizers, configs, model weights, and datasets
+- Note: Uses `HF_HOME` environment variable (deprecated `TRANSFORMERS_CACHE` removed)
 
 ## 🔍 Verification
 
@@ -95,6 +96,7 @@ ls -la models/huggingface/
 1. **Check volume mounts**: Ensure the directories exist and are writable
 2. **Check permissions**: Make sure the container can write to the mounted volumes
 3. **Check environment variables**: Verify the cache directories are set correctly
+4. **Check for deprecation warnings**: Ensure you're using the latest Dockerfile with `HF_HOME` instead of deprecated `TRANSFORMERS_CACHE`
 
 ### To force re-download:
 

@@ -20,7 +20,5 @@ COPY . .
 #ENV OMP_NUM_THREADS=8
 ENV WHISPER_CACHE_DIR=/app/models
 ENV HF_HOME=/root/.cache/huggingface
-ENV TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
-ENV HF_DATASETS_CACHE=/root/.cache/huggingface/datasets
 
 CMD ["bash"]
