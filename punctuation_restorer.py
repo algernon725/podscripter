@@ -202,21 +202,37 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         
         result = ' '.join(formatted_sentences)
         
-        # Add inverted question marks for questions (but be more careful to avoid duplicates)
-        question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas']
-        for starter in question_starters:
-            pattern = rf'\b{starter}\b'
-            if re.search(pattern, result, re.IGNORECASE):
-                # Find sentences containing question words and add inverted question mark
-                sentences = re.split(r'([.!?]+)', result)
-                for i in range(0, len(sentences), 2):
-                    if i < len(sentences) and re.search(pattern, sentences[i], re.IGNORECASE):
-                        sentence_text = sentences[i].strip()
-                        # Only add ¿ if it doesn't already start with ¿
-                        if not sentence_text.startswith('¿'):
-                            sentences[i] = '¿' + sentence_text
-                result = ''.join(sentences)
-                break
+        # Add inverted question marks for questions (comprehensive approach)
+        # First, identify all sentences that end with question marks
+        sentences = re.split(r'([.!?]+)', result)
+        for i in range(0, len(sentences), 2):
+            if i < len(sentences):
+                sentence_text = sentences[i].strip()
+                punctuation = sentences[i + 1] if i + 1 < len(sentences) else ""
+                
+                # If the sentence ends with a question mark, it should start with ¿
+                if punctuation == '?' and sentence_text and not sentence_text.startswith('¿'):
+                    # Check if it's a question that should have inverted question mark
+                    sentence_lower = sentence_text.lower()
+                    
+                    # Question patterns that should have inverted question marks
+                    question_patterns = [
+                        # Question words at the beginning
+                        r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
+                        # Verb patterns that indicate questions
+                        r'^(puedes|puede|podrías|podría|sabes|sabe|quieres|quiere|necesitas|necesita|tienes|tiene|vas|va|estás|están|pueden|puede|saben|sabe|quieren|quiere)',
+                        # Common question starters
+                        r'^(hay|va|es|son|está|están|te parece|le parece|crees|cree|piensas|piensa)',
+                        # Short question patterns
+                        r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)'
+                    ]
+                    
+                    # Check if sentence matches any question pattern
+                    is_question = any(re.search(pattern, sentence_lower) for pattern in question_patterns)
+                    
+                    if is_question:
+                        sentences[i] = '¿' + sentence_text
+        result = ''.join(sentences)
         
         # Clean up double punctuation more thoroughly
         result = re.sub(r'\.{2,}', '.', result)
@@ -372,6 +388,61 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         result = re.sub(r'\b(también sí)\s*([.!?])', r'\1.', result, flags=re.IGNORECASE)
         result = re.sub(r'\b(sí)\s*([.!?])', r'\1.', result, flags=re.IGNORECASE)
         result = re.sub(r'\b(no)\s*([.!?])', r'\1.', result, flags=re.IGNORECASE)
+        
+        # FINAL STEP: Add inverted question marks for all questions
+        # This runs after all punctuation has been added
+        sentences = re.split(r'([.!?]+)', result)
+        for i in range(0, len(sentences), 2):
+            if i < len(sentences):
+                sentence_text = sentences[i].strip()
+                punctuation = sentences[i + 1] if i + 1 < len(sentences) else ""
+                
+                # If the sentence ends with a question mark, it should start with ¿
+                if punctuation == '?' and sentence_text and not sentence_text.startswith('¿'):
+                    # Check if it's a question that should have inverted question mark
+                    sentence_lower = sentence_text.lower()
+                    
+                    # Comprehensive question patterns that should have inverted question marks
+                    question_patterns = [
+                        # Question words at the beginning
+                        r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
+                        # Verb patterns that indicate questions (present and past tense)
+                        r'^(puedes|puede|podrías|podría|pudiste|pudo|pudieron|pudimos|sabes|sabe|supiste|supo|supieron|quieres|quiere|quisiste|quiso|quisieron|necesitas|necesita|necesitaste|necesitó|necesitaron|tienes|tiene|tuviste|tuvo|tuvieron|vas|va|fuiste|fue|fueron|estás|están|estuviste|estuvo|estuvieron|pueden|saben|quieren)',
+                        # Common question starters
+                        r'^(hay|va|es|son|está|están|te parece|le parece|crees|cree|piensas|piensa)',
+                        # Short question patterns
+                        r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)',
+                        # Additional question patterns
+                        r'^(no sé|no sabes|no puedes|no quieres|no necesitas|no tienes|no vas|no estás|no están|no pueden|no saben|no quieren)',
+                        r'^(se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede)',
+                        r'^(te gusta|le gusta|te gustaría|le gustaría|te parece|le parece|te parece|le parece|te parece|le parece|te parece|le parece)'
+                    ]
+                    
+                    # Check if sentence matches any question pattern
+                    is_question = any(re.search(pattern, sentence_lower) for pattern in question_patterns)
+                    
+                    # Also check for common question indicators anywhere in the sentence
+                    question_indicators = ['puedes', 'puede', 'pudiste', 'pudo', 'pudieron', 'pudimos', 'sabes', 'sabe', 'supiste', 'supo', 'supieron', 'quieres', 'quiere', 'quisiste', 'quiso', 'quisieron', 'necesitas', 'necesita', 'necesitaste', 'necesitó', 'necesitaron', 'tienes', 'tiene', 'tuviste', 'tuvo', 'tuvieron', 'vas', 'va', 'fuiste', 'fue', 'fueron', 'estás', 'están', 'estuviste', 'estuvo', 'estuvieron', 'hay', 'es', 'son', 'está', 'están', 'listos', 'listas', 'listo', 'lista']
+                    has_question_indicator = any(indicator in sentence_lower for indicator in question_indicators)
+                    
+                    # Additional check for common question patterns that might be missed
+                    additional_question_patterns = [
+                        r'estamos\s+listos?',
+                        r'están\s+listos?',
+                        r'estás\s+listo?',
+                        r'cómo\s+están?',
+                        r'cómo\s+estás?',
+                        r'quieren\s+ir?',
+                        r'van\s+a\s+ir?',
+                        r'van\s+a\s+venir?',
+                        r'van\s+a\s+salir?',
+                        r'van\s+a\s+llegar?'
+                    ]
+                    has_additional_pattern = any(re.search(pattern, sentence_lower) for pattern in additional_question_patterns)
+                    
+                    if is_question or has_question_indicator or has_additional_pattern:
+                        sentences[i] = '¿' + sentence_text
+        result = ''.join(sentences)
     
     return result.strip()
 
@@ -741,6 +812,20 @@ def has_question_indicators(sentence, language):
     if language == 'es':
         spanish_question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'cuáles', 'por qué']
         for starter in spanish_question_starters:
+            if sentence_lower.startswith(starter + ' '):
+                return True
+        
+        # Check for verb-based question starters (present and past tense)
+        spanish_verb_starters = [
+            'puedes', 'puede', 'pudiste', 'pudo', 'pudieron', 'pudimos',
+            'sabes', 'sabe', 'supiste', 'supo', 'supieron',
+            'quieres', 'quiere', 'quisiste', 'quiso', 'quisieron',
+            'necesitas', 'necesita', 'necesitaste', 'necesitó', 'necesitaron',
+            'tienes', 'tiene', 'tuviste', 'tuvo', 'tuvieron',
+            'vas', 'va', 'fuiste', 'fue', 'fueron',
+            'estás', 'están', 'estuviste', 'estuvo', 'estuvieron'
+        ]
+        for starter in spanish_verb_starters:
             if sentence_lower.startswith(starter + ' '):
                 return True
     
