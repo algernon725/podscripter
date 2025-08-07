@@ -20,6 +20,9 @@ I welcome contributions from people of any skill level to help make this softwar
 - **Flexible Output**: Choose your transcription language and output format.
 - **Advanced Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in multiple languages.
 - **Batch Transcription**: Transcribe multiple files with a simple loop.
+- **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
+- **Sentence-Transformers**: Leverages sentence embedding models for intelligent punctuation restoration.
+- **HuggingFace Integration**: Utilizes HuggingFace transformers for NLP capabilities.
 
 ---
 
@@ -52,8 +55,13 @@ Open a terminal and run:
 Create folders to store audio files and model data:
   ```bash
   mkdir -p audio-files
-  mkdir -p models
+  mkdir -p models/whisper models/sentence-transformers models/huggingface
   ```
+
+This creates the necessary directory structure for caching models:
+- `models/whisper/` - Caches Whisper speech recognition models
+- `models/sentence-transformers/` - Caches sentence embedding models for punctuation restoration
+- `models/huggingface/` - Caches HuggingFace transformer models and datasets
 
 ### 4. Build the Docker Image
 
@@ -68,12 +76,21 @@ Build the container image that will run the transcription tool:
 Run the container and mount the folders you just created:
   ```bash
   docker run --platform linux/arm64 -it \
-  -v $(pwd)/models:/root/.cache/whisper \
+  -v $(pwd)/models/whisper:/app/models \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter
   ```
 This opens an interactive terminal inside the container. You'll run all transcription commands from here.
 >💡 If you’re on an Intel Mac or other architecture, remove --platform linux/arm64
+
+**Alternative: Use the caching script**
+  ```bash
+  ./docker-run-with-cache.sh
+  ```
+
+>💡 **Model Caching**: The first run will download models (~1-2 GB). Subsequent runs will use cached models for faster startup.
 
 ## 📄 How to Use The Transcription Tool
 
@@ -164,6 +181,25 @@ To transcribe all `.mp3` and `.mp4` files in the audio-files folder with auto-de
 
 ## 📚 Why Use This?
 When learning a new language, especially through podcasts, having accurate, aligned transcriptions is essential for comprehension and retention. Many language learning apps impose monthly transcription limits or rely on cloud-based AI. This tool gives you full control over your data, with no recurring costs, and the power of Whisper, all on your own hardware.
+
+## 🗄️ Model Caching
+
+PodScripter uses several AI models that are cached locally to avoid re-downloading:
+
+- **Whisper Models** (`models/whisper/`): Speech recognition models (~1-2 GB)
+- **Sentence-Transformers** (`models/sentence-transformers/`): Punctuation restoration models (~100-200 MB)
+- **HuggingFace Cache** (`models/huggingface/`): Transformer models and datasets (~50-100 MB)
+
+**Benefits:**
+- ✅ Faster startup after first run
+- ✅ Works offline once models are downloaded
+- ✅ No bandwidth usage on subsequent runs
+- ✅ Consistent model versions
+
+**To clear cache and re-download models:**
+```bash
+rm -rf models/whisper/* models/sentence-transformers/* models/huggingface/*
+```
 
 ## 📦 Output
 Transcriptions are saved in sentence-separated `.txt` or `.srt`
