@@ -46,6 +46,14 @@ except ImportError:
     print("Warning: SentenceTransformers not available. Advanced punctuation restoration may be limited.")
 
 
+# Optional spaCy import for NLP-based capitalization
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except Exception:
+    SPACY_AVAILABLE = False
+
+
 _SENTENCE_TRANSFORMER_SINGLETON = None
 
 def _get_cache_paths():
@@ -516,9 +524,17 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
 
         # Apply targeted Spanish cleanup after semantic gating
         result = _spanish_cleanup_postprocess(result)
+
+        # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
+        if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
+            result = _apply_spacy_capitalization(result, language)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
         result = format_non_spanish_text(result, language)
+
+        # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
+        if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
+            result = _apply_spacy_capitalization(result, language)
 
     return result.strip()
 
@@ -1330,6 +1346,110 @@ def format_non_spanish_text(text: str, language: str) -> str:
     out = re.sub(r'([,])(?=\S)', r'\1 ', out)
     out = re.sub(r'\s+', ' ', out).strip()
     return out
+
+
+# ---------------- NLP Capitalization (spaCy) ----------------
+_SPACY_PIPELINES = {}
+
+def _get_spacy_pipeline(language: str):
+    if not SPACY_AVAILABLE:
+        return None
+    if language in _SPACY_PIPELINES:
+        return _SPACY_PIPELINES[language]
+    model_map = {
+        'en': 'en_core_web_sm',
+        'es': 'es_core_news_sm',
+        'fr': 'fr_core_news_sm',
+        'de': 'de_core_news_sm',
+    }
+    name = model_map.get(language)
+    if not name:
+        return None
+    try:
+        nlp = spacy.load(name, disable=["lemmatizer"])  # speed
+        _SPACY_PIPELINES[language] = nlp
+        return nlp
+    except Exception:
+        return None
+
+
+def _apply_spacy_capitalization(text: str, language: str) -> str:
+    """Capitalize named entities and proper nouns using spaCy, conservatively.
+
+    - Capitalize tokens in entities PERSON/ORG/GPE/LOC
+    - Capitalize tokens with POS=PROPN
+    - Preserve particles: de, del, la, las, los, y, o, da, di, do, du, van, von, du, des, le
+    - Skip URLs/emails/handles
+    """
+    nlp = _get_spacy_pipeline(language)
+    if nlp is None or not text.strip():
+        return text
+
+    try:
+        doc = nlp(text)
+    except Exception:
+        return text
+
+    ent_token_idxs = set()
+    ent_types = {"PERSON", "ORG", "GPE", "LOC"}
+    for ent in doc.ents:
+        if ent.label_ in ent_types:
+            for t in ent:
+                ent_token_idxs.add(t.i)
+
+    # Never capitalize these connectors (common Spanish function words)
+    connectors = {
+        "de", "del", "la", "las", "los", "el", "lo",
+        "y", "e", "o", "u",
+        "en", "a", "con", "por", "para", "sin", "sobre", "entre",
+        "da", "di", "do", "du", "van", "von", "des", "le"
+    }
+
+    def should_capitalize(tok) -> bool:
+        txt = tok.text
+        if any(ch in txt for ch in ['@', '/', '://']) or re.search(r"\w+\.\w+", txt):
+            return False
+        low = txt.lower()
+        if low in connectors:
+            return False
+        if tok.i in ent_token_idxs:
+            if low in connectors and tok.ent_iob_ != 'B':
+                return False
+            return True
+        if tok.pos_ == 'PROPN':
+            if low in connectors:
+                return False
+            return True
+        return False
+
+    out = []
+    for tok in doc:
+        t = tok.text
+        if should_capitalize(tok):
+            if t:
+                t = t[0].upper() + t[1:]
+        out.append(t + tok.whitespace_)
+    result = ''.join(out)
+
+    if language == 'es':
+        # Capitalize names after introduction cues (general, not whitelists)
+        def cap_word(w: str) -> str:
+            return w[:1].upper() + w[1:] if w else w
+        stop_after_intro = {"de", "del", "la", "el", "los", "las", "y", "e", "o", "u"}
+        # mi nombre es / me llamo / yo soy + Name
+        def intro_repl(m: re.Match) -> str:
+            cue = m.group(1)
+            nxt = m.group(2)
+            return f"{cue} {nxt if nxt.lower() in stop_after_intro else cap_word(nxt)}"
+        result = re.sub(r'(?i)\b(mi nombre es|me llamo|yo soy)\s+([\wáéíóúñÁÉÍÓÚÑ-]+)', intro_repl, result)
+        # Locations after vivo en / trabajo en + Place (skip stopwords)
+        def loc_repl(m: re.Match) -> str:
+            cue = m.group(1)
+            nxt = m.group(2)
+            return f"{cue} {nxt if nxt.lower() in stop_after_intro else cap_word(nxt)}"
+        result = re.sub(r'(?i)\b(vivo en|trabajo en)\s+([\wáéíóúñÁÉÍÓÚÑ-]+)', loc_repl, result)
+
+    return result
 
 
 def _apply_french_hyphenation(sentence: str) -> str:
