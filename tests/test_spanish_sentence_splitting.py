@@ -45,6 +45,26 @@ def test_spanish_sentence_splitting():
             'input': "es importante que todos estén presentes",
             'expected': "Es importante que todos estén presentes.",
             'description': 'Statement about importance'
+        },
+        {
+            'input': "buenas tardes mi nombre es maría y trabajo en bogotá",
+            'expected': "Buenas tardes, mi nombre es María y trabajo en Bogotá.",
+            'description': 'Greeting with introduction'
+        },
+        {
+            'input': "puedes decirme dónde queda la estación de metro",
+            'expected': "¿Puedes decirme dónde queda la estación de metro?",
+            'description': 'Embedded wh-question'
+        },
+        {
+            'input': "ayer fuimos al museo y después comimos en un restaurante muy bonito",
+            'expected': "Ayer fuimos al museo y después comimos en un restaurante muy bonito.",
+            'description': 'Past tense narrative statement'
+        },
+        {
+            'input': "quieren ir al cine esta noche o prefieren quedarse en casa",
+            'expected': "¿Quieren ir al cine esta noche o prefieren quedarse en casa?",
+            'description': 'Yes/No question with coordination'
         }
     ]
     
