@@ -13,14 +13,13 @@ It supports multiple languages with automatic language detection, including Engl
 - **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
 - **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
+- **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
 - **Multi-Language Support**: Supports 20+ languages with manual language selection option.
-- **Flexible Output**: Choose your transcription language and output format.
-- **Advanced Punctuation Restoration**: Uses advanced NLP techniques to restore proper punctuation in multiple languages.
-- **Batch Transcription**: Transcribe multiple files with a simple loop.
+- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration.
+- **Batch Processing**: Transcribe multiple files using simple shell loops.
 - **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
-- **Sentence-Transformers**: Leverages sentence embedding models for intelligent punctuation restoration.
-- **HuggingFace Integration**: Utilizes HuggingFace transformers for NLP capabilities.
+- **HuggingFace Integration**: Leverages HuggingFace models and caches for local, offline workflows.
 
 ---
 
