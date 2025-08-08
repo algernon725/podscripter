@@ -2,7 +2,7 @@
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. 
 
-It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), German (`de`), Japanese (`ja`), Russian (`ru`), Czech (`cs`), Italian (`it`), Portuguese (`pt`), Dutch (`nl`), Polish (`pl`), Turkish (`tr`), Arabic (`ar`), Chinese (`zh`), Korean (`ko`), Hindi (`hi`), Swedish (`sv`), Danish (`da`), Norwegian (`no`), and Finnish (`fi`). 
+It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). 
 
 `podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
 
@@ -153,18 +153,10 @@ PodScripter supports automatic language detection and manual language selection 
 
 | Language | Code | Language | Code |
 |----------|------|----------|------|
-| Arabic   | `ar` | Italian  | `it`|
-| Chinese  | `zh` | Japanese | `ja`|
-| Czech    | `cs` | Korean   | `ko` |
-| Danish   | `da` | Norwegian | `no` |
-| Dutch    | `nl` | Polish   | `pl` |
-| English  | `en` | Portuguese | `pt` |
-| Finnish  | `fi` | Russian  | `ru` |
-| French   | `fr` | Spanish  | `es` |
-| German   | `de` | Swedish  | `sv` |
-| Hindi    | `hi` | Turkish  | `tr` |
+| English  | `en` | Spanish  | `es` |
+| French   | `fr` | German   | `de` |
 
-**Note**: Whisper supports many more languages beyond this list. These are the most commonly used ones. When using auto-detection, Whisper will automatically identify the language of your audio content.
+**Note**: While Whisper is capable of transcribing many additional languages, the four listed above have received the most extensive output optimization and quality improvements in this project. When using automatic language detection, Whisper will accurately identify the language of your audio content.
 
 ## 🔁 Batch Transcription: All Media Files
 

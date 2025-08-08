@@ -25,5 +25,6 @@ COPY . .
 #ENV OMP_NUM_THREADS=8
 ENV WHISPER_CACHE_DIR=/app/models
 ENV HF_HOME=/root/.cache/huggingface
+ENV NLP_CAPITALIZATION=1
 
 CMD ["bash"]

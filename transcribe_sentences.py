@@ -25,7 +25,8 @@ SOFTWARE.
 
 """
 Transcribe audio files into sentences and save as TXT or SRT files.
-Supports multiple languages with auto-detection.
+Primary language focus: English (en), Spanish (es), French (fr), German (de).
+Other languages are considered experimental.
 """
 
 import re
@@ -42,10 +43,17 @@ from faster_whisper import WhisperModel
 # Import punctuation restoration module
 from punctuation_restorer import restore_punctuation
 
+# Primary language focus
+FOCUS_LANGS = {"en", "es", "fr", "de"}
+
 # No longer need NLTK - using simple sentence splitting
 
 def get_supported_languages():
-    """Return a dictionary of commonly used language codes."""
+    """Return a dictionary of commonly used language codes.
+
+    Primary: en, es, fr, de
+    Others: experimental (may have reduced accuracy)
+    """
     return {
         'en': 'English',
         'es': 'Spanish', 
@@ -79,9 +87,14 @@ def validate_language_code(language_code):
         return language_code
     else:
         print(f"Warning: Language code '{language_code}' not in common list.")
-        print("Common language codes:")
+        print("Primary language codes:")
+        for code in ["en","es","fr","de"]:
+            if code in supported:
+                print(f"  {code}: {supported[code]}")
+        print("Experimental language codes:")
         for code, name in supported.items():
-            print(f"  {code}: {name}")
+            if code not in FOCUS_LANGS:
+                print(f"  {code}: {name} (experimental)")
         print("Whisper supports many more languages. The code will still work if it's valid.")
         return language_code
 
@@ -275,8 +288,14 @@ if __name__ == "__main__":
         print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default auto-detect)] [output_format (txt|srt, default 'txt')]")
         print("\nSupported language codes:")
         supported = get_supported_languages()
+        print("Primary:")
+        for code in ["en","es","fr","de"]:
+            if code in supported:
+                print(f"  {code}: {supported[code]}")
+        print("Experimental:")
         for code, name in supported.items():
-            print(f"  {code}: {name}")
+            if code not in FOCUS_LANGS:
+                print(f"  {code}: {name} (experimental)")
         print("\nNote: Whisper supports many more languages. Use 'auto' or omit language parameter for auto-detection.")
         sys.exit(1)
     media_file = sys.argv[1]
