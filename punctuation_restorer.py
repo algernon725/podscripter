@@ -29,6 +29,7 @@ Supports English, Spanish, French, and German with advanced NLP techniques.
 """
 
 import re
+import os
 import numpy as np
 import warnings
 
@@ -43,6 +44,86 @@ try:
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     print("Warning: SentenceTransformers not available. Advanced punctuation restoration may be limited.")
+
+
+_SENTENCE_TRANSFORMER_SINGLETON = None
+
+def _get_cache_paths():
+    """Return preferred cache paths inside the repo (mounted at /app) or fallbacks.
+
+    We prefer using the repo-mounted caches so tests can reuse downloads across runs:
+    - /app/models/sentence-transformers
+    - /app/models/huggingface
+    Fallbacks to environment defaults used in Docker image.
+    """
+    # Preferred in-repo caches (persist via -v $(pwd):/app)
+    repo_root = "/app"
+    models_dir = os.path.join(repo_root, "models")
+    st_repo_cache = os.path.join(models_dir, "sentence-transformers")
+    hf_repo_cache = os.path.join(models_dir, "huggingface")
+
+    # Docker defaults (already set in Dockerfile/run script)
+    st_default_cache = os.getenv("SENTENCE_TRANSFORMERS_HOME", "/root/.cache/torch/sentence_transformers")
+    hf_default_cache = os.getenv("HF_HOME", "/root/.cache/huggingface")
+
+    st_cache = st_repo_cache if os.path.isdir(st_repo_cache) else st_default_cache
+    hf_cache = hf_repo_cache if os.path.isdir(hf_repo_cache) else hf_default_cache
+    return st_cache, hf_cache
+
+
+def _find_local_model_path(preferred_st_cache: str, model_name: str) -> str | None:
+    """Try to find a locally cached folder for the given model under the sentence-transformers cache.
+
+    Returns a directory path if found, else None.
+    """
+    if not os.path.isdir(preferred_st_cache):
+        return None
+    try:
+        for entry in os.listdir(preferred_st_cache):
+            entry_path = os.path.join(preferred_st_cache, entry)
+            if os.path.isdir(entry_path) and model_name.replace('/', '-') in entry:
+                # Heuristic match on directory name
+                return entry_path
+    except Exception:
+        pass
+    return None
+
+
+def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'):
+    """Load SentenceTransformer once, preferring local cache and enabling offline when possible."""
+    global _SENTENCE_TRANSFORMER_SINGLETON
+    if _SENTENCE_TRANSFORMER_SINGLETON is not None:
+        return _SENTENCE_TRANSFORMER_SINGLETON
+
+    if not SENTENCE_TRANSFORMERS_AVAILABLE:
+        return None
+
+    st_cache, hf_cache = _get_cache_paths()
+
+    # Ensure HF_HOME points to our preferred cache to consolidate downloads
+    os.environ.setdefault("HF_HOME", hf_cache)
+
+    # First try: if a local model directory exists, load from it and go offline
+    local_model_dir = _find_local_model_path(st_cache, model_name.split('/')[-1])
+    if local_model_dir and os.path.isdir(local_model_dir):
+        # Enable offline to avoid any network HEAD calls
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        try:
+            _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(local_model_dir)
+            return _SENTENCE_TRANSFORMER_SINGLETON
+        except Exception:
+            # Fallback to normal loading below
+            pass
+
+    # Second try: load by name but direct cache_folder to sentence-transformers cache
+    try:
+        _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(model_name, cache_folder=st_cache)
+        return _SENTENCE_TRANSFORMER_SINGLETON
+    except Exception:
+        # Last resort: try short name without org (older sbert versions)
+        short_name = 'paraphrase-multilingual-MiniLM-L12-v2'
+        _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(short_name, cache_folder=st_cache)
+        return _SENTENCE_TRANSFORMER_SINGLETON
 
 
 def restore_punctuation(text, language='en'):
@@ -107,8 +188,14 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
     Returns:
         str: Text with restored punctuation
     """
-    # Initialize the model (use multilingual model for better language support)
-    model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    # Initialize the model once (use multilingual model for better language support)
+    model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+    if model is None:
+        # Fallback path if sentence-transformers is unavailable
+        text = re.sub(r'\s+', ' ', text.strip())
+        if text and not text.endswith(('.', '!', '?')):
+            text += '.'
+        return text
     
     # Split text into words
     words = text.split()
@@ -443,7 +530,10 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
                     if is_question or has_question_indicator or has_additional_pattern:
                         sentences[i] = '¿' + sentence_text
         result = ''.join(sentences)
-    
+    else:
+        # Apply light, language-aware formatting for non-Spanish languages
+        result = format_non_spanish_text(result, language)
+
     return result.strip()
 
 
@@ -1206,6 +1296,118 @@ def format_spanish_text(text):
     
     return result
 
+
+def format_non_spanish_text(text: str, language: str) -> str:
+    """Basic capitalization and comma heuristics for non-Spanish languages.
+
+    - Capitalize first letter of each sentence
+    - Ensure closing punctuation at end
+    - Insert a comma in greeting questions like "Hello how are you" -> "Hello, how are you?"
+    - Add common location comma: "from London England" -> "from London, England" (en/de/fr heuristics)
+    """
+    if not text.strip():
+        return text
+
+    # Split keeping punctuation
+    parts = re.split(r'([.!?]+)', text)
+    sentences = []
+    for i in range(0, len(parts), 2):
+        if i >= len(parts):
+            break
+        s = parts[i].strip()
+        p = parts[i + 1] if i + 1 < len(parts) else ''
+        if not s:
+            continue
+
+        # Greeting comma for common patterns
+        lower = s.lower()
+        if language == 'en' and lower.startswith('hello '):
+            s = re.sub(r'^([Hh]ello)\s+', r"\1, ", s)
+        if language == 'fr' and lower.startswith('bonjour '):
+            s = re.sub(r'^([Bb]onjour)\s+', r"\1, ", s)
+        if language == 'de' and lower.startswith('hallo '):
+            s = re.sub(r'^([Hh]allo)\s+', r"\1, ", s)
+
+        # French clitic hyphenation for inversion/question forms
+        if language == 'fr':
+            s = _apply_french_hyphenation(s)
+
+        # Capitalize first alpha
+        if s and s[0].isalpha():
+            s = s[0].upper() + s[1:]
+
+        # Light location comma heuristic (English/French/German)
+        s = re.sub(r'\bfrom\s+([A-Z][a-zA-Zäöüßéèàç]+)\s+([A-Z][a-zA-Zäöüßéèàç]+)\b', r'from \1, \2', s)
+        s = re.sub(r'\bde\s+([A-Z][\wäöüßéèàç]+)\s+([A-Z][\wäöüßéèàç]+)\b', r'de \1, \2', s)
+        s = re.sub(r'\baus\s+([A-Z][\wäöüßéèàç]+)\s+([A-Z][\wäöüßéèàç]+)\b', r'aus \1, \2', s)
+
+        # Ensure punctuation
+        if not p:
+            # Use question mark if starts with typical question words
+            starts_question = False
+            q_starters = {
+                'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'do', 'does', 'did', 'is', 'are', 'can', 'could', 'would', 'will', 'am'],
+                'fr': ['comment', 'où', 'quand', 'pourquoi', 'qui', 'quel', 'quelle', 'quels', 'quelles', 'est-ce que'],
+                'de': ['wie', 'wo', 'wann', 'warum', 'wer', 'welche', 'welches', 'ist', 'sind', 'kann', 'können', 'wird']
+            }
+            starters = q_starters.get(language, q_starters['en'])
+            lower_s = s.lower()
+            for w in starters:
+                if lower_s.startswith(w + ' '):
+                    starts_question = True
+                    break
+            p = '?' if starts_question else '.'
+
+        sentences.append(s + p)
+
+    # Cleanup spacing
+    out = ' '.join(sentences)
+    out = re.sub(r'\s+([,!.?])', r'\1', out)
+    out = re.sub(r'([,])(?=\S)', r'\1 ', out)
+    out = re.sub(r'\s+', ' ', out).strip()
+    return out
+
+
+def _apply_french_hyphenation(sentence: str) -> str:
+    """Apply common French hyphenation rules for clitic inversion in questions.
+
+    Examples:
+    - "Comment allez vous" -> "Comment allez-vous"
+    - "Pouvez vous m'aider" -> "Pouvez-vous m'aider"
+    - "Sommes nous prêts" -> "Sommes-nous prêts"
+    - "Y a il" -> "Y a-t-il"
+    - "Va il" -> "Va-t-il"
+    - "est ce que" -> "est-ce que"
+    - "qu est ce que" -> "qu'est-ce que"
+    """
+    s = sentence
+    # Normalize multiple spaces
+    s = re.sub(r"\s+", " ", s)
+
+    # est-ce que
+    s = re.sub(r"\b([Ee])st\s*ce\s*que\b", r"\1st-ce que", s)
+    # qu'est-ce que variants
+    s = re.sub(r"\b([Qq])u[' ]?\s*est\s*ce\s*que\b", lambda m: ("Qu" if m.group(1).isupper() else "qu") + "'est-ce que", s)
+
+    # General verb-pronoun inversion hyphenation
+    pron = r"(vous|tu|il|elle|on|ils|elles|je|nous)"
+    verbs = (
+        r"êtes|sommes|sont|suis|est|allons|allez|vont|va|ai|as|avons|avez|ont|"
+        r"peux|peut|pouvez|pouvons|peuvent|pourriez|voudriez|voulez|voulais|"
+        r"savez|sais|savons|saurez|pensez|pense|faut|faites|fais|faisons|"
+        r"souvenez|parlez|parlons|parlez|voulez|êtes"
+    )
+    s = re.sub(rf"\b({verbs})\s+{pron}\b", r"\1-\2", s, flags=re.IGNORECASE)
+
+    # Euphonic -t- insertion between vowel-ending verb and il/elle/on
+    s = re.sub(r"\b(va|vont|a|ont|fera|feront|ira|iront|est)-(il|elle|on)\b", r"\1-t-\2", s, flags=re.IGNORECASE)
+
+    # "y a-t-il" pattern
+    s = re.sub(r"\b([Yy])\s*a\s*-?\s*(il|elle|on)\b", lambda m: ("Y" if m.group(1).isupper() else "y") + " a-t-" + m.group(2), s)
+
+    # Clean any doubled hyphens
+    s = re.sub(r"-{2,}", "-", s)
+    return s
 
 def get_question_patterns(language):
     """
