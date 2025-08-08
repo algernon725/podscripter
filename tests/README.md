@@ -1,46 +1,70 @@
 # Punctuation Restoration Tests
 
-This directory contains all test scripts for the punctuation restoration functionality.
+This directory contains tests for punctuation restoration across the primary languages (English, Spanish, French, German) plus a set of general and experimental tests.
 
-## Test Files
+## How to Run
 
-- **`test_improved_punctuation.py`** - Tests the improved punctuation restoration with various languages
-- **`test_model_change.py`** - Verifies the model change to paraphrase-multilingual-MiniLM-L12-v2
-- **`test_spanish_questions.py`** - Comprehensive test for Spanish question detection
-- **`test_spanish_introductions.py`** - Tests Spanish introductions and statements (should NOT be questions)
-- **`model_comparison.py`** - Compares different SentenceTransformer models
-- **`run_all_tests.py`** - Test runner to execute all tests
+Always run tests inside Docker with model caches mounted.
 
-## Running Tests
-
-### Run All Tests
+Run primary tests (default selection):
 ```bash
-# From the project root directory
-docker run --rm -v $(pwd):/app podscripter python tests/run_all_tests.py
+docker run --rm --platform linux/arm64 \
+  -v $(pwd)/models/whisper:/app/models \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+  -v $(pwd):/app \
+  podscripter python3 /app/tests/run_all_tests.py
 ```
 
-### Run Individual Tests
+Include multilingual aggregate tests:
 ```bash
-# From the project root directory
-docker run --rm -v $(pwd):/app podscripter python tests/test_spanish_introductions.py
-docker run --rm -v $(pwd):/app podscripter python tests/test_improved_punctuation.py
-docker run --rm -v $(pwd):/app podscripter python tests/model_comparison.py
+docker run --rm --platform linux/arm64 \
+  -e RUN_MULTILINGUAL=1 \
+  -v $(pwd)/models/whisper:/app/models \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+  -v $(pwd):/app \
+  podscripter python3 /app/tests/run_all_tests.py
 ```
 
-## Test Categories
+Include transcription integration tests:
+```bash
+docker run --rm --platform linux/arm64 \
+  -e RUN_TRANSCRIPTION=1 \
+  -v $(pwd)/models/whisper:/app/models \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+  -v $(pwd):/app \
+  podscripter python3 /app/tests/run_all_tests.py
+```
 
-### Core Functionality Tests
-- **Punctuation Restoration**: Tests the main punctuation restoration functionality
-- **Model Performance**: Compares different SentenceTransformer models
-- **Language Support**: Tests multilingual capabilities
+Run everything (debug/bench included):
+```bash
+docker run --rm --platform linux/arm64 \
+  -e RUN_ALL=1 \
+  -v $(pwd)/models/whisper:/app/models \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+  -v $(pwd):/app \
+  podscripter python3 /app/tests/run_all_tests.py
+```
 
-### Spanish-Specific Tests
-- **Question Detection**: Ensures Spanish questions are properly detected
-- **Introduction Handling**: Verifies Spanish introductions are NOT incorrectly detected as questions
-- **Statement Recognition**: Tests that Spanish statements are properly handled
+## What gets selected by default
 
-## Expected Results
+- Primary language suites:
+  - `test_english_*`, `test_french_*`, `test_german_*`, `test_spanish_*`
+- Core/general checks:
+  - `test_improved_punctuation.py`, `test_punctuation.py`, `test_environment_variables.py`,
+    `test_no_deprecation_warning.py`, `test_past_tense_questions.py`, `test_punctuation_preservation.py`
 
-- **Spanish Introductions**: Should be 100% accurate (no false question detection)
-- **Question Detection**: Should be >90% accurate for real questions
-- **Model Performance**: Should show clear differences between models 
+## Optional groups
+
+- Multilingual aggregates: `test_multilingual_*` (enable with `RUN_MULTILINGUAL=1`)
+- Transcription integration: `test_transcription.py`, `test_transcription_logic.py` (enable with `RUN_TRANSCRIPTION=1`)
+- Debug/bench/experimental: `test_question_detection_debug.py`, `test_transcription_debug.py`,
+  `test_transcription_specific.py`, `model_comparison.py`, `test_model_change.py` (enable with `RUN_DEBUG=1` or `RUN_ALL=1`)
+
+## Maintenance notes
+
+- We focus on English, Spanish, French, and German. Other language tests may be combined into the multilingual group for lighter maintenance.
+- Prefer broad, reusable assertions over one-off cases. If two tests overlap heavily, consolidate into a single parameterized test file.
