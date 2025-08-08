@@ -14,8 +14,24 @@
 ### Supported Languages
 - English (en)
 - Spanish (es) 
-- German (de)
 - French (fr)
+- German (de)
+- Japanese (ja)
+- Russian (ru)
+- Czech (cs)
+- Italian (it)
+- Portuguese (pt)
+- Dutch (nl)
+- Polish (pl)
+- Turkish (tr)
+- Arabic (ar)
+- Chinese (zh)
+- Korean (ko)
+- Hindi (hi)
+- Swedish (sv)
+- Danish (da)
+- Norwegian (no)
+- Finnish (fi)
 
 ## Architectural Principles
 
