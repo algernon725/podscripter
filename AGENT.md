@@ -39,12 +39,19 @@
 - All development and testing must be done inside Docker containers
 - Dependencies are managed through the Dockerfile
 - Model caching is handled via Docker volumes
+- Always mount caches when running containers:
+  - `-v $(pwd)/models/whisper:/app/models`
+  - `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers`
+  - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
+  - `-v $(pwd)/audio-files:/app/audio-files`
 
 ### 2. Model Caching Strategy
 - Whisper models cached in `/app/models`
 - Sentence-Transformers cached in `/root/.cache/torch/sentence_transformers`
 - HuggingFace models cached in `/root/.cache/huggingface`
 - Use `HF_HOME` environment variable (avoid deprecated `TRANSFORMERS_CACHE`)
+- Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
+- Use a singleton model loader to avoid repeated model instantiation within a process
 
 ### 3. Modular Processing Pipeline
 ```
@@ -79,23 +86,23 @@ Audio Input → Whisper Transcription → Punctuation Restoration → Sentence S
 - Apply fixes broadly rather than one-off hacks for individual sentences
 - Accept less than 100% accuracy for difficult edge cases
 - Focus on semantic understanding over rule-based patterns
+- Do not emit optional debug output for punctuated text
 
-#### Spanish-Specific Rules
-- **Inverted Question Marks**: Questions must start with `¿` and end with `?`
-- **Question Detection**: Use comprehensive verb patterns (present and past tense)
-- **Punctuation Patterns**: Handle `¿¿`, `??`, `..`, `!!` duplicates
-- **Sentence Endings**: Ensure all sentences end with proper punctuation (`.`, `!`, `?`)
+#### Formatting Responsibilities
+- Perform capitalization, comma insertion, hyphenation, and all punctuation fixes in `punctuation_restorer.py`
+- Do not implement formatting logic in `transcribe_sentences.py`
 
-#### Multi-language Support
-- Use Sentence-Transformers with multilingual models (e.g., 'paraphrase-multilingual-MiniLM-L12-v2') for multi-language punctuation
-- Avoid language-specific hardcoding when possible
-- Test fixes across all supported languages
+#### Language-Specific Heuristics (recent)
+- French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
+- German: insert commas before common subordinating conjunctions (`dass|weil|ob|wenn`) when safe; expand question starters/modals; capitalize `Ich` after punctuation; capitalize `Herr/Frau + Name`; minimal noun capitalization after determiners; maintain a small whitelist of proper nouns
+- English/French/German: add greeting commas (`Hello, ...`, `Bonjour, ...`, `Hallo, ...`) and capitalize sentence starts
 
 ### 2. Testing Requirements
 - All tests must run inside Docker container
 - Create focused test files for specific bugs/issues
 - Use descriptive test names that explain the scenario
 - Test both individual functions and full transcription pipeline
+- Ensure model caches are mounted for reliable, fast tests and to avoid 429s
 
 ### 3. Docker Best Practices
 - Use `--platform linux/arm64` for M-series Mac compatibility
