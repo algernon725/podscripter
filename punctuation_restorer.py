@@ -258,14 +258,15 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
                     if sentence and sentence[0].isalpha():
                         sentence = sentence[0].upper() + sentence[1:]
                     
-                    # Capitalize proper names and locations
-                    sentence = re.sub(r'\b(andrea|carlos|madrid|colombia|santander|españa|méxico|argentina|texas|estados unidos)\b', 
-                                     lambda m: m.group(1).title(), sentence, flags=re.IGNORECASE)
+                    # (Removed) narrow proper-noun whitelist capitalization
                     
                     # Add proper punctuation if missing (but don't add if punctuation already exists)
                     if not sentence.endswith(('.', '!', '?')):
                         # Check if it's a question
-                        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
+                        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué',
+                                          'recuerdas', 'sabes', 'puedes', 'puede', 'podrías', 'podría',
+                                          'quieres', 'quiere', 'quieren', 'necesitas', 'necesita', 'hay',
+                                          'estás', 'están', 'es', 'son', 'vas', 'va', 'tienes', 'tiene']
                         sentence_lower = sentence.lower()
                         
                         if any(word in sentence_lower for word in question_words):
@@ -306,8 +307,8 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
                     question_patterns = [
                         # Question words at the beginning
                         r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
-                        # Verb patterns that indicate questions
-                        r'^(puedes|puede|podrías|podría|sabes|sabe|quieres|quiere|necesitas|necesita|tienes|tiene|vas|va|estás|están|pueden|puede|saben|sabe|quieren|quiere)',
+                        # Verb patterns that indicate questions (deduped)
+                        r'^(puedes|puede|podrías|podría|sabes|sabe|quieres|quiere|necesitas|necesita|tienes|tiene|vas|va|estás|están|pueden|quieren)',
                         # Common question starters
                         r'^(hay|va|es|son|está|están|te parece|le parece|crees|cree|piensas|piensa)',
                         # Short question patterns
@@ -341,6 +342,12 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         # Ensure proper sentence separation
         result = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result)
         
+        # Insert comma after common Spanish greeting starters
+        result = re.sub(r'(^|[\n\.\!?]\s*)(Hola)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
+        result = re.sub(r'(^|[\n\.\!?]\s*)(Buenos días)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
+        result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas tardes)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
+        result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas noches)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
+
         # Final cleanup of any remaining double punctuation
         result = re.sub(r'¿{2,}', '¿', result)
         result = re.sub(r'\?{2,}', '?', result)
@@ -478,58 +485,37 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         
         # FINAL STEP: Add inverted question marks for all questions
         # This runs after all punctuation has been added
+        # Use semantic gating to decide whether to keep/add inverted question marks
         sentences = re.split(r'([.!?]+)', result)
+        model_for_gate = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence_text = sentences[i].strip()
                 punctuation = sentences[i + 1] if i + 1 < len(sentences) else ""
-                
-                # If the sentence ends with a question mark, it should start with ¿
-                if punctuation == '?' and sentence_text and not sentence_text.startswith('¿'):
-                    # Check if it's a question that should have inverted question mark
-                    sentence_lower = sentence_text.lower()
-                    
-                    # Comprehensive question patterns that should have inverted question marks
-                    question_patterns = [
-                        # Question words at the beginning
-                        r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
-                        # Verb patterns that indicate questions (present and past tense)
-                        r'^(puedes|puede|podrías|podría|pudiste|pudo|pudieron|pudimos|sabes|sabe|supiste|supo|supieron|quieres|quiere|quisiste|quiso|quisieron|necesitas|necesita|necesitaste|necesitó|necesitaron|tienes|tiene|tuviste|tuvo|tuvieron|vas|va|fuiste|fue|fueron|estás|están|estuviste|estuvo|estuvieron|pueden|saben|quieren)',
-                        # Common question starters
-                        r'^(hay|va|es|son|está|están|te parece|le parece|crees|cree|piensas|piensa)',
-                        # Short question patterns
-                        r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)',
-                        # Additional question patterns
-                        r'^(no sé|no sabes|no puedes|no quieres|no necesitas|no tienes|no vas|no estás|no están|no pueden|no saben|no quieren)',
-                        r'^(se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede|se puede)',
-                        r'^(te gusta|le gusta|te gustaría|le gustaría|te parece|le parece|te parece|le parece|te parece|le parece|te parece|le parece)'
-                    ]
-                    
-                    # Check if sentence matches any question pattern
-                    is_question = any(re.search(pattern, sentence_lower) for pattern in question_patterns)
-                    
-                    # Also check for common question indicators anywhere in the sentence
-                    question_indicators = ['puedes', 'puede', 'pudiste', 'pudo', 'pudieron', 'pudimos', 'sabes', 'sabe', 'supiste', 'supo', 'supieron', 'quieres', 'quiere', 'quisiste', 'quiso', 'quisieron', 'necesitas', 'necesita', 'necesitaste', 'necesitó', 'necesitaron', 'tienes', 'tiene', 'tuviste', 'tuvo', 'tuvieron', 'vas', 'va', 'fuiste', 'fue', 'fueron', 'estás', 'están', 'estuviste', 'estuvo', 'estuvieron', 'hay', 'es', 'son', 'está', 'están', 'listos', 'listas', 'listo', 'lista']
-                    has_question_indicator = any(indicator in sentence_lower for indicator in question_indicators)
-                    
-                    # Additional check for common question patterns that might be missed
-                    additional_question_patterns = [
-                        r'estamos\s+listos?',
-                        r'están\s+listos?',
-                        r'estás\s+listo?',
-                        r'cómo\s+están?',
-                        r'cómo\s+estás?',
-                        r'quieren\s+ir?',
-                        r'van\s+a\s+ir?',
-                        r'van\s+a\s+venir?',
-                        r'van\s+a\s+salir?',
-                        r'van\s+a\s+llegar?'
-                    ]
-                    has_additional_pattern = any(re.search(pattern, sentence_lower) for pattern in additional_question_patterns)
-                    
-                    if is_question or has_question_indicator or has_additional_pattern:
-                        sentences[i] = '¿' + sentence_text
+                if not sentence_text:
+                    continue
+                # Normalize whitespace inside sentence
+                sentence_text = re.sub(r"\s+", " ", sentence_text)
+                # If it looks like a question (either starts with ¿ or ends with ?), use semantic gate
+                looks_question = punctuation == '?' or sentence_text.startswith('¿')
+                if looks_question and model_for_gate is not None:
+                    core = sentence_text[1:] if sentence_text.startswith('¿') else sentence_text
+                    if is_question_semantic(core, model_for_gate, 'es'):
+                        # Ensure starts with ¿ and ends with ?
+                        if not core.startswith('¿'):
+                            sentences[i] = '¿' + core
+                        else:
+                            sentences[i] = sentence_text
+                        sentences[i + 1] = '?' if i + 1 < len(sentences) else '?'
+                    else:
+                        # Not a question: strip leading ¿ and ensure period
+                        core = core.rstrip(' ?!').strip()
+                        sentences[i] = core
+                        sentences[i + 1] = '.'
         result = ''.join(sentences)
+
+        # Apply targeted Spanish cleanup after semantic gating
+        result = _spanish_cleanup_postprocess(result)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
         result = format_non_spanish_text(result, language)
@@ -579,54 +565,17 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     # Spanish-specific sentence breaking patterns
     if language == 'es':
         # Don't break questions in the middle - check if current chunk contains question words
-        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'supiste']
+        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
         current_text = ' '.join(current_chunk).lower()
         if any(word in current_text for word in question_words):
             # If we're in the middle of a question, don't break unless it's very long
-            if len(current_chunk) < 25:  # Much higher threshold for questions
+            if len(current_chunk) < 25:
                 return False
-            
-            # Additional check: if we're in the middle of a question and the next word is also a question word,
-            # don't break to avoid splitting questions like "recuerdas... supiste"
-            if next_word and next_word.lower() in question_words:
-                return False
-            
-            # Specific check for "recuerdas... supiste" pattern
-            if 'recuerdas' in current_text and next_word and next_word.lower() == 'supiste':
-                return False
-            
-            # Check for the specific problematic pattern: "recuerdas... en los que no" followed by "supiste"
-            if 'recuerdas' in current_text and 'en los que no' in current_text and next_word and next_word.lower() == 'supiste':
-                return False
-            
-            # More general check: if we're in a question and the next word is also part of the question pattern,
-            # don't break to avoid splitting complex questions
-            if any(word in current_text for word in ['recuerdas', 'qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál']) and next_word:
-                # Check if the next word could be part of the same question
-                next_word_lower = next_word.lower()
-                if next_word_lower in ['supiste', 'pudiste', 'sabes', 'puedes', 'quieres', 'necesitas']:
-                    return False
-        
-        # Break after common Spanish sentence endings
-        spanish_endings = ['español', 'situación', 'conversación', 'herramienta', 'momentos', 'adiós', 'listos', 'empecemos']
-        if any(ending in current_word.lower() for ending in spanish_endings):
-            return True
-        
-        # Break before common Spanish sentence starters (but be more conservative)
-        spanish_starters = ['¿recuerdas', '¿esos', 'pues', 'dile', 'entonces', '¿estamos']
-        if next_word and any(starter in next_word.lower() for starter in spanish_starters):
-            return True
-        
-        # Don't break before "yo" or "y" unless there's a strong indicator
-        if next_word and next_word.lower() in ['yo', 'y']:
-            # Only break if the current chunk is reasonably long
-            if len(current_chunk) < 8:
-                return False
-        
+
         # Don't break in the middle of common Spanish phrases
         # Check if we're in the middle of a phrase that should stay together
         current_text = ' '.join(current_chunk).lower()
-        
+
         # General rule: don't break after articles, prepositions, or determiners
         # These words typically continue the sentence
         if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
@@ -647,14 +596,6 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
         
         # Don't break if the current word ends with a preposition that should continue
         if current_word.lower() in ['de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
-            return False
-        
-        # Don't break after "mundo no" - this is a specific pattern that should continue
-        if current_text.endswith('mundo no') and next_word and next_word.lower() == 'es':
-            return False
-        
-        # Don't break after "no es" - should continue with the rest of the sentence
-        if current_text.endswith('no es') and next_word and len(next_word) > 2:
             return False
     
     # Check for capital letter after reasonable length (but be more conservative)
@@ -1603,6 +1544,119 @@ def get_question_patterns(language):
     }
     
     return question_patterns.get(language, question_patterns['en'])
+
+
+# --- Spanish post-processing helpers (hybrid regex + semantic gating) ---
+
+def _spanish_cleanup_postprocess(text: str) -> str:
+    """Apply robust regex fixes for common ASR artifacts in Spanish.
+
+    - Protect/normalize domains like espanolistos.com
+    - Remove spurious leading '¿' before declarative discourse markers
+    - Normalize tag questions: ", ¿no." -> ", ¿no?"
+    - Fix collocations like "por? supuesto" -> "Por supuesto,"
+    - Capitalize after opening "¿"
+    - Ensure opening "¿" implies closing "?" and vice versa
+    """
+    if not text:
+        return text
+
+    # Normalize domains: join tokens like "espanolistos . com" -> "espanolistos.com"
+    text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es)\b", r"\1.\2", text, flags=re.IGNORECASE)
+
+    # Don't touch inside domains thereafter (best-effort by skipping tokens with ".tld")
+
+    # Strip leading '¿' for common declarative starters
+    starters = (
+        r"así que|obvio|pues|entonces|bueno|además|también|porque|pero|y|o sea|"
+        r"por supuesto|al mismo tiempo|a nivel|esto|esa|ese|estos|esas|esos|"
+        r"los|las|el|la|lo|un|una|unos|unas"
+    )
+    text = re.sub(rf"(^|[\n\.!?]\s*)¿\s*(?=(?:{starters})\b)", r"\1", text, flags=re.IGNORECASE)
+
+    # If sentence starts with '¿' but ends with '.', convert to '?'
+    parts = re.split(r'([.!?]+)', text)
+    for i in range(0, len(parts), 2):
+        if i >= len(parts):
+            break
+        s = parts[i].strip()
+        p = parts[i + 1] if i + 1 < len(parts) else ''
+        if not s:
+            continue
+        if s.startswith('¿') and p == '.':
+            parts[i + 1] = '?'
+    text = ''.join(parts)
+
+    # Tag questions normalization: ", ¿no." -> ", ¿no?" (same for cierto|verdad)
+    text = re.sub(r",\s*¿\s*(no|cierto|verdad)\s*\.\b", r", ¿\1?", text, flags=re.IGNORECASE)
+    # Ensure comma before tag question if missing
+    text = re.sub(r"([^?,\.\s])\s+¿\s*(no|cierto|verdad)\s*\?", r"\1, ¿\2?", text, flags=re.IGNORECASE)
+
+    # Collocation repair: "por? supuesto" -> "Por supuesto"; add comma if sentence-initial
+    text = re.sub(r"\b[Pp]or\s*\?\s*[Ss]upuesto\b", "Por supuesto", text)
+    text = re.sub(r"(^|[\n\.!?]\s*)(Por supuesto)(\b)", r"\1\2,", text)
+
+    # Capitalize first letter after opening '¿'
+    def _cap_after_inverted_q(m: re.Match) -> str:
+        prefix = m.group(1)
+        mark = m.group(2)
+        letter = m.group(3)
+        return f"{prefix}{mark}{letter.upper()}"
+    text = re.sub(r"(^|[\n\s])([¿])\s*([a-záéíóúñ])", _cap_after_inverted_q, text)
+
+    # Ensure paired punctuation consistency
+    text = re.sub(r"¿\s*([^?\n]+)\.", r"¿\1?", text)
+
+    # Remove mid-sentence stray '¿' not at start of sentence boundary
+    text = re.sub(r"(?<!^)(?<![\.!?]\s)\s+¿\s+", " ", text)
+
+    # Convert declarative sentences that start with common yes/no verb starters into questions
+    starters = (
+        r"puedes|puede|podrías|podría|pudiste|pudo|pudieron|pudimos|"
+        r"quieres|quiere|quieren|quisiste|quiso|quisieron|"
+        r"tienes|tiene|tienen|tuviste|tuvo|tuvieron|"
+        r"vas|va|vamos|fuiste|fue|fueron|"
+        r"estás|está|están|"
+        r"hay|"
+        r"te parece|le parece|crees|cree|piensas|piensa"
+    )
+    model_gate = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+    parts2 = re.split(r'([.!?]+)', text)
+    for i in range(0, len(parts2), 2):
+        if i >= len(parts2):
+            break
+        s = (parts2[i] or '').strip()
+        if not s:
+            continue
+        p = parts2[i + 1] if i + 1 < len(parts2) else ''
+        # only adjust those ending with '.' or missing punctuation
+        if p in ('', '.'):
+            if re.search(rf'^\s*(?:{starters})\b', s, flags=re.IGNORECASE):
+                # semantic gate to avoid false positives like "Es importante..."
+                if model_gate is not None and is_question_semantic(s, model_gate, 'es'):
+                    parts2[i] = s
+                    parts2[i + 1] = '?'
+    text = ''.join(parts2)
+
+    # Ensure opening inverted question mark for any Spanish question lacking it
+    parts3 = re.split(r'([.!?]+)', text)
+    for i in range(0, len(parts3), 2):
+        if i >= len(parts3):
+            break
+        s = (parts3[i] or '').strip()
+        p = parts3[i + 1] if i + 1 < len(parts3) else ''
+        if not s:
+            continue
+        if p == '?' and not s.startswith('¿'):
+            parts3[i] = '¿' + s
+    text = ''.join(parts3)
+
+    # Cleanup spacing and duplicates
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"¿{2,}", "¿", text)
+    text = re.sub(r"\?{2,}", "?", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    return text
 
 
 # For testing the module directly
