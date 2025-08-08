@@ -1332,6 +1332,21 @@ def format_non_spanish_text(text: str, language: str) -> str:
         if language == 'fr':
             s = _apply_french_hyphenation(s)
 
+        # German-specific enhancements
+        if language == 'de':
+            # Capitalize "Ich" when preceded by punctuation internally
+            s = re.sub(r'([,;:])\s*ich\b', r'\1 Ich', s)
+            # Capitalize Herr/Frau + Name
+            s = _capitalize_german_titles(s)
+            # High-confidence proper nouns (cities/countries)
+            s = _capitalize_german_proper_nouns(s)
+            # Insert commas before common subordinating conjunctions if preceded by ≥3 words
+            s = _apply_german_commas(s)
+            # Capitalize nouns after determiners (high-confidence heuristic)
+            s = _capitalize_german_nouns_after_determiners(s)
+            # Capitalize Deutsch in the common phrase "Deutsch gelernt"
+            s = re.sub(r'\bdeutsch\b(?=\s+gelernt\b)', 'Deutsch', s, flags=re.IGNORECASE)
+
         # Capitalize first alpha
         if s and s[0].isalpha():
             s = s[0].upper() + s[1:]
@@ -1348,7 +1363,15 @@ def format_non_spanish_text(text: str, language: str) -> str:
             q_starters = {
                 'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'do', 'does', 'did', 'is', 'are', 'can', 'could', 'would', 'will', 'am'],
                 'fr': ['comment', 'où', 'quand', 'pourquoi', 'qui', 'quel', 'quelle', 'quels', 'quelles', 'est-ce que'],
-                'de': ['wie', 'wo', 'wann', 'warum', 'wer', 'welche', 'welches', 'ist', 'sind', 'kann', 'können', 'wird']
+                'de': [
+                    # wh- and copula
+                    'wie', 'wo', 'wann', 'warum', 'wer', 'welche', 'welches', 'welcher', 'ist', 'sind', 'seid',
+                    # modal/auxiliary starts
+                    'kann', 'kannst', 'können', 'könnt', 'möchte', 'möchtest', 'möchten', 'will', 'willst', 'wollen',
+                    'soll', 'sollst', 'sollen', 'sollt', 'darf', 'darfst', 'dürfen', 'dürft',
+                    'hast', 'hat', 'habe', 'haben', 'hatten', 'hatte', 'war', 'waren',
+                    'wird', 'werden', 'gibt es'
+                ]
             }
             starters = q_starters.get(language, q_starters['en'])
             lower_s = s.lower()
@@ -1408,6 +1431,84 @@ def _apply_french_hyphenation(sentence: str) -> str:
     # Clean any doubled hyphens
     s = re.sub(r"-{2,}", "-", s)
     return s
+
+
+def _apply_german_commas(sentence: str) -> str:
+    """Insert a comma before common subordinating conjunctions when reasonably safe.
+
+    Heuristic: add comma before dass|weil|ob|wenn when there are at least 3 words before
+    the conjunction in the sentence and no comma directly precedes it.
+    """
+    targets = {"dass", "weil", "ob", "wenn"}
+    tokens = sentence.split()
+    if len(tokens) < 5:
+        return sentence
+    result_tokens = []
+    for i, tok in enumerate(tokens):
+        lower_tok = tok.lower()
+        if lower_tok in targets and i >= 3:
+            # If previous token already ends with a comma, don't add another
+            if result_tokens and not result_tokens[-1].endswith(','):
+                # Insert comma before the conjunction
+                result_tokens[-1] = result_tokens[-1] + ','
+        result_tokens.append(tok)
+    return ' '.join(result_tokens)
+
+
+def _capitalize_german_titles(sentence: str) -> str:
+    """Capitalize names after Herr/Frau titles."""
+    def repl(m):
+        title = m.group(1)
+        name = m.group(2)
+        return f"{title} {name[:1].upper()}{name[1:].lower()}"
+    return re.sub(r"\b(Herr|Frau)\s+([a-zäöüß][a-zäöüß\-]*)\b", repl, sentence)
+
+
+def _capitalize_german_proper_nouns(sentence: str) -> str:
+    """Capitalize a small whitelist of high-confidence proper nouns (cities/countries)."""
+    proper_map = {
+        # Countries
+        'deutschland': 'Deutschland', 'österreich': 'Österreich', 'schweiz': 'Schweiz',
+        # Major cities
+        'berlin': 'Berlin', 'münchen': 'München', 'hamburg': 'Hamburg', 'köln': 'Köln', 'frankfurt': 'Frankfurt',
+        'stuttgart': 'Stuttgart', 'hannover': 'Hannover', 'bremen': 'Bremen', 'leipzig': 'Leipzig', 'dresden': 'Dresden',
+        'zürich': 'Zürich', 'bern': 'Bern', 'basel': 'Basel', 'wien': 'Wien', 'salzburg': 'Salzburg'
+    }
+    def replace_word(m):
+        w = m.group(0)
+        lw = w.lower()
+        return proper_map.get(lw, w)
+    # Replace whole-word occurrences only
+    pattern = r"\b(" + '|'.join(map(re.escape, proper_map.keys())) + r")\b"
+    return re.sub(pattern, replace_word, sentence, flags=re.IGNORECASE)
+
+
+def _capitalize_german_nouns_after_determiners(sentence: str) -> str:
+    """Capitalize likely nouns following German determiners/possessives.
+
+    This is a conservative heuristic: only capitalize the immediate next token
+    if it is lowercase, length ≥ 4, and not already capitalized.
+    """
+    det_pattern = (
+        r"der|die|das|den|dem|des|"
+        r"ein|eine|einer|eines|einem|einen|"
+        r"dies(?:er|e|es|em|en)?|jen(?:er|e|es|em|en)?|"
+        r"welch(?:er|e|es|em|en)?|jed(?:er|e|es|em|en)?|manch(?:er|e|es|em|en)?|solch(?:er|e|es|em|en)?|"
+        r"kein(?:er|e|es|em|en)?|"
+        r"mein(?:e|em|en|es)?|dein(?:e|em|en|es)?|sein(?:e|em|en|es)?|"
+        r"ihr(?:e|em|en|es)?|unser(?:e|em|en|es)?|euer(?:e|em|en|es)?|Ihr(?:e|em|en|es)?"
+    )
+    regex = re.compile(rf"\b((?:{det_pattern})\s+)([a-zäöüß][a-zäöüß\-]{{3,}})\b")
+
+    def repl(m: re.Match) -> str:
+        prefix = m.group(1)
+        word = m.group(2)
+        # Avoid capitalizing if token looks like an adjective with common endings and followed by another lowercase token (likely noun)
+        # Keep it simple: still capitalize; heuristics beyond this tend to degrade.
+        cap = word[:1].upper() + word[1:].lower()
+        return prefix + cap
+
+    return regex.sub(repl, sentence)
 
 def get_question_patterns(language):
     """
