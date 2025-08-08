@@ -15,8 +15,8 @@ It supports multiple languages with automatic language detection, including Engl
 - **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
 - **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
-- **Multi-Language Support**: Supports 20+ languages with manual language selection option.
-- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration.
+- **Primary Language Support**: English (en), Spanish (es), French (fr), German (de). Other languages are experimental.
+- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with an optional spaCy-based capitalization pass.
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
 - **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
 - **HuggingFace Integration**: Leverages HuggingFace models and caches for local, offline workflows.
@@ -89,6 +89,8 @@ This opens an interactive terminal inside the container. You'll run all transcri
 
 >💡 **Model Caching**: The first run will download models (~1-2 GB). Subsequent runs will use cached models for faster startup.
 
+>⚙️ **NLP Capitalization**: The image enables spaCy-based capitalization by default (NLP_CAPITALIZATION=1). To disable per run, pass `-e NLP_CAPITALIZATION=0` to `docker run`.
+
 ## 📄 How to Use The Transcription Tool
 
 ### Basic Usage
@@ -143,7 +145,7 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files auto
 | --------------- | ------------------------------------------------------------------------------------- |
 | `media_file`    | Path to the audio or video file (e.g. audio-files/example.mp3 or audio-files/example.mp4) |
 | `output_dir`    | Directory where the transcription file will be saved                                  |
-| `language`      | (Optional) Language code (`en`, `es`, `fr`, `de`, `ja`, `ru`, `cs`, etc.) - default is auto-detect |
+| `language`      | (Optional) Language code. Primary: `en`, `es`, `fr`, `de`. Others are experimental. Default is auto-detect. |
 | `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
 
 
@@ -156,7 +158,23 @@ PodScripter supports automatic language detection and manual language selection 
 | English  | `en` | Spanish  | `es` |
 | French   | `fr` | German   | `de` |
 
-**Note**: While Whisper is capable of transcribing many additional languages, the four listed above have received the most extensive output optimization and quality improvements in this project. When using automatic language detection, Whisper will accurately identify the language of your audio content.
+**Note**: Whisper can transcribe many additional languages, but only the four listed above have project-level optimization and tests. Other languages are considered experimental.
+
+## 🅰️ Optional NLP Capitalization (spaCy)
+
+Punctuation restoration uses Sentence-Transformers. You can optionally enable an NLP capitalization pass (spaCy) that capitalizes named entities and proper nouns for English, Spanish, French, and German.
+
+- Enabled by default inside the container (Dockerfile sets `NLP_CAPITALIZATION=1`).
+- Disable per run:
+  ```bash
+  docker run ... -e NLP_CAPITALIZATION=0 ...
+  ```
+- Re-enable per run (if disabled in your custom image):
+  ```bash
+  docker run ... -e NLP_CAPITALIZATION=1 ...
+  ```
+
+This pass is CPU-only and cached via spaCy “sm” models baked into the image.
 
 ## 🔁 Batch Transcription: All Media Files
 
