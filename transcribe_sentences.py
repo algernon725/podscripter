@@ -113,19 +113,32 @@ def display_transcription_info(media_file, model_name, language, beam_size, comp
     print(f"Output format:    {output_format.upper()}")
     print("="*60 + "\n")
 
-def split_audio(media_file, chunk_length_sec=480):
-    """
-    Split audio/video file into chunks of a specified length.
+def split_audio_with_overlap(media_file: str, chunk_length_sec: int = 480, overlap_sec: int = 3):
+    """Split audio into overlapping chunks.
+
+    Returns list of dicts: { 'path': str, 'start_sec': float, 'duration_sec': float }
     """
     audio = AudioSegment.from_file(media_file)
-    chunks = []
     base_name = os.path.splitext(os.path.basename(media_file))[0]
-    for i in range(0, len(audio), chunk_length_sec * 1000):
-        chunk = audio[i:i + chunk_length_sec * 1000]
-        chunk_path = f"{base_name}_chunk_{i // (chunk_length_sec * 1000)}.wav"
+    chunk_infos = []
+    chunk_ms = chunk_length_sec * 1000
+    overlap_ms = max(0, overlap_sec * 1000)
+    step_ms = max(1, chunk_ms - overlap_ms)
+    idx = 0
+    for start_ms in range(0, len(audio), step_ms):
+        end_ms = min(start_ms + chunk_ms, len(audio))
+        chunk = audio[start_ms:end_ms]
+        chunk_path = f"{base_name}_chunk_{idx}.wav"
         chunk.export(chunk_path, format="wav")
-        chunks.append(chunk_path)
-    return chunks
+        chunk_infos.append({
+            'path': chunk_path,
+            'start_sec': start_ms / 1000.0,
+            'duration_sec': (end_ms - start_ms) / 1000.0,
+        })
+        idx += 1
+        if end_ms >= len(audio):
+            break
+    return chunk_infos
 
 def write_txt(sentences, output_file):
     """
@@ -185,8 +198,9 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
         sys.exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
-    print("Splitting media into chunks...")
-    chunk_files = split_audio(media_file, chunk_length_sec=480)  # 8 minute chunk size
+    print("Splitting media into chunks with overlap...")
+    overlap_sec = 3
+    chunk_infos = split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=overlap_sec)
 
     all_text = ""
     all_segments = []
@@ -194,10 +208,21 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
 
     print("Transcribing chunks...")
     detected_language = None
-    for idx, chunk_file in enumerate(chunk_files, 1):
-        print(f"Transcribing chunk {idx}/{len(chunk_files)}: {chunk_file}")
+    last_global_end = 0.0
+    prev_prompt = None
+    for idx, info in enumerate(chunk_infos, 1):
+        chunk_file = info['path']
+        chunk_start = info['start_sec']
+        print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
         try:
-            segments, info = model.transcribe(chunk_file, language=language, beam_size=beam_size)
+            segments, info = model.transcribe(
+                chunk_file,
+                language=language,
+                beam_size=beam_size,
+                vad_filter=True,
+                initial_prompt=prev_prompt,
+                condition_on_previous_text=True,
+            )
             # Store detected language from first chunk
             if idx == 1 and language is None:
                 detected_language = info.language
@@ -206,16 +231,20 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
             text = ""
             chunk_segments = []
             for seg in segments:
-                seg_dict = {
-                    "start": seg.start + offset,
-                    "end": seg.end + offset,
-                    "text": seg.text
-                }
+                # Compute global timestamps with chunk start
+                global_start = chunk_start + float(seg.start)
+                global_end = chunk_start + float(seg.end)
+                # Deduplicate overlapping content: skip segments fully before last_global_end
+                if global_end <= last_global_end + 0.05:
+                    continue
+                seg_dict = {"start": global_start, "end": global_end, "text": seg.text}
                 chunk_segments.append(seg_dict)
                 text += seg.text + " "
+                last_global_end = max(last_global_end, global_end)
             all_segments.extend(chunk_segments)
             all_text += text.strip() + "\n"
-            offset += AudioSegment.from_file(chunk_file).duration_seconds
+            # Update prompt with last 200 chars of accumulated text
+            prev_prompt = (all_text[-200:]).strip() if all_text else None
         except Exception as e:
             print(f"Error during transcription: {e}")
             sys.exit(1)
