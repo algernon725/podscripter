@@ -336,11 +336,11 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         result = re.sub(r'!{2,}', '!', result)
         result = re.sub(r'¿{2,}', '¿', result)
         
-        # Special handling for greeting questions (but clean up first)
-        if 'hola' in result.lower() and 'cómo' in result.lower():
+        # Special handling for greeting questions (but clean up first). Also handle 'como' without accent.
+        if 'hola' in result.lower() and ('cómo' in result.lower() or re.search(r'\bhola\s+como\b', result, flags=re.IGNORECASE)):
             # Clean up any existing ¿¿ before applying the pattern
             result = re.sub(r'¿{2,}', '¿', result)
-            result = re.sub(r'hola\s+cómo', '¿Hola, cómo', result, flags=re.IGNORECASE)
+            result = re.sub(r'hola\s+(c[oó]mo)', r'¿Hola, \1', result, flags=re.IGNORECASE)
             # Remove any trailing period after question mark for greeting questions
             result = re.sub(r'¿Hola, cómo.*?\?\.', lambda m: m.group(0).rstrip('.'), result)
         
@@ -467,9 +467,10 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         result = re.sub(r'\.{2,}', '.', result)  # Remove duplicate .
         result = re.sub(r'!{2,}', '!', result)  # Remove duplicate !
         
-        # Fix double punctuation patterns like .? or ?.
+        # Fix double punctuation patterns like .? or ?., and !.
         result = re.sub(r'\.\s*\?', '?', result)  # .? -> ?
         result = re.sub(r'\?\s*\.', '?', result)  # ?. -> ?
+        result = re.sub(r'!\s*\.', '!', result)    # !. -> !
         result = re.sub(r'!\s*\?', '!', result)   # !? -> !
         result = re.sub(r'\?\s*!', '!', result)   # ?! -> !
         
@@ -779,7 +780,7 @@ def is_question_semantic(sentence, model, language):
         sentence_lower = sentence.lower()
         
         # Check for strong question indicators first
-        strong_question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+        strong_question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'como', 'quién', 'cuál', 'por qué']
         has_strong_question = any(word in sentence_lower for word in strong_question_words)
         starts_with_question = any(sentence_lower.startswith(word + ' ') for word in strong_question_words)
         
@@ -857,7 +858,7 @@ def has_question_indicators(sentence, language):
     
     # Special case for Spanish: check for question words at the beginning even without ¿
     if language == 'es':
-        spanish_question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'cuáles', 'por qué']
+        spanish_question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'como', 'quién', 'cuál', 'cuáles', 'por qué']
         for starter in spanish_question_starters:
             if sentence_lower.startswith(starter + ' '):
                 return True
@@ -1806,6 +1807,8 @@ def _spanish_cleanup_postprocess(text: str) -> str:
 
     # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
     text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
+    # Also handle 'como' without accent
+    text = re.sub(r"(\bHola[^.!?]*?)\.\s+(como\s+estan)\b", r"\1, ¿\2?", text, flags=re.IGNORECASE)
 
     # Remove comma right after "Hola" when followed by a prepositional phrase (more natural Spanish)
     text = re.sub(r"(^|[\n\.\?¡!]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
