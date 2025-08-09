@@ -57,6 +57,7 @@ docker run --rm --platform linux/arm64 \
   - `test_improved_punctuation.py`, `test_punctuation.py`, `test_environment_variables.py`,
     `test_no_deprecation_warning.py`, `test_past_tense_questions.py`, `test_punctuation_preservation.py`
   - Spanish human-vs-program similarity: `test_human_vs_program_intro.py` (Spanish only)
+  - Spanish embedded questions: `test_spanish_embedded_questions.py` (Spanish only)
 
 ## Optional groups
 

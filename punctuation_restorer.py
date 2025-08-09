@@ -1728,8 +1728,10 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Ensure paired punctuation consistency
     text = re.sub(r"¿\s*([^?\n]+)\.", r"¿\1?", text)
 
-    # Remove mid-sentence stray '¿' not at start of sentence boundary
-    text = re.sub(r"(?<!^)(?<![\.!?]\s)\s+¿\s+", " ", text)
+    # Preserve embedded questions introduced mid-sentence by '¿'
+    # If we see mid-sentence '¿', keep it when followed by interrogative cues; otherwise leave untouched
+    # Later we will pair it with a closing '?' if missing before the next boundary
+    # (Do not blanket-remove mid-sentence '¿')
 
     # Convert declarative sentences that start with common yes/no verb starters into questions
     starters = (
@@ -1759,7 +1761,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
                     parts2[i + 1] = '?'
     text = ''.join(parts2)
 
-    # Ensure opening inverted question mark for any Spanish question lacking it
+    # Ensure opening inverted question mark for any Spanish question lacking it (including embedded)
     parts3 = re.split(r'([.!?]+)', text)
     for i in range(0, len(parts3), 2):
         if i >= len(parts3):
@@ -1768,8 +1770,14 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         p = parts3[i + 1] if i + 1 < len(parts3) else ''
         if not s:
             continue
+        # Full-sentence questions
         if p == '?' and not s.startswith('¿'):
             parts3[i] = '¿' + s
+        # Embedded question: mid-sentence '¿' without a closing '?' before the next boundary -> add one before punctuation
+        if '¿' in s and p != '?':
+            # If there's no '?' in segment, append one before boundary
+            if '?' not in s:
+                parts3[i] = s + '?'
     text = ''.join(parts3)
 
     # Declarative starters should not be questions
