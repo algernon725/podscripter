@@ -37,9 +37,22 @@
 - Use a singleton model loader to avoid repeated model instantiation within a process
 - For spaCy capitalization mode, models are baked into the image; enable/disable via `NLP_CAPITALIZATION` (see Docker Best Practices)
 
+### 2a. Transcription Orchestration (Whisper usage)
+- Two supported modes:
+  - Single-call transcription (recommended when resources allow): process full file in one call so Whisper maintains context. Enabled via `--single` flag in `transcribe_sentences.py`.
+  - Overlapped-chunk transcription (fallback): default path with 480s chunks and 3s overlap.
+- Common settings:
+  - `vad_filter=True` for both modes to stabilize boundaries
+  - `condition_on_previous_text=True` to keep context continuity
+  - For chunked mode, pass `initial_prompt` using the last ~200 characters of accumulated text
+  - Deduplicate overlap during merge using global timestamps (skip segments that finish before the prior chunk’s end)
+  - Keep `beam_size` modest (1–3) for long files; use `int8` on CPU by default
+
 ### 3. Modular Processing Pipeline
 ```
 Audio Input → Whisper Transcription → Punctuation Restoration → Sentence Splitting → Output
+
+- CLI flag: `--single` (in `transcribe_sentences.py`) bypasses manual chunking and runs full-file transcription
 ```
 
 ## Coding Style & Standards
@@ -98,6 +111,9 @@ Audio Input → Whisper Transcription → Punctuation Restoration → Sentence S
 - Spanish-only tests to be included by default:
   - `test_spanish_embedded_questions.py` (embedded `¿ … ?` clauses)
   - `test_human_vs_program_intro.py` (human-vs-program similarity on intro + extended lines; token-level F1 thresholds)
+    - Intro average F1 threshold: ≥ 0.80
+    - Overall average F1 threshold: ≥ 0.70
+  - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
 
 ### 3. Docker Best Practices
 - Use `--platform linux/arm64` for M-series Mac compatibility
@@ -105,6 +121,7 @@ Audio Input → Whisper Transcription → Punctuation Restoration → Sentence S
 - Include all necessary environment variables in Dockerfile
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
 - NLP capitalization mode: Dockerfile sets `ENV NLP_CAPITALIZATION=1` (on by default). Override per run with `-e NLP_CAPITALIZATION=0` to disable.
+- For performance on long files (> 1 hour): prefer single-call mode if resources allow; otherwise use overlapped chunking with 3s overlap and deduplication on merge.
 
 ### 4. Model Management
 - Cache models to avoid repeated downloads

@@ -299,6 +299,8 @@ def main():
                        help="Translate the output to English")
     parser.add_argument("--apply-restoration", action="store_true",
                        help="Apply punctuation restoration to the concatenated text before writing TXT output")
+    parser.add_argument("--single", action="store_true",
+                       help="Bypass manual chunking and transcribe the full file in a single call")
     
     args = parser.parse_args()
     
@@ -324,11 +326,14 @@ def main():
     # Validate language code if provided
     validated_language = validate_language_code(args.language)
     
+    # Decide chunking based on --single flag
+    eff_chunk_len = None if args.single else args.chunk_length
+
     test_transcribe_file(
         media_file=args.media_file,
         model_size=args.model,
         language=validated_language,
-        chunk_length_sec=args.chunk_length,
+        chunk_length_sec=eff_chunk_len,
         device=args.device,
         compute_type=args.compute_type,
         beam_size=args.beam_size,

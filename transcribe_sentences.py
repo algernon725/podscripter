@@ -174,7 +174,7 @@ def write_srt(segments, output_file):
         print(f"Error writing SRT file: {e}")
         sys.exit(1)
 
-def transcribe_with_sentences(media_file, output_dir, language, output_format):
+def transcribe_with_sentences(media_file, output_dir, language, output_format, single_call: bool = False):
     """
     Transcribe audio/video file into sentences and save as TXT or SRT file.
     """
@@ -198,59 +198,86 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format):
         sys.exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
-    print("Splitting media into chunks with overlap...")
-    overlap_sec = 3
-    chunk_infos = split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=overlap_sec)
+    if single_call:
+        print("Transcribing full file in a single call (no manual chunking)...")
+        all_text = ""
+        all_segments = []
+        try:
+            segments, info = model.transcribe(
+                media_file,
+                language=language,
+                beam_size=beam_size,
+                vad_filter=True,
+                condition_on_previous_text=True,
+            )
+            if language is None:
+                detected_language = info.language
+                print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+            for seg in segments:
+                all_segments.append({
+                    "start": float(seg.start),
+                    "end": float(seg.end),
+                    "text": seg.text
+                })
+                all_text += seg.text + " "
+        except Exception as e:
+            print(f"Error during transcription: {e}")
+            sys.exit(1)
+    else:
+        print("Splitting media into chunks with overlap...")
+        overlap_sec = 3
+        chunk_infos = split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=overlap_sec)
 
     all_text = ""
     all_segments = []
     offset = 0.0
 
-    print("Transcribing chunks...")
-    detected_language = None
-    last_global_end = 0.0
-    prev_prompt = None
-    for idx, info in enumerate(chunk_infos, 1):
-        chunk_file = info['path']
-        chunk_start = info['start_sec']
-        print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
-        try:
-            segments, info = model.transcribe(
-                chunk_file,
-                language=language,
-                beam_size=beam_size,
-                vad_filter=True,
-                initial_prompt=prev_prompt,
-                condition_on_previous_text=True,
-            )
-            # Store detected language from first chunk
-            if idx == 1 and language is None:
-                detected_language = info.language
-                print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
-            
-            text = ""
-            chunk_segments = []
-            for seg in segments:
-                # Compute global timestamps with chunk start
-                global_start = chunk_start + float(seg.start)
-                global_end = chunk_start + float(seg.end)
-                # Deduplicate overlapping content: skip segments fully before last_global_end
-                if global_end <= last_global_end + 0.05:
-                    continue
-                seg_dict = {"start": global_start, "end": global_end, "text": seg.text}
-                chunk_segments.append(seg_dict)
-                text += seg.text + " "
-                last_global_end = max(last_global_end, global_end)
-            all_segments.extend(chunk_segments)
-            all_text += text.strip() + "\n"
-            # Update prompt with last 200 chars of accumulated text
-            prev_prompt = (all_text[-200:]).strip() if all_text else None
-        except Exception as e:
-            print(f"Error during transcription: {e}")
-            sys.exit(1)
-        finally:
-            if os.path.exists(chunk_file):
-                os.remove(chunk_file)
+    if not single_call:
+        print("Transcribing chunks...")
+        detected_language = None
+        last_global_end = 0.0
+        prev_prompt = None
+        for idx, info in enumerate(chunk_infos, 1):
+            chunk_file = info['path']
+            chunk_start = info['start_sec']
+            print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
+            try:
+                segments, info = model.transcribe(
+                    chunk_file,
+                    language=language,
+                    beam_size=beam_size,
+                    vad_filter=True,
+                    initial_prompt=prev_prompt,
+                    condition_on_previous_text=True,
+                )
+                # Store detected language from first chunk
+                if idx == 1 and language is None:
+                    detected_language = info.language
+                    print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+                
+                text = ""
+                chunk_segments = []
+                for seg in segments:
+                    # Compute global timestamps with chunk start
+                    global_start = chunk_start + float(seg.start)
+                    global_end = chunk_start + float(seg.end)
+                    # Deduplicate overlapping content: skip segments fully before last_global_end
+                    if global_end <= last_global_end + 0.05:
+                        continue
+                    seg_dict = {"start": global_start, "end": global_end, "text": seg.text}
+                    chunk_segments.append(seg_dict)
+                    text += seg.text + " "
+                    last_global_end = max(last_global_end, global_end)
+                all_segments.extend(chunk_segments)
+                all_text += text.strip() + "\n"
+                # Update prompt with last 200 chars of accumulated text
+                prev_prompt = (all_text[-200:]).strip() if all_text else None
+            except Exception as e:
+                print(f"Error during transcription: {e}")
+                sys.exit(1)
+            finally:
+                if os.path.exists(chunk_file):
+                    os.remove(chunk_file)
 
     base_name = os.path.splitext(os.path.basename(media_file))[0]
     if output_format == "srt":
@@ -313,8 +340,13 @@ def cleanup_chunks(media_file):
             print(f"Error removing chunk file {chunk_path}: {e}")
 
 if __name__ == "__main__":
+    single_call = False
+    if '--single' in sys.argv:
+        single_call = True
+        sys.argv = [arg for arg in sys.argv if arg != '--single']
+
     if len(sys.argv) < 3 or len(sys.argv) > 5:
-        print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default auto-detect)] [output_format (txt|srt, default 'txt')]")
+        print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default auto-detect)] [output_format (txt|srt, default 'txt')] [--single]")
         print("\nSupported language codes:")
         supported = get_supported_languages()
         print("Primary:")
@@ -345,7 +377,7 @@ if __name__ == "__main__":
 
     cleanup_chunks(media_file)  # Cleanup any existing chunks before starting
 
-    transcribe_with_sentences(media_file, output_dir, language, output_format)
+    transcribe_with_sentences(media_file, output_dir, language, output_format, single_call=single_call)
 
     end_time = time.time()
     elapsed = end_time - start_time
