@@ -18,7 +18,7 @@ def test_spanish_sentence_splitting():
     test_cases = [
         {
             'input': "yo soy andrea de santander colombia",
-            'expected': "Yo soy Andrea de Santander Colombia.",
+            'expected': "Yo soy Andrea, de Santander, Colombia.",
             'description': 'Introduction should be one sentence'
         },
         {

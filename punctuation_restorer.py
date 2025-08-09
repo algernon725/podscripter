@@ -1771,6 +1771,66 @@ def _spanish_cleanup_postprocess(text: str) -> str:
             parts3[i] = '¿' + s
     text = ''.join(parts3)
 
+    # Declarative starters should not be questions
+    # If a sentence starts with these starters and is marked as question, convert to statement
+    starters_block = (
+        r"a nivel|obvio que|como siempre|los |las |el |la |un |una |en |de |haciendo |por supuesto|a nivel de"
+    )
+    def _block_decl_questions(m: re.Match) -> str:
+        s = m.group(1)
+        p = m.group(2)
+        if re.match(rf"^\s*(?:{starters_block})", s, flags=re.IGNORECASE):
+            s = re.sub(r"^\s*¿\s*", "", s)
+            return s.rstrip(" ?!") + "."
+        return m.group(0)
+    text = re.sub(r"(¿[^\n\.?]+)(\?)", _block_decl_questions, text)
+
+    # Merge possessive/function-word splits like "tu. Español" -> "tu español"
+    text = re.sub(r"\b(tu|su|mi)\s*\.\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ-]*)", r"\1 \2", text, flags=re.IGNORECASE)
+
+    # Merge consecutive one-word capitalized sentences: "Estados. Unidos." -> "Estados Unidos."
+    text = re.sub(r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.(\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.", r"\1 \3.", text)
+
+    # Appositive commas for introductions and locations
+    # "Yo soy Andrea de Santander, Colombia" -> "Yo soy Andrea, de Santander, Colombia"
+    def _intro_loc_commas(m: re.Match) -> str:
+        cue = m.group(1)
+        name = m.group(2).strip()
+        place1 = m.group(3).strip()
+        place2 = m.group(4).strip() if m.group(4) else None
+        out = f"{cue} {name}, de {place1}"
+        if place2:
+            out += f", {place2}"
+        return out
+    text = re.sub(r"(?i)\b(Y yo soy|Yo soy)\s+([^,\n]+?)\s+de\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\s*,?\s*([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)?", _intro_loc_commas, text)
+
+    # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
+    text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
+
+    # Add exclamations for common imperative/greeting starters (not if it's already a question/exclamation)
+    def _wrap_exclamations(line: str) -> str:
+        s = line.strip()
+        if not s:
+            return line
+        low = s.lower()
+        if s.startswith('¿') or s.endswith('?') or s.startswith('¡') or s.endswith('!'):
+            return line
+        if re.match(r"^(bienvenidos|empecemos|vamos|dile|atención)\b", low):
+            return '¡' + s + '!'
+        return line
+    # Apply per sentence
+    parts4 = re.split(r'([.!?]+)', text)
+    for i in range(0, len(parts4), 2):
+        if i >= len(parts4):
+            break
+        s = parts4[i]
+        p = parts4[i + 1] if i + 1 < len(parts4) else ''
+        if s:
+            wrapped = _wrap_exclamations(s)
+            if wrapped != s:
+                parts4[i] = wrapped
+    text = ''.join(parts4)
+
     # Cleanup spacing and duplicates
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"¿{2,}", "¿", text)
