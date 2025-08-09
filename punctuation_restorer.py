@@ -1807,6 +1807,52 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
     text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
 
+    # Remove comma right after "Hola" when followed by a prepositional phrase (more natural Spanish)
+    text = re.sub(r"(^|[\n\.\?¡!]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
+
+    # Ensure comma after "Como siempre," lead-in
+    text = re.sub(r"(?i)\b(Como siempre)(?!,)\b", r"\1,", text)
+
+    # Style: repeated adverb comma (muy muy -> muy, muy)
+    text = re.sub(r"(?i)\bmuy\s+muy\b", "muy, muy", text)
+
+    # Convert "Entonces, empecemos." to exclamative form (keeps adverbial lead-in)
+    text = re.sub(r"(?i)(^|[\n\.\?!]\s*)(Entonces,\s*)(empecemos)\.", r"\1\2¡\3!", text)
+
+    # Merge auxiliary + gerund splits: "Estamos. Hablando" -> "Estamos hablando"
+    text = re.sub(r"(?i)\b(Estoy|Estás|Está|Estamos|Están)\.\s+([a-záéíóúñ]+(?:ando|iendo|yendo))\b", r"\1 \2", text)
+
+    # Upgrade common short yes/no patterns to questions when mistakenly left as statements
+    text = re.sub(r"(?i)\b(Estamos|Están)\s+list[oa]s\.", lambda m: '¿' + m.group(0)[:-1] + '?', text)
+
+    # Coordinated yes/no question pattern: verb-initial start and later " o <verb> ..."
+    coord_starters = (
+        r"puedes|puede|podrías|podría|pudiste|pudo|pudieron|pudimos|"
+        r"quieres|quiere|quieren|"
+        r"tienes|tiene|tienen|"
+        r"vas|va|vamos|"
+        r"estás|está|están|"
+        r"hay|es|son"
+    )
+    parts_coord = re.split(r'([.!?]+)', text)
+    for i in range(0, len(parts_coord), 2):
+        if i >= len(parts_coord):
+            break
+        s = (parts_coord[i] or '').strip()
+        if not s:
+            continue
+        p = parts_coord[i + 1] if i + 1 < len(parts_coord) else ''
+        if p in ('', '.') and \
+           re.search(rf'^\s*(?:{coord_starters})\b', s, flags=re.IGNORECASE) and \
+           (
+               re.search(rf'\bo\s+(?:{coord_starters})\b', s, flags=re.IGNORECASE)
+               or re.search(r'\bo\s+[a-záéíóúñ]+(?:an|en|as|es|a|e|amos|emos|imos)\b', s, flags=re.IGNORECASE)
+           ):
+            if not s.startswith('¿'):
+                parts_coord[i] = '¿' + s
+            parts_coord[i + 1] = '?'
+    text = ''.join(parts_coord)
+
     # Add exclamations for common imperative/greeting starters (not if it's already a question/exclamation)
     def _wrap_exclamations(line: str) -> str:
         s = line.strip()
