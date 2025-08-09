@@ -228,9 +228,11 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format, s
         overlap_sec = 3
         chunk_infos = split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=overlap_sec)
 
-    all_text = ""
-    all_segments = []
-    offset = 0.0
+    # Accumulators are already set in single_call branch; initialize here only for chunked mode
+    if not single_call:
+        all_text = ""
+        all_segments = []
+        offset = 0.0
 
     if not single_call:
         print("Transcribing chunks...")
