@@ -771,9 +771,14 @@ def is_question_semantic(sentence, model, language):
     Returns:
         bool: True if sentence is a question
     """
-    # First check for obvious question indicators
-    if has_question_indicators(sentence, language):
-        return True
+    # First check for obvious question indicators (do not auto-accept)
+    starts_with_indicator = False
+    if language == 'es':
+        s = sentence.strip().lower()
+        starts_with_indicator = (
+            bool(re.match(r"^(qué|dónde|cuándo|cómo|quién|cuál|cuáles|por qué)\b", s)) or
+            bool(re.match(r"^(puedes|puede|podrías|podría|quieres|quiere|tienes|tiene|hay|es|está|están|vas|va)\b", s))
+        )
     
     # For Spanish, be extra careful with introductions and statements
     if language == 'es':
@@ -819,8 +824,8 @@ def is_question_semantic(sentence, model, language):
         # Lower threshold for better question detection, but be more conservative for Spanish
         max_similarity = max(similarities)
         if language == 'es':
-            # Be more conservative for Spanish to avoid false positives
-            return max_similarity > 0.75
+            # For Spanish, lower threshold only if the sentence starts with a clear indicator; otherwise be stricter
+            return max_similarity > (0.70 if starts_with_indicator else 0.80)
         else:
             return max_similarity > 0.6
         
@@ -841,10 +846,10 @@ def has_question_indicators(sentence, language):
     """
     sentence_lower = sentence.lower()
     
-    # Question words
+    # Question words (Spanish excludes standalone 'por' and 'de'; handled as phrases like 'por qué', 'de quién')
     question_words = {
         'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'whose', 'whom'],
-        'es': ['qué', 'dónde', 'cuándo', 'por', 'qué', 'cómo', 'quién', 'cuál', 'cuáles', 'de', 'quién'],
+        'es': ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'cuáles'],
         'de': ['was', 'wo', 'wann', 'warum', 'wie', 'wer', 'welche', 'welches', 'wessen'],
         'fr': ['quoi', 'où', 'quand', 'pourquoi', 'comment', 'qui', 'quel', 'quelle', 'quels', 'quelles']
     }
@@ -906,6 +911,11 @@ def has_question_indicators(sentence, language):
                         'de acuerdo', 'de nada', 'de verdad', 'de hecho'
                     ]):
                         continue
+            return True
+
+    # Spanish phrase checks (only as phrases)
+    if language == 'es':
+        if any(phrase in sentence_lower for phrase in ['por qué', 'de quién', 'a quién']):
             return True
     
     # Check for question marks already present
@@ -1783,7 +1793,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Declarative starters should not be questions
     # If a sentence starts with these starters and is marked as question, convert to statement
     starters_block = (
-        r"a nivel|obvio que|como siempre|los |las |el |la |un |una |en |de |haciendo |por supuesto|a nivel de"
+        r"a nivel|a nivel de|obvio que|como siempre|así que|los |las |el |la |un |una |en |de |haciendo |por supuesto"
     )
     def _block_decl_questions(m: re.Match) -> str:
         s = m.group(1)
