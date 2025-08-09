@@ -1896,7 +1896,37 @@ def _spanish_cleanup_postprocess(text: str) -> str:
             wrapped = _wrap_exclamations(s)
             if wrapped != s:
                 parts4[i] = wrapped
+                # Drop following punctuation token if present to avoid duplicates like "!." or "!?"
+                if i + 1 < len(parts4):
+                    parts4[i + 1] = ''
     text = ''.join(parts4)
+
+    # Ensure that sentences starting with '¡' end with a single '!'
+    parts5 = re.split(r'([.!?]+)', text)
+    for i in range(0, len(parts5), 2):
+        if i >= len(parts5):
+            break
+        s = parts5[i] or ''
+        p = parts5[i + 1] if i + 1 < len(parts5) else ''
+        s_stripped = s.strip()
+        if not s_stripped:
+            continue
+        if s_stripped.startswith('¡'):
+            # If content already ends with '!', drop trailing punctuation token
+            if s_stripped.endswith('!'):
+                if i + 1 < len(parts5) and p:
+                    parts5[i + 1] = ''
+            else:
+                # Replace trailing punctuation with '!' or append '!'
+                if i + 1 < len(parts5) and p:
+                    parts5[i + 1] = '!'
+                else:
+                    parts5[i] = s.rstrip(' .?') + '!'
+    text = ''.join(parts5)
+
+    # Final mixed-punctuation cleanup after exclamation pairing
+    text = re.sub(r'!\s*\.', '!', text)
+    text = re.sub(r'!\s*\?', '!', text)
 
     # Cleanup spacing and duplicates
     text = re.sub(r"\s+", " ", text)
