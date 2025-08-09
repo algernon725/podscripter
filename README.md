@@ -96,7 +96,7 @@ This opens an interactive terminal inside the container. You'll run all transcri
 From inside the Docker Container, run:
 
 ```bash
-python transcribe_sentences.py <media_file> <output_dir> [language] [output_format]
+python transcribe_sentences.py <media_file> <output_dir> [language] [output_format] [--single]
 ```
 
 **Example:**
@@ -137,6 +137,13 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files fr srt
 python transcribe_sentences.py audio-files/example.mp3 audio-files auto
 ```
 
+**Example: Single-call transcription (no manual chunking)**
+
+```bash
+python transcribe_sentences.py audio-files/example.mp3 audio-files es txt --single
+```
+Use `--single` if your hardware can handle longer files in a single call for best context continuity. Default mode uses overlapped chunking with VAD.
+
 ## Command-Line Options
 
 | Argument        | Description                                                                           |
@@ -145,6 +152,7 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files auto
 | `output_dir`    | Directory where the transcription file will be saved                                  |
 | `language`      | (Optional) Language code. Primary: `en`, `es`, `fr`, `de`. Others are experimental. Default is auto-detect. |
 | `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
+| `--single`      | (Optional) Bypass manual chunking and process the full file in one call                |
 
 
 ## 🌍 Supported Languages
