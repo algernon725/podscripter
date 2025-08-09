@@ -27,15 +27,8 @@ SOFTWARE.
 Test script for transcribing audio and video files using Whisper.
 This is for testing and experimentation purposes only.
 
-Supported languages include:
-- English (en)
-- Spanish (es) 
-- French (fr)
-- German (de)
-- Japanese (ja)
-- Russian (ru)
-- Czech (cs)
-- And many more (auto-detection supported)
+Primary languages: English (en), Spanish (es), French (fr), German (de)
+Other languages are considered experimental (auto-detection supported)
 """
 
 import os
@@ -45,9 +38,13 @@ import argparse
 from pathlib import Path
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
+from punctuation_restorer import restore_punctuation
 
 def get_supported_languages():
-    """Return a dictionary of commonly used language codes."""
+    """Return a dictionary of commonly used language codes.
+
+    Primary: en, es, fr, de; others experimental
+    """
     return {
         'en': 'English',
         'es': 'Spanish', 
@@ -81,15 +78,21 @@ def validate_language_code(language_code):
         return language_code
     else:
         print(f"Warning: Language code '{language_code}' not in common list.")
-        print("Common language codes:")
+        print("Primary languages:")
+        for code in ["en","es","fr","de"]:
+            if code in supported:
+                print(f"  {code}: {supported[code]}")
+        print("Experimental languages:")
         for code, name in supported.items():
-            print(f"  {code}: {name}")
+            if code not in {"en","es","fr","de"}:
+                print(f"  {code}: {name} (experimental)")
         print("Whisper supports many more languages. The code will still work if it's valid.")
         return language_code
 
 def test_transcribe_file(media_file, model_size="medium", language=None, 
                         chunk_length_sec=None, device="cpu", compute_type="int8",
-                        beam_size=3, output_format="txt", translate_to_english=False):
+                        beam_size=3, output_format="txt", translate_to_english=False,
+                        apply_restoration=False):
     """
     Test transcription with various Whisper settings.
     
@@ -138,7 +141,7 @@ def test_transcribe_file(media_file, model_size="medium", language=None,
     
     # Output results
     if output_format == "txt":
-        output_txt(result, media_file)
+        output_txt(result, media_file, language=language, apply_restoration=apply_restoration)
     elif output_format == "srt":
         output_srt(result, media_file)
     elif output_format == "raw":
@@ -211,7 +214,7 @@ def transcribe_with_chunking(model, media_file, chunk_length_sec, language, beam
         'task': task
     }
 
-def output_txt(result, media_file):
+def output_txt(result, media_file, language=None, apply_restoration=False):
     """Output as TXT file."""
     # Create output path in audio-files folder
     output_dir = "audio-files"
@@ -224,7 +227,13 @@ def output_txt(result, media_file):
         if task_info:
             f.write(f"{task_info}\n")
         f.write("=" * 50 + "\n\n")
-        f.write(result['text'])
+        text = result['text']
+        if apply_restoration and language:
+            try:
+                text = restore_punctuation(text, language)
+            except Exception as e:
+                f.write(f"[Warning] punctuation restoration failed: {e}\n\n")
+        f.write(text)
     print(f"Output saved to: {output_file}")
 
 def output_srt(result, media_file):
@@ -288,6 +297,8 @@ def main():
                        help="Output format (default: txt)")
     parser.add_argument("--translate", action="store_true", 
                        help="Translate the output to English")
+    parser.add_argument("--apply-restoration", action="store_true",
+                       help="Apply punctuation restoration to the concatenated text before writing TXT output")
     
     args = parser.parse_args()
     
@@ -295,9 +306,15 @@ def main():
     if args.list_languages:
         print("Supported language codes:")
         supported = get_supported_languages()
+        print("Primary:")
+        for code in ["en","es","fr","de"]:
+            if code in supported:
+                print(f"  {code}: {supported[code]}")
+        print("Experimental:")
         for code, name in supported.items():
-            print(f"  {code}: {name}")
-        print("\nNote: Whisper supports many more languages. These are just the most common ones.")
+            if code not in {"en","es","fr","de"}:
+                print(f"  {code}: {name} (experimental)")
+        print("\nNote: Whisper supports many more languages. These are the common ones.")
         sys.exit(0)
     
     if not os.path.exists(args.media_file):
@@ -316,7 +333,8 @@ def main():
         compute_type=args.compute_type,
         beam_size=args.beam_size,
         output_format=args.output_format,
-        translate_to_english=args.translate
+        translate_to_english=args.translate,
+        apply_restoration=args.apply_restoration
     )
 
 if __name__ == "__main__":

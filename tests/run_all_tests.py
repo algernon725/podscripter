@@ -67,6 +67,7 @@ def main():
         'test_no_deprecation_warning.py',
         'test_past_tense_questions.py',
         'test_punctuation_preservation.py',
+        'test_human_vs_program_intro.py',
     })
 
     multilingual_files = sorted(x for x in all_files if x.startswith('test_multilingual_'))

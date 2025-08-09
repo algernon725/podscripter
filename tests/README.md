@@ -56,11 +56,13 @@ docker run --rm --platform linux/arm64 \
 - Core/general checks:
   - `test_improved_punctuation.py`, `test_punctuation.py`, `test_environment_variables.py`,
     `test_no_deprecation_warning.py`, `test_past_tense_questions.py`, `test_punctuation_preservation.py`
+  - Spanish human-vs-program similarity: `test_human_vs_program_intro.py` (Spanish only)
 
 ## Optional groups
 
 - Multilingual aggregates: `test_multilingual_*` (enable with `RUN_MULTILINGUAL=1`)
 - Transcription integration: `test_transcription.py`, `test_transcription_logic.py` (enable with `RUN_TRANSCRIPTION=1`)
+  - Human-vs-program intro/extended similarity (Spanish): `test_human_vs_program_intro.py` (included by default)
 - Debug/bench/experimental: `test_question_detection_debug.py`, `test_transcription_debug.py`,
   `test_transcription_specific.py`, `model_comparison.py`, `test_model_change.py` (enable with `RUN_DEBUG=1` or `RUN_ALL=1`)
 
