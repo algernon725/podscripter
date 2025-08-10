@@ -113,6 +113,7 @@ Audio Input → Whisper Transcription → Punctuation Restoration → Sentence S
   - `test_human_vs_program_intro.py` (human-vs-program similarity on intro + extended lines; token-level F1 thresholds)
     - Intro average F1 threshold: ≥ 0.80
     - Overall average F1 threshold: ≥ 0.70
+  - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
 
 ### 3. Docker Best Practices
@@ -243,3 +244,56 @@ Before submitting any changes, ensure:
 ---
 
 **Remember**: This project prioritizes accuracy, maintainability, and ease of use. Always consider the impact of changes across all supported languages and the overall user experience.
+
+## Recent Refactors and Tuning Points
+
+- Centralized thresholds and configs
+  - `LanguageConfig` via `get_language_config(language)` and `_get_language_thresholds(language)` now control:
+    - Spanish semantic thresholds: `semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`
+    - Splitting thresholds: `min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`
+  - Also provides per-language greetings and question starter lists for en/fr/de/es (used by non-Spanish formatter)
+  - Used in `should_end_sentence_here`, `is_question_semantic`, and non-Spanish formatter to avoid inline constants.
+
+- Centralized per-language constants in `punctuation_restorer.py`
+  - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`, `ES_CONNECTORS`, `ES_POSSESSIVES`
+  - French/German: `FR_GREETINGS`, `DE_GREETINGS`, `FR_QUESTION_STARTERS`, `DE_QUESTION_STARTERS`
+  - English: `EN_QUESTION_STARTERS`
+
+- Spanish helper functions (pure, testable sub-steps)
+  - `_es_greeting_and_leadin_commas`, `_es_wrap_imperative_exclamations`
+  - `_es_normalize_tag_questions`, `_es_fix_collocations`
+  - `_es_pair_inverted_questions`
+  - `_es_merge_possessive_splits`, `_es_merge_aux_gerund`, `_es_merge_capitalized_one_word_sentences`, `_es_intro_location_appositive_commas`
+
+- Shared utilities
+  - `_split_sentences_preserving_delims(text)` ensures consistent splitting everywhere
+  - `_normalize_mixed_terminal_punctuation(text)` removes patterns like `!.`, `?.`, `!?`, compresses repeats
+  - Final universal cleanup `_finalize_text_common(text)` normalizes punctuation/whitespace and spacing after sentence punctuation
+
+- Public API hygiene
+  - Public functions are type-annotated (e.g., `restore_punctuation`, `transformer_based_restoration`, `apply_semantic_punctuation`, `is_question_semantic`, `is_exclamation_semantic`, `format_non_spanish_text`)
+  - `punctuation_restorer.py` is import-only (no `__main__` block)
+  - Legacy `format_spanish_text` was removed; Spanish formatting is performed by the unified helpers in the main pipeline
+
+- Capitalization (spaCy mode)
+  - Uses `LanguageConfig` connectors/possessives for Spanish to avoid mid-sentence mis-capitalization (e.g., `tu español`)
+  - Keep `NLP_CAPITALIZATION` opt-in/out via env (`1` default in Dockerfile)
+
+- Tuning guidance
+  - Prefer editing constants and thresholds over changing logic
+  - After any change, run `tests/run_all_tests.py` inside Docker with model caches mounted
+  - Avoid adding one-off hacks; extend constants or helper behavior instead
+
+### Transcription pipeline refinements
+
+- Chunking and merge helpers (private)
+  - `_split_audio_with_overlap(media_file, chunk_length_sec, overlap_sec, chunk_dir)` to generate overlapped chunks (defaults: 480s chunks, 3s overlap)
+  - `_dedupe_segments(global_segments, last_end, epsilon)` to drop overlap-duplicate segments based on end-time
+  - `_accumulate_segments(local_segments, chunk_start, last_end)` to offset per-chunk timestamps to global time and build text
+- Robustness and hygiene
+  - Chunks are written into a `TemporaryDirectory` for automatic cleanup
+  - SRT export sorts segments by start time
+  - `transcribe_with_sentences(...)` returns a structured dict: `segments`, `sentences`, `detected_language`, `output_path`, `num_segments`, `elapsed_secs`
+  - Early input/output validation via `_validate_paths`
+  - Constants hoisted (e.g., `DEFAULT_CHUNK_SEC`, `DEFAULT_OVERLAP_SEC`, `DEDUPE_EPSILON_SEC`, `PROMPT_TAIL_CHARS`)
+  - Prefer `pathlib.Path` over `os.path`/`glob`; keep orchestration helpers private

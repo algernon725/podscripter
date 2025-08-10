@@ -28,7 +28,45 @@ Punctuation restoration module for multilingual text processing.
 Supports English, Spanish, French, and German with advanced NLP techniques.
 """
 
+# Per-language tuning guide (constants and thresholds)
+# -----------------------------------------------------
+# Where to adjust behavior without touching core logic:
+#
+# - Thresholds (splitting and semantic gating):
+#   * Function: _get_language_thresholds(language)
+#   * Wrapper: LanguageConfig (get_language_config)
+#   * Used by: should_end_sentence_here, is_question_semantic
+#   * Keys (es):
+#       - semantic_question_threshold_with_indicator
+#       - semantic_question_threshold_default
+#       - min_total_words_no_split
+#       - min_chunk_before_split
+#       - min_chunk_inside_question
+#       - min_chunk_capital_break
+#       - min_chunk_semantic_break
+#
+# - Spanish keyword/constants:
+#   * ES_QUESTION_WORDS_CORE, ES_QUESTION_STARTERS_EXTRA
+#   * ES_GREETINGS, ES_CONNECTORS, ES_POSSESSIVES
+#   * Spanish helpers live in functions prefixed with _es_ (e.g., _es_greeting_and_leadin_commas)
+#
+# - French/German keyword/constants:
+#   * FR_GREETINGS, DE_GREETINGS
+#   * FR_QUESTION_STARTERS, DE_QUESTION_STARTERS
+#
+# - English question starters:
+#   * EN_QUESTION_STARTERS
+#
+# - Shared utilities:
+#   * split_sentences_preserving_delims(): consistent splitting
+#   * normalize_mixed_terminal_punctuation(): final punctuation cleanup
+#
+# After changes, run the test suite (tests/run_all_tests.py). All constants are
+# centralized here to keep tuning safe and maintainable across languages.
+
 import re
+from typing import Optional
+from dataclasses import dataclass
 import os
 import numpy as np
 import warnings
@@ -55,6 +93,406 @@ except Exception:
 
 
 _SENTENCE_TRANSFORMER_SINGLETON = None
+
+"""
+Lightweight utilities and caches
+"""
+
+# Precompiled, shared regexes
+PUNCT_SPLIT_RE = re.compile(r'([.!?]+)')
+
+# Spanish language config: connectors and possessives
+ES_POSSESSIVES = {
+    "tu", "tus", "su", "sus", "mi", "mis", "nuestro", "nuestra", "nuestros", "nuestras"
+}
+ES_CONNECTORS = {
+    # Core function words that should not be capitalized mid-sentence
+    "de", "del", "la", "las", "los", "el", "lo",
+    "y", "e", "o", "u",
+    "en", "a", "con", "por", "para", "sin", "sobre", "entre",
+    # Foreign particles seen in names
+    "da", "di", "do", "du", "van", "von", "des", "le",
+    # Possessives/determiners
+    *ES_POSSESSIVES,
+}
+
+# Spanish keywords for questions and greetings (centralized)
+ES_QUESTION_WORDS_CORE = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+ES_QUESTION_STARTERS_EXTRA = ['recuerdas', 'sabes', 'puedes', 'puede', 'podrías', 'podría',
+                              'quieres', 'quiere', 'quieren', 'necesitas', 'necesita', 'hay',
+                              'estás', 'están', 'es', 'son', 'vas', 'va', 'tienes', 'tiene']
+ES_GREETINGS = ['hola', 'buenos días', 'buenas tardes', 'buenas noches']
+
+# French/German greeting starters (for consistency and future tuning)
+FR_GREETINGS = ['bonjour']
+DE_GREETINGS = ['hallo']
+
+# French/German question starters (heuristic, used in light formatter)
+FR_QUESTION_STARTERS = ['comment', 'où', 'quand', 'pourquoi', 'qui', 'quel', 'quelle', 'quels', 'quelles', 'est-ce que']
+DE_QUESTION_STARTERS = [
+    # wh- and copula
+    'wie', 'wo', 'wann', 'warum', 'wer', 'welche', 'welches', 'welcher', 'ist', 'sind', 'seid',
+    # modal/auxiliary starts
+    'kann', 'kannst', 'können', 'könnt', 'möchte', 'möchtest', 'möchten', 'will', 'willst', 'wollen',
+    'soll', 'sollst', 'sollen', 'sollt', 'darf', 'darfst', 'dürfen', 'dürft',
+    'hast', 'hat', 'habe', 'haben', 'hatten', 'hatte', 'war', 'waren',
+    'wird', 'werden', 'gibt es'
+]
+
+# English question starters (for completeness in light formatter)
+EN_QUESTION_STARTERS = ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'do', 'does', 'did', 'is', 'are', 'can', 'could', 'would', 'will', 'am']
+
+# Language thresholds (centralized for tuning)
+def _get_language_thresholds(language: str) -> dict:
+    """Return thresholds controlling semantic gating and splitting heuristics.
+
+    Values are chosen to preserve current behavior.
+    """
+    if language == 'es':
+        return {
+            'semantic_question_threshold_with_indicator': 0.70,
+            'semantic_question_threshold_default': 0.80,
+            'min_total_words_no_split': 25,
+            'min_chunk_before_split': 18,
+            'min_chunk_inside_question': 25,
+            'min_chunk_capital_break': 28,
+            'min_chunk_semantic_break': 30,
+        }
+    # Defaults for other languages (align with existing logic)
+    return {
+        'semantic_question_threshold_default_any': 0.60,
+        'min_total_words_no_split': 25,
+        'min_chunk_before_split': 15,
+        'min_chunk_inside_question': 20,
+        'min_chunk_capital_break': 20,
+        'min_chunk_semantic_break': 25,
+    }
+
+
+@dataclass
+class LanguageConfig:
+    connectors: set
+    possessives: set
+    thresholds: dict
+    greetings: list
+    question_starters: list
+
+
+def get_language_config(language: str) -> LanguageConfig:
+    # Generic defaults
+    default_connectors = {
+        "de", "del", "la", "las", "los", "el", "lo",
+        "y", "e", "o", "u",
+        "en", "a", "con", "por", "para", "sin", "sobre", "entre",
+        "da", "di", "do", "du", "van", "von", "des", "le",
+    }
+    if language == 'es':
+        return LanguageConfig(
+            connectors=ES_CONNECTORS,
+            possessives=ES_POSSESSIVES,
+            thresholds=_get_language_thresholds(language),
+            greetings=ES_GREETINGS,
+            question_starters=ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA,
+        )
+    if language == 'fr':
+        return LanguageConfig(
+            connectors=default_connectors,
+            possessives=set(),
+            thresholds=_get_language_thresholds(language),
+            greetings=FR_GREETINGS,
+            question_starters=FR_QUESTION_STARTERS,
+        )
+    if language == 'de':
+        return LanguageConfig(
+            connectors=default_connectors,
+            possessives=set(),
+            thresholds=_get_language_thresholds(language),
+            greetings=DE_GREETINGS,
+            question_starters=DE_QUESTION_STARTERS,
+        )
+    if language == 'en':
+        return LanguageConfig(
+            connectors=default_connectors,
+            possessives=set(),
+            thresholds=_get_language_thresholds(language),
+            greetings=['hello'],
+            question_starters=EN_QUESTION_STARTERS,
+        )
+    return LanguageConfig(
+        connectors=default_connectors,
+        possessives=set(),
+        thresholds=_get_language_thresholds(language),
+        greetings=[],
+        question_starters=[],
+    )
+
+def _split_sentences_preserving_delims(text: str) -> list:
+    """Split text into [chunk, delimiter, chunk, delimiter, ...] using common punctuation.
+    Returns a list where even indices are text chunks and odd indices are delimiters.
+    """
+    return PUNCT_SPLIT_RE.split(text)
+
+
+def _normalize_mixed_terminal_punctuation(text: str) -> str:
+    """Normalize mixed terminal punctuation like '?.', '!.', '!?', collapsing repeats.
+    Safe to run multiple times. Keeps first punctuation when repeats occur.
+    """
+    out = text
+    out = re.sub(r"\.\s*\?", "?", out)   # .? -> ?
+    out = re.sub(r"\?\s*\.", "?", out)    # ?. -> ?
+    out = re.sub(r"!\s*\.", "!", out)      # !. -> !
+    out = re.sub(r"!\s*\?", "!", out)      # !? -> !
+    out = re.sub(r"\?\s*!", "!", out)      # ?! -> !
+    out = re.sub(r"([.!?]){2,}", r"\1", out)  # collapse repeats
+    return out
+
+
+# Final universal cleanup applied at the end of the pipeline
+def _finalize_text_common(text: str) -> str:
+    """Apply safe, language-agnostic cleanup at the very end.
+
+    - Normalize mixed terminal punctuation
+    - Normalize whitespace
+    - Ensure a space after sentence punctuation before capital letters
+    """
+    if not text:
+        return text
+    out = _normalize_mixed_terminal_punctuation(text)
+    out = re.sub(r"\s+", " ", out)
+    # Insert/normalize space between end punctuation and next capital (including accented capitals)
+    out = re.sub(r"([.!?])\s*([A-ZÁÉÍÓÚÑ])", r"\1 \2", out)
+    return out.strip()
+
+
+# --- Spanish helper utilities (pure refactors of existing logic) ---
+def _es_greeting_and_leadin_commas(text: str) -> str:
+    """Normalize greeting comma usage and common lead-ins for Spanish.
+
+    Examples:
+    - "Hola como estan. ¿Listos?" -> "Hola, ¿como estan?"
+    - "Hola, a todos" -> "Hola a todos" (remove comma before prepositional phrase)
+    - "Como siempre vamos a..." -> "Como siempre, vamos a..."
+    """
+    # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
+    text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
+    # Also handle 'como' without accent
+    text = re.sub(r"(\bHola[^.!?]*?)\.\s+(como\s+estan)\b", r"\1, ¿\2?", text, flags=re.IGNORECASE)
+    # Remove comma right after "Hola" when followed by a prepositional phrase (more natural Spanish)
+    text = re.sub(r"(^|[\n\.\?¡!]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
+    # Ensure comma after "Como siempre," lead-in
+    text = re.sub(r"(?i)\b(Como siempre)(?!,)\b", r"\1,", text)
+    return text
+
+
+def _es_wrap_imperative_exclamations(text: str) -> str:
+    """Wrap common imperative/greeting starters with exclamation marks when safe.
+
+    Examples:
+    - "Vamos a empezar." -> "¡Vamos a empezar!"
+    - "Bienvenidos a Españolistos." -> "¡Bienvenidos a Españolistos!"
+    (No change if already a question/exclamation.)
+    """
+    def _wrap_exclamations(line: str) -> str:
+        s = line.strip()
+        if not s:
+            return line
+        low = s.lower()
+        if s.startswith('¿') or s.endswith('?') or s.startswith('¡') or s.endswith('!'):
+            return line
+        if re.match(r"^(bienvenidos|empecemos|vamos|dile|atención)\b", low):
+            return '¡' + s + '!'
+        return line
+
+    parts = _split_sentences_preserving_delims(text)
+    for i in range(0, len(parts), 2):
+        if i >= len(parts):
+            break
+        s = parts[i]
+        if s:
+            wrapped = _wrap_exclamations(s)
+            if wrapped != s:
+                parts[i] = wrapped
+                # Drop following punctuation token if present to avoid duplicates like "!." or "!?"
+                if i + 1 < len(parts):
+                    parts[i + 1] = ''
+    out = ''.join(parts)
+
+    # Ensure that sentences starting with '¡' end with a single '!'
+    parts2 = _split_sentences_preserving_delims(out)
+    for i in range(0, len(parts2), 2):
+        if i >= len(parts2):
+            break
+        s = parts2[i] or ''
+        p = parts2[i + 1] if i + 1 < len(parts2) else ''
+        s_stripped = s.strip()
+        if not s_stripped:
+            continue
+        if s_stripped.startswith('¡'):
+            if s_stripped.endswith('!'):
+                if i + 1 < len(parts2) and p:
+                    parts2[i + 1] = ''
+            else:
+                if i + 1 < len(parts2) and p:
+                    parts2[i + 1] = '!'
+                else:
+                    parts2[i] = s.rstrip(' .?') + '!'
+    out = ''.join(parts2)
+    # Final mixed-punctuation cleanup after exclamation pairing
+    out = re.sub(r'!\s*\.', '!', out)
+    out = re.sub(r'!\s*\?', '!', out)
+    return out
+
+def _es_normalize_tag_questions(text: str) -> str:
+    """Normalize common Spanish tag questions and ensure comma before the tag.
+
+    Examples:
+    - "Está bien, ¿no." -> "Está bien, ¿no?"
+    - "Está bien ¿verdad?" -> "Está bien, ¿verdad?"
+    """
+    out = text
+    out = re.sub(r",\s*¿\s*(no|cierto|verdad)\s*\.\b", r", ¿\1?", out, flags=re.IGNORECASE)
+    out = re.sub(r"([^?,\.\s])\s+¿\s*(no|cierto|verdad)\s*\?", r"\1, ¿\2?", out, flags=re.IGNORECASE)
+    return out
+
+def _es_fix_collocations(text: str) -> str:
+    """Repair frequent collocations.
+
+    Examples:
+    - "por? supuesto" -> "Por supuesto"
+    - Sentence-initial "Por supuesto" -> "Por supuesto,"
+    """
+    out = text
+    out = re.sub(r"\b[Pp]or\s*\?\s*[Ss]upuesto\b", "Por supuesto", out)
+    out = re.sub(r"(^|[\n\.!?]\s*)(Por supuesto)(\b)", r"\1\2,", out)
+    return out
+
+def _es_pair_inverted_questions(text: str) -> str:
+    """Ensure Spanish inverted question pairing and consistency.
+
+    Rules:
+    - Convert "¿ ... ." to "¿ ... ?"
+    - If a segment ends with '?' but lacks opening '¿', add it
+    - If a segment contains '¿' but lacks a closing '?', append one before boundary
+
+    Examples:
+    - "¿Dónde está." -> "¿Dónde está?"
+    - "Cómo estás?" -> "¿Cómo estás?"
+    - "Dijo: ¿qué hacemos. Mañana" -> "Dijo: ¿qué hacemos? Mañana"
+    """
+    # Ensure paired punctuation consistency: "¿ ... ." -> "¿ ... ?"
+    out = re.sub(r"¿\s*([^?\n]+)\.", r"¿\1?", text)
+
+    # Ensure opening inverted question mark for any Spanish question lacking it (including embedded)
+    parts = _split_sentences_preserving_delims(out)
+    for i in range(0, len(parts), 2):
+        if i >= len(parts):
+            break
+        s = (parts[i] or '').strip()
+        p = parts[i + 1] if i + 1 < len(parts) else ''
+        if not s:
+            continue
+        # Full-sentence question: add opening '¿' if missing
+        if p == '?' and not s.startswith('¿'):
+            parts[i] = '¿' + s
+        # Embedded question: contains '¿' but no '?', add before boundary
+        if '¿' in s and p != '?':
+            if '?' not in s:
+                parts[i] = s + '?'
+    return ''.join(parts)
+
+def _es_merge_possessive_splits(text: str) -> str:
+    """Merge possessive/function-word splits and lowercase the following noun.
+
+    Examples:
+    - "tu. Español" -> "tu español"
+    - "mi. Amigo" -> "mi amigo"
+    """
+    return re.sub(
+        r"\b(tu|su|mi)\s*\.\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ-]*)",
+        lambda m: m.group(1) + " " + m.group(2).lower(),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+def _es_merge_aux_gerund(text: str) -> str:
+    """Merge auxiliary + gerund splits.
+
+    Example:
+    - "Estamos. Hablando" -> "Estamos hablando"
+    """
+    return re.sub(
+        r"(?i)\b(Estoy|Estás|Está|Estamos|Están)\.\s+([a-záéíóúñ]+(?:ando|iendo|yendo))\b",
+        r"\1 \2",
+        text,
+    )
+
+def _es_merge_capitalized_one_word_sentences(text: str) -> str:
+    """Merge consecutive one-word capitalized sentences.
+
+    Example:
+    - "Estados. Unidos." -> "Estados Unidos."
+    """ 
+    return re.sub(
+        r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.(\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.",
+        r"\1 \3.",
+        text,
+    )
+
+def _es_intro_location_appositive_commas(text: str) -> str:
+    """Add appositive commas for introductions and locations.
+
+    Example:
+    - "Yo soy Andrea de Santander, Colombia" -> "Yo soy Andrea, de Santander, Colombia"
+    """
+    def _intro_loc_commas(m: re.Match) -> str:
+        cue = m.group(1)
+        name = m.group(2).strip()
+        place1 = m.group(3).strip()
+        place2 = m.group(4).strip() if m.group(4) else None
+        out = f"{cue} {name}, de {place1}"
+        if place2:
+            out += f", {place2}"
+        return out
+    return re.sub(
+        r"(?i)\b(Y yo soy|Yo soy)\s+([^,\n]+?)\s+de\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\s*,?\s*([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)?",
+        _intro_loc_commas,
+        text,
+    )
+
+# Embeddings caches for static pattern sets per language
+_QUESTION_PATTERN_EMBEDDINGS = {}
+_EXCL_PATTERN_EMBEDDINGS = {}
+
+def _get_question_pattern_embeddings(language: str, model):
+    if language in _QUESTION_PATTERN_EMBEDDINGS:
+        return _QUESTION_PATTERN_EMBEDDINGS[language]
+    patterns = get_question_patterns(language)
+    if not patterns:
+        _QUESTION_PATTERN_EMBEDDINGS[language] = None
+        return None
+    try:
+        embs = model.encode(patterns)
+        _QUESTION_PATTERN_EMBEDDINGS[language] = embs
+        return embs
+    except Exception:
+        _QUESTION_PATTERN_EMBEDDINGS[language] = None
+        return None
+
+
+def _get_exclamation_pattern_embeddings(language: str, model):
+    if language in _EXCL_PATTERN_EMBEDDINGS:
+        return _EXCL_PATTERN_EMBEDDINGS[language]
+    patterns = get_exclamation_patterns(language)
+    if not patterns:
+        _EXCL_PATTERN_EMBEDDINGS[language] = None
+        return None
+    try:
+        embs = model.encode(patterns)
+        _EXCL_PATTERN_EMBEDDINGS[language] = embs
+        return embs
+    except Exception:
+        _EXCL_PATTERN_EMBEDDINGS[language] = None
+        return None
 
 def _get_cache_paths():
     """Return preferred cache paths inside the repo (mounted at /app) or fallbacks.
@@ -134,7 +572,7 @@ def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphra
         return _SENTENCE_TRANSFORMER_SINGLETON
 
 
-def restore_punctuation(text, language='en'):
+def restore_punctuation(text: str, language: str = 'en') -> str:
     """
     Restore punctuation to transcribed text using advanced NLP techniques.
     
@@ -160,7 +598,7 @@ def restore_punctuation(text, language='en'):
         return text
 
 
-def advanced_punctuation_restoration(text, language='en', use_custom_patterns=True):
+def advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
     
@@ -184,7 +622,7 @@ def advanced_punctuation_restoration(text, language='en', use_custom_patterns=Tr
         return text
 
 
-def transformer_based_restoration(text, language='en', use_custom_patterns=True):
+def transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
@@ -218,7 +656,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         current_chunk.append(word)
         
         # Check if we should end the sentence here
-        if should_end_sentence_here(words, i, current_chunk, model, language):
+        if _should_end_sentence_here(words, i, current_chunk, model, language):
             sentence_text = ' '.join(current_chunk)
             if sentence_text.strip():
                 sentences.append(sentence_text)
@@ -252,7 +690,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
     # Apply Spanish-specific formatting
     if language == 'es':
         # Split into sentences and format each one properly
-        sentences = re.split(r'([.!?]+)', result)
+        sentences = _split_sentences_preserving_delims(result)
         formatted_sentences = []
         
         for i in range(0, len(sentences), 2):
@@ -271,10 +709,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
                     # Add proper punctuation if missing (but don't add if punctuation already exists)
                     if not sentence.endswith(('.', '!', '?')):
                         # Check if it's a question
-                        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué',
-                                          'recuerdas', 'sabes', 'puedes', 'puede', 'podrías', 'podría',
-                                          'quieres', 'quiere', 'quieren', 'necesitas', 'necesita', 'hay',
-                                          'estás', 'están', 'es', 'son', 'vas', 'va', 'tienes', 'tiene']
+                        question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
                         sentence_lower = sentence.lower()
                         
                         if any(word in sentence_lower for word in question_words):
@@ -300,7 +735,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         
         # Add inverted question marks for questions (comprehensive approach)
         # First, identify all sentences that end with question marks
-        sentences = re.split(r'([.!?]+)', result)
+        sentences = _split_sentences_preserving_delims(result)
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence_text = sentences[i].strip()
@@ -330,19 +765,11 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
                         sentences[i] = '¿' + sentence_text
         result = ''.join(sentences)
         
-        # Clean up double punctuation more thoroughly
-        result = re.sub(r'\.{2,}', '.', result)
-        result = re.sub(r'\?{2,}', '?', result)
-        result = re.sub(r'!{2,}', '!', result)
-        result = re.sub(r'¿{2,}', '¿', result)
+        # Clean up double/mixed punctuation in one place
+        result = _normalize_mixed_terminal_punctuation(result)
         
-        # Special handling for greeting questions (but clean up first). Also handle 'como' without accent.
-        if 'hola' in result.lower() and ('cómo' in result.lower() or re.search(r'\bhola\s+como\b', result, flags=re.IGNORECASE)):
-            # Clean up any existing ¿¿ before applying the pattern
-            result = re.sub(r'¿{2,}', '¿', result)
-            result = re.sub(r'hola\s+(c[oó]mo)', r'¿Hola, \1', result, flags=re.IGNORECASE)
-            # Remove any trailing period after question mark for greeting questions
-            result = re.sub(r'¿Hola, cómo.*?\?\.', lambda m: m.group(0).rstrip('.'), result)
+        # Special handling for greetings and lead-ins
+        result = _es_greeting_and_leadin_commas(result)
         
         # Remove the comma addition for location patterns - Spanish grammar doesn't require it
         # result = re.sub(r'\b(andrea|carlos|maría|juan|ana)\s+(de)\s+(colombia|santander|madrid|españa|méxico|argentina)\b', r'\1 \2, \3', result, flags=re.IGNORECASE)
@@ -357,10 +784,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas noches)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
 
         # Final cleanup of any remaining double punctuation
-        result = re.sub(r'¿{2,}', '¿', result)
-        result = re.sub(r'\?{2,}', '?', result)
-        result = re.sub(r'\.{2,}', '.', result)
-        result = re.sub(r'!{2,}', '!', result)
+        result = _normalize_mixed_terminal_punctuation(result)
         
         # General fix: merge sentences that were incorrectly split at question words
         # This handles cases where a question was split in the middle
@@ -370,7 +794,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         
         # Bug 1: Fix missing punctuation at the end of sentences
         # Ensure all sentences end with proper punctuation
-        sentences = re.split(r'([.!?]+)', result)
+        sentences = _split_sentences_preserving_delims(result)
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
@@ -379,7 +803,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
                     sentence_lower = sentence.lower()
                     
                     # Only treat as question if it clearly starts with a question word
-                    question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+                    question_starters = ES_QUESTION_WORDS_CORE
                     starts_with_question = any(sentence_lower.startswith(word + ' ') for word in question_starters)
                     
                     # For embedded questions, only treat as question if it starts with ¿
@@ -396,7 +820,7 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         
         # Fix any remaining sentences without punctuation at the end
         # This catches any sentences that might have been missed
-        sentences = re.split(r'([.!?]+)', result)
+        sentences = _split_sentences_preserving_delims(result)
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
@@ -537,10 +961,14 @@ def transformer_based_restoration(text, language='en', use_custom_patterns=True)
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
             result = _apply_spacy_capitalization(result, language)
 
-    return result.strip()
+    # Final universal cleanup
+    return _finalize_text_common(result)
 
 
-def should_end_sentence_here(words, current_index, current_chunk, model, language):
+from typing import List
+
+
+def _should_end_sentence_here(words: List[str], current_index: int, current_chunk: List[str], model, language: str) -> bool:
     """
     Determine if a sentence should end at the current position using semantic coherence.
     
@@ -564,10 +992,12 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     
     # Minimum sentence length (avoid very short sentences)
     # For very short inputs, don't split at all
-    if len(words) <= 25:  # If the entire input is short, don't split
+    cfg = get_language_config(language)
+    thresholds = cfg.thresholds
+    if len(words) <= thresholds.get('min_total_words_no_split', 25):  # If the entire input is short, don't split
         return False
     
-    if len(current_chunk) < 18:  # Slightly less aggressive: require longer chunk before splitting
+    if len(current_chunk) < thresholds.get('min_chunk_before_split', 18):  # Slightly less aggressive
         return False
     
     # Check for natural sentence endings
@@ -575,7 +1005,7 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
     
     # Strong indicators for sentence end
-    strong_end_indicators = get_strong_end_indicators(language)
+    strong_end_indicators = _get_strong_end_indicators(language)
     if any(indicator in current_word.lower() for indicator in strong_end_indicators):
         return True
     
@@ -586,7 +1016,7 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
         current_text = ' '.join(current_chunk).lower()
         if any(word in current_text for word in question_words):
             # If we're in the middle of a question, don't break unless it's very long
-            if len(current_chunk) < 25:
+            if len(current_chunk) < thresholds.get('min_chunk_inside_question', 25):
                 return False
 
         # Don't break in the middle of common Spanish phrases
@@ -627,9 +1057,9 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     # Check for capital letter after reasonable length (be much more conservative for Spanish ASR capitalization)
     next_next_word = words[current_index + 2] if current_index + 2 < len(words) else ""
     if (next_word and next_word[0].isupper() and
-        len(current_chunk) >= 28 and  # raise threshold to reduce over-splitting
-        not is_continuation_word(current_word, language) and
-        not is_transitional_word(current_word, language)):
+        len(current_chunk) >= thresholds.get('min_chunk_capital_break', 28) and  # conservative
+        not _is_continuation_word(current_word, language) and
+        not _is_transitional_word(current_word, language)):
         # Avoid breaking when followed by two capitalized tokens (likely multi-word proper noun: "Estados Unidos")
         if next_next_word and next_next_word[0].isupper():
             return False
@@ -639,7 +1069,7 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
         return True
     
     # Use semantic coherence to determine if chunks should be separated
-    if len(current_chunk) >= 30:  # Slightly less aggressive: require more context before semantic split
+    if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):  # conservative semantic split
         # If the next token is a lowercase continuation or preposition, do not break
         if next_word and next_word and next_word[0].islower():
             if next_word.lower() in ['y', 'o', 'pero', 'que', 'de', 'en', 'para', 'con', 'por', 'sin', 'sobre']:
@@ -649,7 +1079,7 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     return False
 
 
-def get_strong_end_indicators(language):
+def _get_strong_end_indicators(language):
     """
     Get strong indicators that suggest a sentence should end.
     
@@ -668,7 +1098,7 @@ def get_strong_end_indicators(language):
     return indicators.get(language, indicators['en'])
 
 
-def is_transitional_word(word, language):
+def _is_transitional_word(word: str, language: str) -> bool:
     """
     Check if a word is a transitional word that suggests the sentence should continue.
     
@@ -690,7 +1120,7 @@ def is_transitional_word(word, language):
     return word.lower() in words
 
 
-def is_continuation_word(word, language):
+def _is_continuation_word(word: str, language: str) -> bool:
     """
     Check if a word suggests the sentence should continue.
     
@@ -712,7 +1142,7 @@ def is_continuation_word(word, language):
     return word.lower() in words
 
 
-def check_semantic_break(words, current_index, model):
+def check_semantic_break(words: List[str], current_index: int, model) -> bool:
     """
     Check if there's a semantic break at the current position.
     
@@ -744,7 +1174,7 @@ def check_semantic_break(words, current_index, model):
         return False
 
 
-def apply_semantic_punctuation(sentence, model, language, sentence_index, total_sentences):
+def apply_semantic_punctuation(sentence: str, model, language: str, sentence_index: int, total_sentences: int) -> str:
     """
     Apply appropriate punctuation to a sentence using semantic analysis.
     
@@ -773,13 +1203,13 @@ def apply_semantic_punctuation(sentence, model, language, sentence_index, total_
     # Default to period if no other punctuation
     if sentence and not sentence.endswith(('.', '!', '?')):
         # Don't add period if it ends with a continuation word
-        if not is_continuation_word(sentence.split()[-1] if sentence.split() else '', language):
+        if not _is_continuation_word(sentence.split()[-1] if sentence.split() else '', language):
             sentence += '.'
     
     return sentence
 
 
-def is_question_semantic(sentence, model, language):
+def is_question_semantic(sentence: str, model, language: str) -> bool:
     """
     Determine if a sentence is a question using semantic similarity.
     
@@ -823,18 +1253,17 @@ def is_question_semantic(sentence, model, language):
             if any(pattern in sentence_lower for pattern in introduction_patterns):
                 return False
     
-    question_patterns = get_question_patterns(language)
+    question_patterns = _get_question_patterns(language)
     if not question_patterns:
         return False
     
     try:
-        # Encode sentence and question patterns
-        texts_to_encode = [sentence] + question_patterns
-        embeddings = model.encode(texts_to_encode)
-        
-        # Calculate similarities with question patterns
-        sentence_embedding = embeddings[0]
-        question_embeddings = embeddings[1:]
+        # Encode sentence and re-use cached pattern embeddings
+        sentence_embedding = model.encode([sentence])[0]
+        cached = _get_question_pattern_embeddings(language, model)
+        if cached is None:
+            return False
+        question_embeddings = cached
         
         similarities = []
         for q_emb in question_embeddings:
@@ -843,11 +1272,13 @@ def is_question_semantic(sentence, model, language):
         
         # Lower threshold for better question detection, but be more conservative for Spanish
         max_similarity = max(similarities)
+        cfg = get_language_config(language)
         if language == 'es':
-            # For Spanish, lower threshold only if the sentence starts with a clear indicator; otherwise be stricter
-            return max_similarity > (0.70 if starts_with_indicator else 0.80)
+            thr = cfg.thresholds
+            return max_similarity > (thr['semantic_question_threshold_with_indicator'] if starts_with_indicator else thr['semantic_question_threshold_default'])
         else:
-            return max_similarity > 0.6
+            thr = cfg.thresholds
+            return max_similarity > thr.get('semantic_question_threshold_default_any', 0.6)
         
     except Exception:
         return False
@@ -883,7 +1314,7 @@ def has_question_indicators(sentence, language):
     
     # Special case for Spanish: check for question words at the beginning even without ¿
     if language == 'es':
-        spanish_question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'como', 'quién', 'cuál', 'cuáles', 'por qué']
+        spanish_question_starters = ES_QUESTION_WORDS_CORE + ['como', 'cuáles']
         for starter in spanish_question_starters:
             if sentence_lower.startswith(starter + ' '):
                 return True
@@ -909,7 +1340,7 @@ def has_question_indicators(sentence, language):
             # Only consider it a question if it's not a common greeting or statement
             if language == 'es':
                 # Avoid false positives for common greetings and statements
-                if any(greeting in sentence_lower for greeting in ['hola', 'buenos días', 'buenas tardes', 'buenas noches']):
+                if any(greeting in sentence_lower for greeting in get_language_config('es').greetings):
                     continue
                 if any(statement in sentence_lower for statement in ['gracias', 'por favor', 'de nada', 'no hay problema']):
                     continue
@@ -954,7 +1385,7 @@ def has_question_indicators(sentence, language):
             'es importante', 'es necesario', 'es correcto', 'está bien'
         ]):
             # Only consider it a question if it has strong question indicators
-            has_strong_question = any(word in sentence_lower for word in ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál'])
+            has_strong_question = any(word in sentence_lower for word in ES_QUESTION_WORDS_CORE[:-1])
             if not has_strong_question:
                 return False
         
@@ -966,7 +1397,7 @@ def has_question_indicators(sentence, language):
             'mi nombre es', 'me llamo', 'vivo en', 'trabajo en'
         ]):
             # Only consider it a question if it has strong question indicators
-            has_strong_question = any(word in sentence_lower for word in ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál'])
+            has_strong_question = any(word in sentence_lower for word in ES_QUESTION_WORDS_CORE[:-1])
             if not has_strong_question:
                 return False
         
@@ -982,7 +1413,7 @@ def has_question_indicators(sentence, language):
         # If the sentence contains these patterns and doesn't have strong question words, it's likely a statement
         if any(pattern in sentence_lower for pattern in introduction_patterns):
             # Check for strong question indicators
-            strong_question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+            strong_question_words = ES_QUESTION_WORDS_CORE
             has_strong_question = any(word in sentence_lower for word in strong_question_words)
             
             # Also check if it starts with a question word
@@ -1024,30 +1455,19 @@ def has_question_indicators(sentence, language):
     return False
 
 
-def is_exclamation_semantic(sentence, model, language):
-    """
-    Determine if a sentence is an exclamation using semantic similarity.
-    
-    Args:
-        sentence (str): The sentence to analyze
-        model: SentenceTransformer model
-        language (str): Language code
-    
-    Returns:
-        bool: True if sentence is an exclamation
-    """
-    exclamation_patterns = get_exclamation_patterns(language)
+def is_exclamation_semantic(sentence: str, model, language: str) -> bool:
+    """Determine if a sentence is an exclamation using semantic similarity."""
+    exclamation_patterns = _get_exclamation_patterns(language)
     if not exclamation_patterns:
         return False
     
     try:
-        # Encode sentence and exclamation patterns
-        texts_to_encode = [sentence] + exclamation_patterns
-        embeddings = model.encode(texts_to_encode)
-        
-        # Calculate similarities with exclamation patterns
-        sentence_embedding = embeddings[0]
-        exclamation_embeddings = embeddings[1:]
+        # Encode sentence and re-use cached pattern embeddings
+        sentence_embedding = model.encode([sentence])[0]
+        cached = _get_exclamation_pattern_embeddings(language, model)
+        if cached is None:
+            return False
+        exclamation_embeddings = cached
         
         similarities = []
         for e_emb in exclamation_embeddings:
@@ -1060,7 +1480,7 @@ def is_exclamation_semantic(sentence, model, language):
         return False
 
 
-def get_exclamation_patterns(language):
+def _get_exclamation_patterns(language):
     """
     Get exclamation patterns for semantic similarity comparison.
     
@@ -1158,133 +1578,6 @@ def apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
     
     return sentence
 
-
-def format_spanish_text(text):
-    """
-    Apply Spanish-specific formatting including capitalization and punctuation.
-    
-    Args:
-        text (str): The text to format
-    
-    Returns:
-        str: Formatted Spanish text
-    """
-    # Split into sentences
-    sentences = re.split(r'[.!?]+', text)
-    formatted_sentences = []
-    
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-            
-        # Capitalize first letter
-        if sentence and sentence[0].isalpha():
-            sentence = sentence[0].upper() + sentence[1:]
-        
-        # Capitalize proper names and locations
-        sentence = re.sub(r'\b(andrea|carlos|madrid|colombia|santander|españa|méxico|argentina)\b', 
-                         lambda m: m.group(1).title(), sentence, flags=re.IGNORECASE)
-        
-        # Add proper punctuation based on content
-        if not sentence.endswith(('.', '!', '?')):
-            # Check if it's a question
-            question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
-            sentence_lower = sentence.lower()
-            
-            if any(word in sentence_lower for word in question_words):
-                if not sentence.endswith('?'):
-                    sentence += '?'
-            else:
-                if not sentence.endswith('.'):
-                    sentence += '.'
-        
-        # Ensure all sentences end with proper punctuation
-        if sentence and not sentence.endswith(('.', '!', '?')):
-            sentence += '.'
-        
-        formatted_sentences.append(sentence)
-    
-    # Join sentences with proper spacing
-    result = ' '.join(formatted_sentences)
-    
-    # Ensure proper sentence separation by adding spaces after punctuation
-    result = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result)
-    
-    # Add inverted question marks for questions that start with question words
-    question_starters = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
-    
-    for starter in question_starters:
-        pattern = rf'\b{starter}\b'
-        if re.search(pattern, result, re.IGNORECASE):
-            # Find the sentence containing this word and add inverted question mark
-            sentences = re.split(r'[.!?]+', result)
-            for i, sent in enumerate(sentences):
-                if re.search(pattern, sent, re.IGNORECASE) and sent.strip():
-                    # Add inverted question mark at the beginning
-                    sent = sent.strip()
-                    if sent and not sent.startswith('¿'):
-                        # Special handling for greetings with questions
-                        if sent.lower().startswith('hola') and 'cómo' in sent.lower():
-                            # Don't add ¿ at the beginning for "Hola cómo estás"
-                            continue
-                        sentences[i] = '¿' + sent
-            result = ' '.join(sentences)
-            break
-    
-    # Ensure questions end with question marks
-    sentences = re.split(r'[.!?]+', result)
-    for i, sent in enumerate(sentences):
-        if sent.strip() and sent.strip().startswith('¿'):
-            # This is a question, ensure it ends with ?
-            if not sent.strip().endswith('?'):
-                sentences[i] = sent.strip() + '?'
-    
-    # Special handling for greeting questions
-    for i, sent in enumerate(sentences):
-        if sent.strip() and sent.lower().startswith('hola') and 'cómo' in sent.lower():
-            # Format as "¿Hola, cómo estás hoy?" (entire sentence in question marks with comma)
-            if not sent.strip().startswith('¿'):
-                # Add comma after "Hola" if not already present
-                parts = sent.strip().split('cómo')
-                if len(parts) == 2:
-                    greeting = parts[0].strip()
-                    question = parts[1].strip()
-                    if not greeting.endswith(','):
-                        greeting += ','
-                    sentences[i] = '¿' + greeting + ' cómo ' + question + '?'
-    
-    result = ' '.join(sentences)
-    
-    # Add commas for proper Spanish punctuation (but be more selective)
-    # Only add commas before conjunctions when they're not already preceded by a comma
-    # Don't add commas before 'y' if it's between two short phrases
-    result = re.sub(r'\b(pero|mas|sino|aunque)\b', r', \1', result, flags=re.IGNORECASE)
-    
-    # Add commas for location patterns (but be more careful)
-    # Only add comma after the location name when preceded by "de"
-    result = re.sub(r'\b(andrea|carlos|maría|juan|ana)\s+(de)\s+(colombia|santander|madrid|españa|méxico|argentina)\b', r'\1 \2 \3,', result, flags=re.IGNORECASE)
-    
-    result = re.sub(r',\s*,', ',', result)  # Remove double commas
-    result = re.sub(r',\s+$', '', result)  # Remove trailing commas
-    
-    # Ensure all sentences end with proper punctuation
-    sentences = re.split(r'[.!?]+', result)
-    for i, sent in enumerate(sentences):
-        if sent.strip() and not sent.strip().endswith(('.', '!', '?')):
-            # Check if it's a question before adding period
-            question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué', 'recuerdas', 'sabes', 'puedes', 'quieres', 'necesitas']
-            sentence_lower = sent.strip().lower()
-            
-            if any(word in sentence_lower for word in question_words) or sent.strip().startswith('¿'):
-                sentences[i] = sent.strip() + '?'
-            else:
-                sentences[i] = sent.strip() + '.'
-    result = ' '.join(sentences)
-    
-    return result
-
-
 def format_non_spanish_text(text: str, language: str) -> str:
     """Basic capitalization and comma heuristics for non-Spanish languages.
 
@@ -1297,7 +1590,7 @@ def format_non_spanish_text(text: str, language: str) -> str:
         return text
 
     # Split keeping punctuation
-    parts = re.split(r'([.!?]+)', text)
+        parts = split_sentences_preserving_delims(text)
     sentences = []
     for i in range(0, len(parts), 2):
         if i >= len(parts):
@@ -1307,14 +1600,13 @@ def format_non_spanish_text(text: str, language: str) -> str:
         if not s:
             continue
 
-        # Greeting comma for common patterns
+        # Greeting comma for common patterns, via LanguageConfig
         lower = s.lower()
-        if language == 'en' and lower.startswith('hello '):
-            s = re.sub(r'^([Hh]ello)\s+', r"\1, ", s)
-        if language == 'fr' and lower.startswith('bonjour '):
-            s = re.sub(r'^([Bb]onjour)\s+', r"\1, ", s)
-        if language == 'de' and lower.startswith('hallo '):
-            s = re.sub(r'^([Hh]allo)\s+', r"\1, ", s)
+        cfg_local = get_language_config(language)
+        if cfg_local.greetings:
+            if any(lower.startswith(g + ' ') for g in cfg_local.greetings):
+                # Insert comma after the greeting token (first word)
+                s = re.sub(r'^(\w+)\s+', r"\1, ", s)
 
         # French clitic hyphenation for inversion/question forms
         if language == 'fr':
@@ -1348,20 +1640,7 @@ def format_non_spanish_text(text: str, language: str) -> str:
         if not p:
             # Use question mark if starts with typical question words
             starts_question = False
-            q_starters = {
-                'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'do', 'does', 'did', 'is', 'are', 'can', 'could', 'would', 'will', 'am'],
-                'fr': ['comment', 'où', 'quand', 'pourquoi', 'qui', 'quel', 'quelle', 'quels', 'quelles', 'est-ce que'],
-                'de': [
-                    # wh- and copula
-                    'wie', 'wo', 'wann', 'warum', 'wer', 'welche', 'welches', 'welcher', 'ist', 'sind', 'seid',
-                    # modal/auxiliary starts
-                    'kann', 'kannst', 'können', 'könnt', 'möchte', 'möchtest', 'möchten', 'will', 'willst', 'wollen',
-                    'soll', 'sollst', 'sollen', 'sollt', 'darf', 'darfst', 'dürfen', 'dürft',
-                    'hast', 'hat', 'habe', 'haben', 'hatten', 'hatte', 'war', 'waren',
-                    'wird', 'werden', 'gibt es'
-                ]
-            }
-            starters = q_starters.get(language, q_starters['en'])
+            starters = get_language_config(language).question_starters or EN_QUESTION_STARTERS
             lower_s = s.lower()
             for w in starters:
                 if lower_s.startswith(w + ' '):
@@ -1429,14 +1708,8 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
                 ent_token_idxs.add(t.i)
 
     # Never capitalize these connectors (common Spanish function words)
-    connectors = {
-        "de", "del", "la", "las", "los", "el", "lo",
-        "y", "e", "o", "u",
-        "en", "a", "con", "por", "para", "sin", "sobre", "entre",
-        "da", "di", "do", "du", "van", "von", "des", "le",
-        # Spanish possessives/determiners (avoid capitalizing mid-sentence)
-        "tu", "tus", "su", "sus", "mi", "mis", "nuestro", "nuestra", "nuestros", "nuestras"
-    }
+    cfg = get_language_config(language)
+    connectors = cfg.connectors
 
     def should_capitalize(tok) -> bool:
         txt = tok.text
@@ -1465,11 +1738,11 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
             # Spanish-specific de-capitalization for possessive + noun artifacts: "tu Español" -> "tu español"
             if language == 'es' and tok.i > 0:
                 prev = doc[tok.i - 1].text.lower()
-                if prev in {"tu", "su", "mi", "tus", "sus", "mis"} and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
+                if prev in get_language_config(language).possessives and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
                     t = t[0].lower() + t[1:]
         # Additionally, avoid capitalizing possessive itself mid-sentence: "Tu" -> "tu"
         if language == 'es':
-            if tok.text in {"Tu", "Tus", "Su", "Sus", "Mi", "Mis", "Nuestro", "Nuestra", "Nuestros", "Nuestras"}:
+            if tok.text in {w.title() for w in get_language_config(language).possessives}:
                 # Lowercase unless at sentence start
                 at_sent_start = getattr(tok, 'is_sent_start', False)
                 prev_text = doc[tok.i - 1].text if tok.i > 0 else ''
@@ -1618,7 +1891,7 @@ def _capitalize_german_nouns_after_determiners(sentence: str) -> str:
 
     return regex.sub(repl, sentence)
 
-def get_question_patterns(language):
+def _get_question_patterns(language):
     """
     Get question patterns for semantic similarity comparison.
     
@@ -1742,7 +2015,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     text = re.sub(rf"(^|[\n\.!?]\s*)¿\s*(?=(?:{starters})\b)", r"\1", text, flags=re.IGNORECASE)
 
     # If sentence starts with '¿' but ends with '.', convert to '?'
-    parts = re.split(r'([.!?]+)', text)
+    parts = _split_sentences_preserving_delims(text)
     for i in range(0, len(parts), 2):
         if i >= len(parts):
             break
@@ -1754,14 +2027,11 @@ def _spanish_cleanup_postprocess(text: str) -> str:
             parts[i + 1] = '?'
     text = ''.join(parts)
 
-    # Tag questions normalization: ", ¿no." -> ", ¿no?" (same for cierto|verdad)
-    text = re.sub(r",\s*¿\s*(no|cierto|verdad)\s*\.\b", r", ¿\1?", text, flags=re.IGNORECASE)
-    # Ensure comma before tag question if missing
-    text = re.sub(r"([^?,\.\s])\s+¿\s*(no|cierto|verdad)\s*\?", r"\1, ¿\2?", text, flags=re.IGNORECASE)
+    # Tag questions normalization
+    text = _es_normalize_tag_questions(text)
 
-    # Collocation repair: "por? supuesto" -> "Por supuesto"; add comma if sentence-initial
-    text = re.sub(r"\b[Pp]or\s*\?\s*[Ss]upuesto\b", "Por supuesto", text)
-    text = re.sub(r"(^|[\n\.!?]\s*)(Por supuesto)(\b)", r"\1\2,", text)
+    # Collocation repairs
+    text = _es_fix_collocations(text)
 
     # Capitalize first letter after opening '¿'
     def _cap_after_inverted_q(m: re.Match) -> str:
@@ -1772,7 +2042,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     text = re.sub(r"(^|[\n\s])([¿])\s*([a-záéíóúñ])", _cap_after_inverted_q, text)
 
     # Ensure paired punctuation consistency
-    text = re.sub(r"¿\s*([^?\n]+)\.", r"¿\1?", text)
+    text = _es_pair_inverted_questions(text)
 
     # Preserve embedded questions introduced mid-sentence by '¿'
     # If we see mid-sentence '¿', keep it when followed by interrogative cues; otherwise leave untouched
@@ -1790,7 +2060,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         r"te parece|le parece|crees|cree|piensas|piensa"
     )
     model_gate = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
-    parts2 = re.split(r'([.!?]+)', text)
+    parts2 = _split_sentences_preserving_delims(text)
     for i in range(0, len(parts2), 2):
         if i >= len(parts2):
             break
@@ -1807,24 +2077,8 @@ def _spanish_cleanup_postprocess(text: str) -> str:
                     parts2[i + 1] = '?'
     text = ''.join(parts2)
 
-    # Ensure opening inverted question mark for any Spanish question lacking it (including embedded)
-    parts3 = re.split(r'([.!?]+)', text)
-    for i in range(0, len(parts3), 2):
-        if i >= len(parts3):
-            break
-        s = (parts3[i] or '').strip()
-        p = parts3[i + 1] if i + 1 < len(parts3) else ''
-        if not s:
-            continue
-        # Full-sentence questions
-        if p == '?' and not s.startswith('¿'):
-            parts3[i] = '¿' + s
-        # Embedded question: mid-sentence '¿' without a closing '?' before the next boundary -> add one before punctuation
-        if '¿' in s and p != '?':
-            # If there's no '?' in segment, append one before boundary
-            if '?' not in s:
-                parts3[i] = s + '?'
-    text = ''.join(parts3)
+    # Ensure opening and closing pairing
+    text = _es_pair_inverted_questions(text)
 
     # Declarative starters should not be questions
     # If a sentence starts with these starters and is marked as question, convert to statement
@@ -1840,37 +2094,17 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         return m.group(0)
     text = re.sub(r"(¿[^\n\.?]+)(\?)", _block_decl_questions, text)
 
-    # Merge possessive/function-word splits like "tu. Español" -> "tu español"
-    # Lowercase the second token to undo capitalization caused by erroneous sentence split
-    text = re.sub(r"\b(tu|su|mi)\s*\.\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ-]*)",
-                  lambda m: m.group(1) + " " + m.group(2).lower(), text, flags=re.IGNORECASE)
+    # Merge possessive/function-word splits
+    text = _es_merge_possessive_splits(text)
 
-    # Merge consecutive one-word capitalized sentences: "Estados. Unidos." -> "Estados Unidos."
-    text = re.sub(r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.(\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.", r"\1 \3.", text)
+    # Merge consecutive one-word capitalized sentences
+    text = _es_merge_capitalized_one_word_sentences(text)
 
     # Appositive commas for introductions and locations
-    # "Yo soy Andrea de Santander, Colombia" -> "Yo soy Andrea, de Santander, Colombia"
-    def _intro_loc_commas(m: re.Match) -> str:
-        cue = m.group(1)
-        name = m.group(2).strip()
-        place1 = m.group(3).strip()
-        place2 = m.group(4).strip() if m.group(4) else None
-        out = f"{cue} {name}, de {place1}"
-        if place2:
-            out += f", {place2}"
-        return out
-    text = re.sub(r"(?i)\b(Y yo soy|Yo soy)\s+([^,\n]+?)\s+de\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\s*,?\s*([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)?", _intro_loc_commas, text)
+    text = _es_intro_location_appositive_commas(text)
 
-    # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
-    text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
-    # Also handle 'como' without accent
-    text = re.sub(r"(\bHola[^.!?]*?)\.\s+(como\s+estan)\b", r"\1, ¿\2?", text, flags=re.IGNORECASE)
-
-    # Remove comma right after "Hola" when followed by a prepositional phrase (more natural Spanish)
-    text = re.sub(r"(^|[\n\.\?¡!]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
-
-    # Ensure comma after "Como siempre," lead-in
-    text = re.sub(r"(?i)\b(Como siempre)(?!,)\b", r"\1,", text)
+    # Greetings and lead-ins
+    text = _es_greeting_and_leadin_commas(text)
 
     # Style: repeated adverb comma (muy muy -> muy, muy)
     text = re.sub(r"(?i)\bmuy\s+muy\b", "muy, muy", text)
@@ -1878,8 +2112,8 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Convert "Entonces, empecemos." to exclamative form (keeps adverbial lead-in)
     text = re.sub(r"(?i)(^|[\n\.\?!]\s*)(Entonces,\s*)(empecemos)\.", r"\1\2¡\3!", text)
 
-    # Merge auxiliary + gerund splits: "Estamos. Hablando" -> "Estamos hablando"
-    text = re.sub(r"(?i)\b(Estoy|Estás|Está|Estamos|Están)\.\s+([a-záéíóúñ]+(?:ando|iendo|yendo))\b", r"\1 \2", text)
+    # Merge auxiliary + gerund splits
+    text = _es_merge_aux_gerund(text)
 
     # Upgrade common short yes/no patterns to questions when mistakenly left as statements
     text = re.sub(r"(?i)\b(Estamos|Están)\s+list[oa]s\.", lambda m: '¿' + m.group(0)[:-1] + '?', text)
@@ -1924,7 +2158,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
             return '¡' + s + '!'
         return line
     # Apply per sentence
-    parts4 = re.split(r'([.!?]+)', text)
+    parts4 = _split_sentences_preserving_delims(text)
     for i in range(0, len(parts4), 2):
         if i >= len(parts4):
             break
@@ -1940,7 +2174,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     text = ''.join(parts4)
 
     # Ensure that sentences starting with '¡' end with a single '!'
-    parts5 = re.split(r'([.!?]+)', text)
+    parts5 = _split_sentences_preserving_delims(text)
     for i in range(0, len(parts5), 2):
         if i >= len(parts5):
             break
@@ -1974,19 +2208,4 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     return text
 
 
-# For testing the module directly
-if __name__ == "__main__":
-    # Test cases
-    test_cases = [
-        ("hello how are you today I hope you are doing well thank you", "en"),
-        ("hola como estas hoy espero que estes bien gracias", "es"),
-        ("hallo wie geht es dir heute ich hoffe es geht dir gut danke", "de"),
-        ("bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci", "fr")
-    ]
-    
-    print("Testing punctuation restoration module...")
-    for text, lang in test_cases:
-        result = restore_punctuation(text, lang)
-        print(f"\n{lang.upper()}:")
-        print(f"Input:  {text}")
-        print(f"Output: {result}") 
+# (Module has no __main__ block; import-only.)

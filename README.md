@@ -210,3 +210,30 @@ rm -rf models/whisper/* models/sentence-transformers/* models/huggingface/*
 
 ## 📦 Output
 Transcriptions are saved in sentence-separated `.txt` or `.srt`
+
+---
+
+## 🧪 Testing
+
+Run the test suite inside Docker with caches mounted. See `tests/README.md` for details.
+
+Quick run (default selection):
+
+```bash
+docker run --rm --platform linux/arm64 \
+  -e NLP_CAPITALIZATION=1 \
+  -v $(pwd):/app \
+  -v $(pwd)/models/whisper:/app/models \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+  -v $(pwd)/audio-files:/app/audio-files \
+  podscripter python3 /app/tests/run_all_tests.py
+```
+
+Optional groups via env flags: `RUN_ALL=1`, `RUN_MULTILINGUAL=1`, `RUN_TRANSCRIPTION=1`, `RUN_DEBUG=1`.
+
+---
+
+## 🛠️ Troubleshooting
+
+- HTTP 429 (rate limiting) during model loads: ensure cache volumes are mounted; the app prefers offline when caches exist. If needed, set `HF_HOME` and consider `HF_HUB_OFFLINE=1` inside the container when caches are warm.

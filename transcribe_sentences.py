@@ -34,11 +34,11 @@ import sys
 import os
 import glob
 import time
-import re
+from pathlib import Path
 
-#import whisper
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
+from tempfile import TemporaryDirectory, NamedTemporaryFile
 
 # Import punctuation restoration module
 from punctuation_restorer import restore_punctuation
@@ -48,11 +48,29 @@ FOCUS_LANGS = {"en", "es", "fr", "de"}
 
 # No longer need NLTK - using simple sentence splitting
 
-def get_supported_languages():
-    """Return a dictionary of commonly used language codes.
+# Defaults and tuning constants
+DEFAULT_CHUNK_SEC = 480
+DEFAULT_OVERLAP_SEC = 3
+DEFAULT_BEAM_SIZE = 3
+DEFAULT_COMPUTE_TYPE = "int8"
+DEFAULT_DEVICE = "cpu"
+DEFAULT_MODEL_NAME = "medium"
+DEFAULT_OMP_THREADS = "8"
+DEDUPE_EPSILON_SEC = 0.05
+PROMPT_TAIL_CHARS = 200
 
-    Primary: en, es, fr, de
-    Others: experimental (may have reduced accuracy)
+def get_supported_languages() -> dict[str, str]:
+    """Return supported language codes and names.
+
+    Parameters:
+      - None
+
+    Returns:
+      - dict[str, str]: map of language code to human-readable name
+
+    Notes:
+      - Primary: en, es, fr, de
+      - Others: experimental (may have reduced accuracy)
     """
     return {
         'en': 'English',
@@ -77,8 +95,16 @@ def get_supported_languages():
         'fi': 'Finnish'
     }
 
-def validate_language_code(language_code):
-    """Validate and provide helpful information about language codes."""
+def validate_language_code(language_code: str | None) -> str | None:
+    """Validate a language code and print guidance if unknown.
+
+    Parameters:
+      - language_code: str | None — the requested language code (or None for auto)
+
+    Returns:
+      - str | None: the same code if recognized, or the original value if unrecognized.
+                    None indicates auto-detect.
+    """
     if language_code is None:
         return None
     
@@ -98,28 +124,30 @@ def validate_language_code(language_code):
         print("Whisper supports many more languages. The code will still work if it's valid.")
         return language_code
 
-def display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format):
+def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format):
     """
     Display transcription parameters and settings.
     """
     print("\n" + "="*60)
     print("TRANSCRIPTION PARAMETERS")
     print("="*60)
-    print(f"File name:        {os.path.basename(media_file)}")
+    print(f"File name:        {Path(media_file).name}")
     print(f"Model:            {model_name}")
     print(f"Language:         {'Auto-detect' if language is None else language}")
     print(f"Beam size:        {beam_size}")
     print(f"Compute type:     {compute_type}")
-    print(f"Output format:    {output_format.upper()}")
+    print(f"Output format:    {output_format}")
     print("="*60 + "\n")
 
-def split_audio_with_overlap(media_file: str, chunk_length_sec: int = 480, overlap_sec: int = 3):
+def _split_audio_with_overlap(media_file: str, chunk_length_sec: int = DEFAULT_CHUNK_SEC, overlap_sec: int = DEFAULT_OVERLAP_SEC, chunk_dir: Path | None = None):
     """Split audio into overlapping chunks.
 
     Returns list of dicts: { 'path': str, 'start_sec': float, 'duration_sec': float }
     """
     audio = AudioSegment.from_file(media_file)
-    base_name = os.path.splitext(os.path.basename(media_file))[0]
+    media_path = Path(media_file)
+    out_dir = chunk_dir or media_path.parent
+    base_name = media_path.stem
     chunk_infos = []
     chunk_ms = chunk_length_sec * 1000
     overlap_ms = max(0, overlap_sec * 1000)
@@ -128,10 +156,10 @@ def split_audio_with_overlap(media_file: str, chunk_length_sec: int = 480, overl
     for start_ms in range(0, len(audio), step_ms):
         end_ms = min(start_ms + chunk_ms, len(audio))
         chunk = audio[start_ms:end_ms]
-        chunk_path = f"{base_name}_chunk_{idx}.wav"
-        chunk.export(chunk_path, format="wav")
+        chunk_path = out_dir / f"{base_name}_chunk_{idx}.wav"
+        chunk.export(str(chunk_path), format="wav")
         chunk_infos.append({
-            'path': chunk_path,
+            'path': str(chunk_path),
             'start_sec': start_ms / 1000.0,
             'duration_sec': (end_ms - start_ms) / 1000.0,
         })
@@ -140,7 +168,7 @@ def split_audio_with_overlap(media_file: str, chunk_length_sec: int = 480, overl
             break
     return chunk_infos
 
-def write_txt(sentences, output_file):
+def _write_txt(sentences, output_file):
     """
     Write sentences to a TXT file.
     """
@@ -152,7 +180,7 @@ def write_txt(sentences, output_file):
         print(f"Error writing TXT file: {e}")
         sys.exit(1)
 
-def write_srt(segments, output_file):
+def _write_srt(segments, output_file):
     """
     Write SRT file with timestamps.
     """
@@ -174,20 +202,115 @@ def write_srt(segments, output_file):
         print(f"Error writing SRT file: {e}")
         sys.exit(1)
 
-def transcribe_with_sentences(media_file, output_dir, language, output_format, single_call: bool = False):
+def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
+    """Validate that input exists and output dir is writable.
+
+    Returns normalized (media_path, output_dir_path) on success, exits on failure.
     """
-    Transcribe audio/video file into sentences and save as TXT or SRT file.
+    media_path = Path(media_file)
+    if not media_path.exists() or not media_path.is_file():
+        print(f"Error: Input file does not exist or is not a file: {media_file}")
+        sys.exit(1)
+    if not os.access(media_path, os.R_OK):
+        print(f"Error: Input file is not readable: {media_file}")
+        sys.exit(1)
+
+    out_dir = Path(output_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"Error: Cannot create output directory '{output_dir}': {e}")
+        sys.exit(1)
+    # Writability probe
+    try:
+        with NamedTemporaryFile(dir=str(out_dir), delete=True) as _:
+            pass
+    except Exception as e:
+        print(f"Error: Output directory is not writable '{output_dir}': {e}")
+        sys.exit(1)
+    return media_path, out_dir
+
+def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None):
+    """Run faster-whisper transcription on a single file and return (segments, info).
+
+    prev_prompt: optional initial prompt (used for chunk stitching)
     """
-    os.environ["OMP_NUM_THREADS"] = "8"
+    kwargs = {
+        "language": language,
+        "beam_size": beam_size,
+        "vad_filter": True,
+        "condition_on_previous_text": True,
+    }
+    if prev_prompt:
+        kwargs["initial_prompt"] = prev_prompt
+    segments, info = model.transcribe(audio_path, **kwargs)
+    return segments, info
+
+def _dedupe_segments(global_segments, last_end: float, epsilon: float = DEDUPE_EPSILON_SEC):
+    """Deduplicate segments by end time.
+
+    global_segments: iterable of (global_start: float, global_end: float, text: str)
+    Returns (deduped: list[dict], new_last_end: float)
+    """
+    out = []
+    new_last = last_end
+    for g_start, g_end, text in global_segments:
+        if g_end <= new_last + epsilon:
+            continue
+        out.append({"start": g_start, "end": g_end, "text": text})
+        new_last = max(new_last, g_end)
+    return out, new_last
+
+def _accumulate_segments(model_segments, chunk_start: float, last_end: float, epsilon: float = DEDUPE_EPSILON_SEC):
+    """Convert model segments to global segments, dedupe, and concat text.
+
+    Returns (segment_dicts, text_concat, new_last_end)
+    """
+    global_segs = []
+    for seg in model_segments:
+        g_start = chunk_start + float(seg.start)
+        g_end = chunk_start + float(seg.end)
+        global_segs.append((g_start, g_end, seg.text))
+    deduped, new_last = _dedupe_segments(global_segs, last_end, epsilon)
+    text = " ".join(d["text"] for d in deduped)
+    return deduped, text, new_last
+
+def transcribe_with_sentences(
+    media_file: str,
+    output_dir: str,
+    language: str | None,
+    output_format: str,
+    single_call: bool = False,
+) -> dict:
+    """Transcribe an audio/video file and write TXT or SRT output.
+
+    Parameters:
+      - media_file: str — path to input media file
+      - output_dir: str — directory to write output
+      - language: str | None — language code or None for auto-detect
+      - output_format: str — 'txt' or 'srt'
+      - single_call: bool — if True, run full-file transcription; otherwise chunked mode
+
+    Returns:
+      - dict: {
+          'segments': list[dict],
+          'sentences': list[str],
+          'detected_language': str | None,
+          'output_path': str,
+        }
+    """
+    os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
+    _t0 = time.time()
+    media_path, out_dir = _validate_paths(media_file, output_dir)
     
     # Model configuration
-    model_name = "medium"
-    beam_size = 3
-    compute_type = "int8"
-    device = "cpu"
+    model_name = DEFAULT_MODEL_NAME
+    beam_size = DEFAULT_BEAM_SIZE
+    compute_type = DEFAULT_COMPUTE_TYPE
+    device = DEFAULT_DEVICE
     
     # Display transcription information
-    display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
+    _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
     
     # Load faster-whisper model
     try:
@@ -197,94 +320,75 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format, s
         print(f"Error loading faster-whisper model: {e}")
         sys.exit(1)
 
-    os.makedirs(output_dir, exist_ok=True)
+    # Output dir already validated/created by _validate_paths
+    detected_language = None
     if single_call:
         print("Transcribing full file in a single call (no manual chunking)...")
         all_text = ""
         all_segments = []
         try:
-            segments, info = model.transcribe(
-                media_file,
-                language=language,
-                beam_size=beam_size,
-                vad_filter=True,
-                condition_on_previous_text=True,
-            )
+            segments, info = _transcribe_file(model, media_file, language, beam_size)
             if language is None:
                 detected_language = info.language
                 print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
-            for seg in segments:
-                all_segments.append({
-                    "start": float(seg.start),
-                    "end": float(seg.end),
-                    "text": seg.text
-                })
-                all_text += seg.text + " "
+            accum, text, _ = _accumulate_segments(segments, 0.0, last_end=0.0)
+            all_segments.extend(accum)
+            all_text += (text + " ")
         except Exception as e:
             print(f"Error during transcription: {e}")
             sys.exit(1)
     else:
         print("Splitting media into chunks with overlap...")
-        overlap_sec = 3
-        chunk_infos = split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=overlap_sec)
-
-    # Accumulators are already set in single_call branch; initialize here only for chunked mode
-    if not single_call:
+        overlap_sec = DEFAULT_OVERLAP_SEC
         all_text = ""
         all_segments = []
-        offset = 0.0
+        with TemporaryDirectory() as tmp_dir:
+            chunk_infos = _split_audio_with_overlap(
+                media_file,
+                chunk_length_sec=DEFAULT_CHUNK_SEC,
+                overlap_sec=overlap_sec,
+                chunk_dir=Path(tmp_dir),
+            )
+            print("Transcribing chunks...")
+            last_global_end = 0.0
+            prev_prompt = None
+            for idx, info in enumerate(chunk_infos, 1):
+                chunk_file = info['path']
+                chunk_start = info['start_sec']
+                print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
+                try:
+                    segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt)
+                    # Store detected language from first chunk
+                    if idx == 1 and language is None:
+                        detected_language = info.language
+                        print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+                    chunk_segs, text, last_global_end = _accumulate_segments(segments, chunk_start, last_global_end)
+                    all_segments.extend(chunk_segs)
+                    all_text += text.strip() + "\n"
+                    # Update prompt with last tail chars of accumulated text
+                    prev_prompt = (all_text[-PROMPT_TAIL_CHARS:]).strip() if all_text else None
+                except Exception as e:
+                    print(f"Error during transcription: {e}")
+                    sys.exit(1)
+                finally:
+                    cf = Path(chunk_file)
+                    if cf.exists():
+                        cf.unlink()
 
-    if not single_call:
-        print("Transcribing chunks...")
-        detected_language = None
-        last_global_end = 0.0
-        prev_prompt = None
-        for idx, info in enumerate(chunk_infos, 1):
-            chunk_file = info['path']
-            chunk_start = info['start_sec']
-            print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
-            try:
-                segments, info = model.transcribe(
-                    chunk_file,
-                    language=language,
-                    beam_size=beam_size,
-                    vad_filter=True,
-                    initial_prompt=prev_prompt,
-                    condition_on_previous_text=True,
-                )
-                # Store detected language from first chunk
-                if idx == 1 and language is None:
-                    detected_language = info.language
-                    print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
-                
-                text = ""
-                chunk_segments = []
-                for seg in segments:
-                    # Compute global timestamps with chunk start
-                    global_start = chunk_start + float(seg.start)
-                    global_end = chunk_start + float(seg.end)
-                    # Deduplicate overlapping content: skip segments fully before last_global_end
-                    if global_end <= last_global_end + 0.05:
-                        continue
-                    seg_dict = {"start": global_start, "end": global_end, "text": seg.text}
-                    chunk_segments.append(seg_dict)
-                    text += seg.text + " "
-                    last_global_end = max(last_global_end, global_end)
-                all_segments.extend(chunk_segments)
-                all_text += text.strip() + "\n"
-                # Update prompt with last 200 chars of accumulated text
-                prev_prompt = (all_text[-200:]).strip() if all_text else None
-            except Exception as e:
-                print(f"Error during transcription: {e}")
-                sys.exit(1)
-            finally:
-                if os.path.exists(chunk_file):
-                    os.remove(chunk_file)
-
-    base_name = os.path.splitext(os.path.basename(media_file))[0]
+    base_name = Path(media_file).stem
     if output_format == "srt":
-        output_file = os.path.join(output_dir, base_name + ".srt")
-        write_srt(all_segments, output_file)
+        # Ensure segments are sorted by start time before writing
+        all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
+        output_file = Path(output_dir) / f"{base_name}.srt"
+        _write_srt(all_segments, str(output_file))
+        return {
+            "segments": all_segments,
+            "sentences": [],
+            "detected_language": detected_language,
+            "output_path": str(output_file),
+            "num_segments": len(all_segments),
+            "elapsed_secs": round(time.time() - _t0, 3),
+        }
     else:
         # Restore punctuation before sentence tokenization
         print("Restoring punctuation...")
@@ -316,30 +420,37 @@ def transcribe_with_sentences(media_file, output_dir, language, output_format, s
                         # Remove leading punctuation and whitespace
                         cleaned = re.sub(r'^[",\s]+', '', full_sentence)
                         
-                        # Capitalize first letter if it's a letter
-                        if cleaned and cleaned[0].isalpha():
-                            cleaned = cleaned[0].upper() + cleaned[1:]
+                        # Capitalization is handled by punctuation restoration pipeline
                         
                         if cleaned:
                             # Ensure the sentence ends with punctuation
                             if not cleaned.endswith(('.', '!', '?')):
                                 cleaned += '.'
                             sentences.append(cleaned)
-        output_file = os.path.join(output_dir, base_name + ".txt")
-        write_txt(sentences, output_file)
+        # Ensure segments are sorted by start time (for consistency in results)
+        all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
+        output_file = Path(output_dir) / f"{base_name}.txt"
+        _write_txt(sentences, str(output_file))
+        return {
+            "segments": all_segments,
+            "sentences": sentences,
+            "detected_language": detected_language,
+            "output_path": str(output_file),
+            "num_segments": len(all_segments),
+            "elapsed_secs": round(time.time() - _t0, 3),
+        }
 
-def cleanup_chunks(media_file):
+def _cleanup_chunks(media_file):
     """
     Clean up any leftover chunk files.
     """
-    media_dir = os.path.dirname(os.path.abspath(media_file))
-    pattern = os.path.join(media_dir, "*_chunk_*.wav")
-    for chunk_path in glob.glob(pattern):
+    media_dir = Path(media_file).resolve().parent
+    for p in media_dir.glob("*_chunk_*.wav"):
         try:
-            os.remove(chunk_path)
-            print(f"Removed leftover chunk file: {chunk_path}")
+            p.unlink()
+            print(f"Removed leftover chunk file: {p}")
         except Exception as e:
-            print(f"Error removing chunk file {chunk_path}: {e}")
+            print(f"Error removing chunk file {p}: {e}")
 
 if __name__ == "__main__":
     single_call = False
@@ -377,9 +488,12 @@ if __name__ == "__main__":
     
     start_time = time.time()
 
-    cleanup_chunks(media_file)  # Cleanup any existing chunks before starting
+    _cleanup_chunks(media_file)  # Cleanup any existing chunks before starting
 
-    transcribe_with_sentences(media_file, output_dir, language, output_format, single_call=single_call)
+    result = transcribe_with_sentences(media_file, output_dir, language, output_format, single_call=single_call)
+    if result.get("detected_language"):
+        print(f"Detected language: {result['detected_language']}")
+    print(f"Wrote: {result['output_path']}")
 
     end_time = time.time()
     elapsed = end_time - start_time
