@@ -1433,7 +1433,9 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
         "de", "del", "la", "las", "los", "el", "lo",
         "y", "e", "o", "u",
         "en", "a", "con", "por", "para", "sin", "sobre", "entre",
-        "da", "di", "do", "du", "van", "von", "des", "le"
+        "da", "di", "do", "du", "van", "von", "des", "le",
+        # Spanish possessives/determiners (avoid capitalizing mid-sentence)
+        "tu", "tus", "su", "sus", "mi", "mis", "nuestro", "nuestra", "nuestros", "nuestras"
     }
 
     def should_capitalize(tok) -> bool:
@@ -1465,6 +1467,14 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
                 prev = doc[tok.i - 1].text.lower()
                 if prev in {"tu", "su", "mi", "tus", "sus", "mis"} and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
                     t = t[0].lower() + t[1:]
+        # Additionally, avoid capitalizing possessive itself mid-sentence: "Tu" -> "tu"
+        if language == 'es':
+            if tok.text in {"Tu", "Tus", "Su", "Sus", "Mi", "Mis", "Nuestro", "Nuestra", "Nuestros", "Nuestras"}:
+                # Lowercase unless at sentence start
+                at_sent_start = getattr(tok, 'is_sent_start', False)
+                prev_text = doc[tok.i - 1].text if tok.i > 0 else ''
+                if not at_sent_start and prev_text not in {'.', '!', '?', '¿', '¡'}:
+                    t = t.lower()
         out.append(t + tok.whitespace_)
     result = ''.join(out)
 
