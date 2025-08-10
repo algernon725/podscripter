@@ -549,17 +549,22 @@ def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphra
     # Ensure HF_HOME points to our preferred cache to consolidate downloads
     os.environ.setdefault("HF_HOME", hf_cache)
 
-    # First try: if a local model directory exists, load from it and go offline
+    # First try: if a local model directory exists, prefer offline mode.
+    # Only load by direct path if Sentence-Transformers metadata is present (modules.json),
+    # otherwise skip to name+cache load to avoid the "Creating a new one with mean pooling" warning.
     local_model_dir = _find_local_model_path(st_cache, model_name.split('/')[-1])
     if local_model_dir and os.path.isdir(local_model_dir):
-        # Enable offline to avoid any network HEAD calls
+        # Enable offline to avoid any network HEAD calls when cache is warm
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
-        try:
-            _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(local_model_dir)
-            return _SENTENCE_TRANSFORMER_SINGLETON
-        except Exception:
-            # Fallback to normal loading below
-            pass
+        modules_json = os.path.join(local_model_dir, "modules.json")
+        config_st = os.path.join(local_model_dir, "config_sentence_transformers.json")
+        if os.path.isfile(modules_json) or os.path.isfile(config_st):
+            try:
+                _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(local_model_dir)
+                return _SENTENCE_TRANSFORMER_SINGLETON
+            except Exception:
+                # Fallback to normal loading below
+                pass
 
     # Second try: load by name but direct cache_folder to sentence-transformers cache
     try:
