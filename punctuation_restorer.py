@@ -567,7 +567,7 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
     if len(words) <= 25:  # If the entire input is short, don't split
         return False
     
-    if len(current_chunk) < 15:  # Even more conservative for Spanish
+    if len(current_chunk) < 18:  # Slightly less aggressive: require longer chunk before splitting
         return False
     
     # Check for natural sentence endings
@@ -603,7 +603,16 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
             return False
         
         # General rule: don't break after "no" when it's part of a negative construction
-        if current_word.lower() == 'no' and next_word and next_word.lower() in ['es', 'son', 'está', 'están', 'ha', 'han', 'puede', 'pueden', 'debe', 'deben']:
+        # Include a broader set of likely verb forms (heuristic by endings)
+        if current_word.lower() == 'no' and next_word:
+            if next_word.lower() in ['es', 'son', 'está', 'están', 'ha', 'han', 'puede', 'pueden', 'debe', 'deben']:
+                return False
+            # Heuristic: common Spanish verb endings (past/present/imperfect/future/gerund)
+            if re.search(r"(?i)(?:o|as|a|amos|an|es|e|emos|en|imos|\b|aba|abas|aban|ía|ías|ían|é|aste|ó|amos|aron|í|iste|ió|imos|ieron|ará|erá|irá|rán|remos|yendo|ando|iendo|ado|ido)$", next_word):
+                return False
+
+        # Don't break after possessive determiners like "tu", "su", "mi" etc.
+        if current_word.lower() in ['tu', 'su', 'mi', 'tus', 'sus', 'mis', 'nuestro', 'nuestra', 'nuestros', 'nuestras']:
             return False
         
         # More general check: don't break if the next word is a common Spanish conjunction or preposition
@@ -615,15 +624,26 @@ def should_end_sentence_here(words, current_index, current_chunk, model, languag
         if current_word.lower() in ['de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
             return False
     
-    # Check for capital letter after reasonable length (but be more conservative)
-    if (next_word and next_word[0].isupper() and 
-        len(current_chunk) >= 20 and  # Even more conservative for Spanish
+    # Check for capital letter after reasonable length (be much more conservative for Spanish ASR capitalization)
+    next_next_word = words[current_index + 2] if current_index + 2 < len(words) else ""
+    if (next_word and next_word[0].isupper() and
+        len(current_chunk) >= 28 and  # raise threshold to reduce over-splitting
         not is_continuation_word(current_word, language) and
         not is_transitional_word(current_word, language)):
+        # Avoid breaking when followed by two capitalized tokens (likely multi-word proper noun: "Estados Unidos")
+        if next_next_word and next_next_word[0].isupper():
+            return False
+        # Avoid breaking after comma or after preposition like "de"
+        if current_word.endswith(',') or current_word.lower() in ['de', 'en']:
+            return False
         return True
     
     # Use semantic coherence to determine if chunks should be separated
-    if len(current_chunk) >= 25:  # Even more conservative for sentence breaking
+    if len(current_chunk) >= 30:  # Slightly less aggressive: require more context before semantic split
+        # If the next token is a lowercase continuation or preposition, do not break
+        if next_word and next_word and next_word[0].islower():
+            if next_word.lower() in ['y', 'o', 'pero', 'que', 'de', 'en', 'para', 'con', 'por', 'sin', 'sobre']:
+                return False
         return check_semantic_break(words, current_index, model)
     
     return False
@@ -1439,6 +1459,12 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
         if should_capitalize(tok):
             if t:
                 t = t[0].upper() + t[1:]
+        else:
+            # Spanish-specific de-capitalization for possessive + noun artifacts: "tu Español" -> "tu español"
+            if language == 'es' and tok.i > 0:
+                prev = doc[tok.i - 1].text.lower()
+                if prev in {"tu", "su", "mi", "tus", "sus", "mis"} and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
+                    t = t[0].lower() + t[1:]
         out.append(t + tok.whitespace_)
     result = ''.join(out)
 
@@ -1805,7 +1831,9 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     text = re.sub(r"(¿[^\n\.?]+)(\?)", _block_decl_questions, text)
 
     # Merge possessive/function-word splits like "tu. Español" -> "tu español"
-    text = re.sub(r"\b(tu|su|mi)\s*\.\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ-]*)", r"\1 \2", text, flags=re.IGNORECASE)
+    # Lowercase the second token to undo capitalization caused by erroneous sentence split
+    text = re.sub(r"\b(tu|su|mi)\s*\.\s+([A-Za-zÁÉÍÓÚÑáéíóúñ][\wÁÉÍÓÚÑáéíóúñ-]*)",
+                  lambda m: m.group(1) + " " + m.group(2).lower(), text, flags=re.IGNORECASE)
 
     # Merge consecutive one-word capitalized sentences: "Estados. Unidos." -> "Estados Unidos."
     text = re.sub(r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.(\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\.", r"\1 \3.", text)
