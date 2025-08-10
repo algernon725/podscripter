@@ -231,7 +231,7 @@ def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
         sys.exit(1)
     return media_path, out_dir
 
-def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None):
+def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None, *, enable_vad: bool = True):
     """Run faster-whisper transcription on a single file and return (segments, info).
 
     prev_prompt: optional initial prompt (used for chunk stitching)
@@ -239,8 +239,10 @@ def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prom
     kwargs = {
         "language": language,
         "beam_size": beam_size,
-        "vad_filter": True,
+        "vad_filter": bool(enable_vad),
         "condition_on_previous_text": True,
+        # Add modest VAD padding so initial/terminal words aren't clipped by VAD (used when VAD is enabled)
+        "vad_parameters": {"speech_pad_ms": 300, "min_silence_duration_ms": 100},
     }
     if prev_prompt:
         kwargs["initial_prompt"] = prev_prompt
@@ -332,7 +334,8 @@ def transcribe_with_sentences(
         all_text = ""
         all_segments = []
         try:
-            segments, info = _transcribe_file(model, media_file, language, beam_size)
+            # In single-call mode, disable VAD to avoid trimming initial speech on some files
+            segments, info = _transcribe_file(model, media_file, language, beam_size, enable_vad=False)
             if language is None:
                 detected_language = info.language
                 if not quiet:
@@ -358,7 +361,8 @@ def transcribe_with_sentences(
             )
             if not quiet:
                 print("Transcribing chunks...")
-            last_global_end = 0.0
+            # Initialize slightly negative so the very first segment is never dropped by epsilon logic
+            last_global_end = -DEDUPE_EPSILON_SEC
             prev_prompt = None
             for idx, info in enumerate(chunk_infos, 1):
                 chunk_file = info['path']
@@ -366,7 +370,7 @@ def transcribe_with_sentences(
                 if not quiet:
                     print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
                 try:
-                    segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt)
+                    segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt, enable_vad=True)
                     # Store detected language from first chunk
                     if idx == 1 and language is None:
                         detected_language = info.language
