@@ -34,6 +34,7 @@ import sys
 import os
 import glob
 import time
+import argparse
 from pathlib import Path
 
 from pydub import AudioSegment
@@ -52,7 +53,7 @@ FOCUS_LANGS = {"en", "es", "fr", "de"}
 DEFAULT_CHUNK_SEC = 480
 DEFAULT_OVERLAP_SEC = 3
 DEFAULT_BEAM_SIZE = 3
-DEFAULT_COMPUTE_TYPE = "int8"
+DEFAULT_COMPUTE_TYPE = "auto"
 DEFAULT_DEVICE = "cpu"
 DEFAULT_MODEL_NAME = "medium"
 DEFAULT_OMP_THREADS = "8"
@@ -281,6 +282,9 @@ def transcribe_with_sentences(
     language: str | None,
     output_format: str,
     single_call: bool = False,
+    *,
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+    quiet: bool = False,
 ) -> dict:
     """Transcribe an audio/video file and write TXT or SRT output.
 
@@ -306,11 +310,11 @@ def transcribe_with_sentences(
     # Model configuration
     model_name = DEFAULT_MODEL_NAME
     beam_size = DEFAULT_BEAM_SIZE
-    compute_type = DEFAULT_COMPUTE_TYPE
     device = DEFAULT_DEVICE
     
     # Display transcription information
-    _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
+    if not quiet:
+        _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
     
     # Load faster-whisper model
     try:
@@ -323,14 +327,16 @@ def transcribe_with_sentences(
     # Output dir already validated/created by _validate_paths
     detected_language = None
     if single_call:
-        print("Transcribing full file in a single call (no manual chunking)...")
+        if not quiet:
+            print("Transcribing full file in a single call (no manual chunking)...")
         all_text = ""
         all_segments = []
         try:
             segments, info = _transcribe_file(model, media_file, language, beam_size)
             if language is None:
                 detected_language = info.language
-                print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+                if not quiet:
+                    print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
             accum, text, _ = _accumulate_segments(segments, 0.0, last_end=0.0)
             all_segments.extend(accum)
             all_text += (text + " ")
@@ -338,7 +344,8 @@ def transcribe_with_sentences(
             print(f"Error during transcription: {e}")
             sys.exit(1)
     else:
-        print("Splitting media into chunks with overlap...")
+        if not quiet:
+            print("Splitting media into chunks with overlap...")
         overlap_sec = DEFAULT_OVERLAP_SEC
         all_text = ""
         all_segments = []
@@ -349,19 +356,22 @@ def transcribe_with_sentences(
                 overlap_sec=overlap_sec,
                 chunk_dir=Path(tmp_dir),
             )
-            print("Transcribing chunks...")
+            if not quiet:
+                print("Transcribing chunks...")
             last_global_end = 0.0
             prev_prompt = None
             for idx, info in enumerate(chunk_infos, 1):
                 chunk_file = info['path']
                 chunk_start = info['start_sec']
-                print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
+                if not quiet:
+                    print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
                 try:
                     segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt)
                     # Store detected language from first chunk
                     if idx == 1 and language is None:
                         detected_language = info.language
-                        print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+                        if not quiet:
+                            print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
                     chunk_segs, text, last_global_end = _accumulate_segments(segments, chunk_start, last_global_end)
                     all_segments.extend(chunk_segs)
                     all_text += text.strip() + "\n"
@@ -391,7 +401,8 @@ def transcribe_with_sentences(
         }
     else:
         # Restore punctuation before sentence tokenization
-        print("Restoring punctuation...")
+        if not quiet:
+            print("Restoring punctuation...")
         # Use detected language if auto-detection was used, otherwise use provided language
         lang_for_punctuation = detected_language if language is None else language
         
@@ -453,50 +464,58 @@ def _cleanup_chunks(media_file):
             print(f"Error removing chunk file {p}: {e}")
 
 if __name__ == "__main__":
-    single_call = False
-    if '--single' in sys.argv:
-        single_call = True
-        sys.argv = [arg for arg in sys.argv if arg != '--single']
+    parser = argparse.ArgumentParser(description="Transcribe audio/video to sentences (TXT) or subtitles (SRT).")
+    parser.add_argument("media_file", help="Path to the media file to transcribe")
+    parser.add_argument("--output_dir", required=True, help="Directory where output will be written")
+    parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr, de). Use 'auto' for auto-detect")
+    parser.add_argument("--output_format", choices=["txt", "srt"], default="txt", help="Output format (txt or srt)")
+    parser.add_argument("--single", action="store_true", help="Transcribe the entire file in a single call (no manual chunking)")
+    parser.add_argument(
+        "--compute-type",
+        dest="compute_type",
+        default=DEFAULT_COMPUTE_TYPE,
+        choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"],
+        help="faster-whisper compute type",
+    )
+    vg = parser.add_mutually_exclusive_group()
+    vg.add_argument("--quiet", action="store_true", help="Reduce log output")
+    vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)")
+    parser.set_defaults(verbose=True)
 
-    if len(sys.argv) < 3 or len(sys.argv) > 5:
-        print("Usage: python transcribe_sentences.py <media_file> <output_dir> [language (default auto-detect)] [output_format (txt|srt, default 'txt')] [--single]")
-        print("\nSupported language codes:")
-        supported = get_supported_languages()
-        print("Primary:")
-        for code in ["en","es","fr","de"]:
-            if code in supported:
-                print(f"  {code}: {supported[code]}")
-        print("Experimental:")
-        for code, name in supported.items():
-            if code not in FOCUS_LANGS:
-                print(f"  {code}: {name} (experimental)")
-        print("\nNote: Whisper supports many more languages. Use 'auto' or omit language parameter for auto-detection.")
-        sys.exit(1)
-    media_file = sys.argv[1]
-    output_dir = sys.argv[2]
-    language = sys.argv[3] if len(sys.argv) >= 4 else None  # Default to None for auto-detection
-    output_format = sys.argv[4] if len(sys.argv) == 5 else "txt"
-    if output_format not in ("txt", "srt"):
-        print(f"Warning: Output format '{output_format}' not recognized. Defaulting to 'txt'.")
-        output_format = "txt"    
-    
-    # Validate language code if provided
-    if language:
-        language = validate_language_code(language)
-        if language == "auto":
-            language = None  # Convert "auto" to None for auto-detection
-    
+    args = parser.parse_args()
+
+    # Determine verbosity
+    quiet = args.quiet or (not args.verbose)
+
+    # Language handling
+    language_arg = args.language.strip().lower() if args.language else "auto"
+    language: str | None
+    if language_arg in ("auto", ""):
+        language = None
+    else:
+        language = validate_language_code(language_arg)
+
     start_time = time.time()
 
-    _cleanup_chunks(media_file)  # Cleanup any existing chunks before starting
+    _cleanup_chunks(args.media_file)
 
-    result = transcribe_with_sentences(media_file, output_dir, language, output_format, single_call=single_call)
-    if result.get("detected_language"):
+    result = transcribe_with_sentences(
+        args.media_file,
+        args.output_dir,
+        language,
+        args.output_format,
+        single_call=args.single,
+        compute_type=args.compute_type,
+        quiet=quiet,
+    )
+
+    if not quiet and result.get("detected_language"):
         print(f"Detected language: {result['detected_language']}")
+    # Always print output path unless fully silent mode is introduced
     print(f"Wrote: {result['output_path']}")
 
-    end_time = time.time()
-    elapsed = end_time - start_time
-    minutes = int(elapsed // 60)
-    seconds = int(elapsed % 60)
-    print(f"Script completed in {minutes} minutes and {seconds} seconds.")
+    if not quiet:
+        elapsed = time.time() - start_time
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        print(f"Script completed in {minutes} minutes and {seconds} seconds.")

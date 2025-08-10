@@ -52,7 +52,13 @@
 ```
 Audio Input → Whisper Transcription → Punctuation Restoration → Sentence Splitting → Output
 
-- CLI flag: `--single` (in `transcribe_sentences.py`) bypasses manual chunking and runs full-file transcription
+- CLI flags (argparse in `transcribe_sentences.py`):
+  - `--output_dir <dir>` (required)
+  - `--language <code>|auto` (default `auto`)
+  - `--output_format {txt|srt}` (default `txt`)
+  - `--single` (bypass manual chunking)
+  - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default `auto`)
+  - `--quiet`/`--verbose` (default `--verbose`)
 ```
 
 ## Coding Style & Standards

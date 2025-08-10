@@ -96,7 +96,10 @@ This opens an interactive terminal inside the container. You'll run all transcri
 From inside the Docker Container, run:
 
 ```bash
-python transcribe_sentences.py <media_file> <output_dir> [language] [output_format] [--single]
+python transcribe_sentences.py <media_file> --output_dir <output_dir> \
+  [--language <code>|auto] [--output_format {txt|srt}] [--single] \
+  [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
+  [--quiet|--verbose]
 ```
 
 **Example:**
@@ -104,7 +107,7 @@ python transcribe_sentences.py <media_file> <output_dir> [language] [output_form
 To transcribe example.mp3 using default settings (auto-detect language, txt output):
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files
+python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files
 ```
 
 **Example with video file:**
@@ -112,47 +115,49 @@ python transcribe_sentences.py audio-files/example.mp3 audio-files
 To transcribe example.mp4:
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp4 audio-files
+python transcribe_sentences.py audio-files/example.mp4 --output_dir audio-files
 ```
 
 ## Optional Parameters
 
-You can optionally customize the transcription language, and output format.
+You can optionally customize the transcription language, output format, compute type, and verbosity.
 
 **Example: Spanish Transcription**
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files es
+python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files --language es
 ```
 
 **Example: French with .srt output**
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files fr srt
+python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files --language fr --output_format srt
 ```
 
 **Example: Force auto-detection**
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files auto
+python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files --language auto
 ```
 
 **Example: Single-call transcription (no manual chunking)**
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 audio-files es txt --single
+python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files --language es --output_format txt --single
 ```
 Use `--single` if your hardware can handle longer files in a single call for best context continuity. Default mode uses overlapped chunking with VAD.
 
 ## Command-Line Options
 
-| Argument        | Description                                                                           |
-| --------------- | ------------------------------------------------------------------------------------- |
-| `media_file`    | Path to the audio or video file (e.g. audio-files/example.mp3 or audio-files/example.mp4) |
-| `output_dir`    | Directory where the transcription file will be saved                                  |
-| `language`      | (Optional) Language code. Primary: `en`, `es`, `fr`, `de`. Others are experimental. Default is auto-detect. |
-| `output_format` | (Optional) Output format: `txt` or `srt`. - default is `txt`                          |
-| `--single`      | (Optional) Bypass manual chunking and process the full file in one call                |
+| Argument             | Description |
+| -------------------- | ----------- |
+| `media_file`         | Path to the audio or video file (e.g. `audio-files/example.mp3` or `audio-files/example.mp4`) |
+| `--output_dir`       | Directory where the transcription file will be saved |
+| `--language`         | Language code. Primary: `en`, `es`, `fr`, `de`. Others are experimental. Default `auto` (auto-detect) |
+| `--output_format`    | Output format: `txt` or `srt` (default `txt`) |
+| `--single`           | Bypass manual chunking and process the full file in one call |
+| `--compute-type`     | Compute type for faster-whisper: `auto`, `int8`, `int8_float16`, `int8_float32`, `float16`, `float32` (default `auto`) |
+| `--quiet`/`--verbose`| Toggle log verbosity (default `--verbose`) |
 
 
 ## 🌍 Supported Languages
@@ -188,7 +193,7 @@ To transcribe all `.mp3` and `.mp4` files in the audio-files folder with auto-de
 
   ```bash
   for f in audio-files/*.{mp3,mp4}; do
-    python transcribe_sentences.py "$f" audio-files
+    python transcribe_sentences.py "$f" --output_dir audio-files
   done
   ```
 
