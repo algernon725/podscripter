@@ -36,17 +36,19 @@
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
 - Use a singleton model loader to avoid repeated model instantiation within a process
 - For spaCy capitalization mode, models are baked into the image; enable/disable via `NLP_CAPITALIZATION` (see Docker Best Practices)
+ - Sentence-Transformers loader: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` to avoid the "Creating a new one with mean pooling" message while still using caches.
 
 ### 2a. Transcription Orchestration (Whisper usage)
 - Two supported modes:
   - Single-call transcription (recommended when resources allow): process full file in one call so Whisper maintains context. Enabled via `--single` flag in `transcribe_sentences.py`.
   - Overlapped-chunk transcription (fallback): default path with 480s chunks and 3s overlap.
 - Common settings:
-  - `vad_filter=True` for both modes to stabilize boundaries
+  - `vad_filter=True` for both modes; default `speech_pad_ms=200` (constant). No VAD CLI flags in the main program.
   - `condition_on_previous_text=True` to keep context continuity
   - For chunked mode, pass `initial_prompt` using the last ~200 characters of accumulated text
   - Deduplicate overlap during merge using global timestamps (skip segments that finish before the prior chunk’s end)
-  - Keep `beam_size` modest (1–3) for long files; use `int8` on CPU by default
+  - Keep `beam_size` modest (1–3) for long files; `compute_type` default is `auto` on CPU
+  - `PROMPT_TAIL_CHARS=200` controls how much trailing text is used for `initial_prompt`
 
 ### 3. Modular Processing Pipeline
 ```
@@ -121,6 +123,10 @@ Audio Input → Whisper Transcription → Punctuation Restoration → Sentence S
     - Overall average F1 threshold: ≥ 0.70
   - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
+ - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
+   - Defaults: model `medium`, device `cpu`, compute type `auto`
+   - Toggles: `--single`, `--chunk-length N`, `--apply-restoration`, `--dump-raw` (writes raw Whisper output for debugging)
+   - It also exposes VAD toggles (`--no-vad`, `--vad-speech-pad-ms`) strictly for debugging; the main CLI uses constants
 
 ### 3. Docker Best Practices
 - Use `--platform linux/arm64` for M-series Mac compatibility
