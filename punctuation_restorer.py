@@ -742,32 +742,22 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
         # First, identify all sentences that end with question marks
         sentences = _split_sentences_preserving_delims(result)
         for i in range(0, len(sentences), 2):
-            if i < len(sentences):
-                sentence_text = sentences[i].strip()
-                punctuation = sentences[i + 1] if i + 1 < len(sentences) else ""
-                
-                # If the sentence ends with a question mark, it should start with ¿
-                if punctuation == '?' and sentence_text and not sentence_text.startswith('¿'):
-                    # Check if it's a question that should have inverted question mark
-                    sentence_lower = sentence_text.lower()
-                    
-                    # Question patterns that should have inverted question marks
-                    question_patterns = [
-                        # Question words at the beginning
-                        r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
-                        # Verb patterns that indicate questions (deduped)
-                        r'^(puedes|puede|podrías|podría|sabes|sabe|quieres|quiere|necesitas|necesita|tienes|tiene|vas|va|estás|están|pueden|quieren)',
-                        # Common question starters
-                        r'^(hay|va|es|son|está|están|te parece|le parece|crees|cree|piensas|piensa)',
-                        # Short question patterns
-                        r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)'
-                    ]
-                    
-                    # Check if sentence matches any question pattern
-                    is_question = any(re.search(pattern, sentence_lower) for pattern in question_patterns)
-                    
-                    if is_question:
-                        sentences[i] = '¿' + sentence_text
+            if i >= len(sentences):
+                break
+            sentence_text = sentences[i].strip()
+            punctuation = sentences[i + 1] if i + 1 < len(sentences) else ""
+            # If the sentence ends with a question mark, it should start with ¿
+            if punctuation == '?' and sentence_text and not sentence_text.startswith('¿'):
+                sentence_lower = sentence_text.lower()
+                # Question patterns that should have inverted question marks
+                question_patterns = [
+                    r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
+                    r'^(puedes|puede|podrías|podría|sabes|sabe|quieres|quiere|necesitas|necesita|tienes|tiene|vas|va|estás|están|pueden|quieren)',
+                    r'^(hay|va|es|son|está|están|te parece|le parece|crees|cree|piensas|piensa)',
+                    r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)'
+                ]
+                if any(re.search(pattern, sentence_lower) for pattern in question_patterns):
+                    sentences[i] = '¿' + sentence_text
         result = ''.join(sentences)
         
         # Clean up double/mixed punctuation in one place
@@ -787,14 +777,14 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenos días)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas tardes)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas noches)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
-
+        
         # Final cleanup of any remaining double punctuation
         result = _normalize_mixed_terminal_punctuation(result)
         
         # General fix: merge sentences that were incorrectly split at question words
         # This handles cases where a question was split in the middle
         result = re.sub(r'(\w+)\?\.¿(\w+)', r'¿\1 \2', result)
-        
+    
         # BUG FIXES FOR SPANISH TRANSCRIPTION ISSUES
         
         # Bug 1: Fix missing punctuation at the end of sentences
@@ -1023,11 +1013,11 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
             # If we're in the middle of a question, don't break unless it's very long
             if len(current_chunk) < thresholds.get('min_chunk_inside_question', 25):
                 return False
-
+        
         # Don't break in the middle of common Spanish phrases
         # Check if we're in the middle of a phrase that should stay together
         current_text = ' '.join(current_chunk).lower()
-
+        
         # General rule: don't break after articles, prepositions, or determiners
         # These words typically continue the sentence
         if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
@@ -1058,7 +1048,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         # Don't break if the current word ends with a preposition that should continue
         if current_word.lower() in ['de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
             return False
-    
+        
     # Check for capital letter after reasonable length (be much more conservative for Spanish ASR capitalization)
     next_next_word = words[current_index + 2] if current_index + 2 < len(words) else ""
     if (next_word and next_word[0].isupper() and
@@ -1739,13 +1729,12 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
         if should_capitalize(tok):
             if t:
                 t = t[0].upper() + t[1:]
-        else:
             # Spanish-specific de-capitalization for possessive + noun artifacts: "tu Español" -> "tu español"
             if language == 'es' and tok.i > 0:
                 prev = doc[tok.i - 1].text.lower()
                 if prev in get_language_config(language).possessives and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
                     t = t[0].lower() + t[1:]
-        # Additionally, avoid capitalizing possessive itself mid-sentence: "Tu" -> "tu"
+            # Additionally, avoid capitalizing possessive itself mid-sentence: "Tu" -> "tu"
         if language == 'es':
             if tok.text in {w.title() for w in get_language_config(language).possessives}:
                 # Lowercase unless at sentence start
@@ -1773,7 +1762,7 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
             nxt = m.group(2)
             return f"{cue} {nxt if nxt.lower() in stop_after_intro else cap_word(nxt)}"
         result = re.sub(r'(?i)\b(vivo en|trabajo en)\s+([\wáéíóúñÁÉÍÓÚÑ-]+)', loc_repl, result)
-
+    
     return result
 
 

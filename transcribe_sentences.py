@@ -59,6 +59,8 @@ DEFAULT_MODEL_NAME = "medium"
 DEFAULT_OMP_THREADS = "8"
 DEDUPE_EPSILON_SEC = 0.05
 PROMPT_TAIL_CHARS = 200
+DEFAULT_VAD_FILTER = True
+DEFAULT_VAD_SPEECH_PAD_MS = 200
 
 def get_supported_languages() -> dict[str, str]:
     """Return supported language codes and names.
@@ -231,7 +233,16 @@ def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
         sys.exit(1)
     return media_path, out_dir
 
-def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None, *, enable_vad: bool = True):
+def _transcribe_file(
+    model,
+    audio_path: str,
+    language,
+    beam_size: int,
+    prev_prompt: str | None = None,
+    *,
+    vad_filter: bool = DEFAULT_VAD_FILTER,
+    vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
+):
     """Run faster-whisper transcription on a single file and return (segments, info).
 
     prev_prompt: optional initial prompt (used for chunk stitching)
@@ -239,11 +250,11 @@ def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prom
     kwargs = {
         "language": language,
         "beam_size": beam_size,
-        "vad_filter": bool(enable_vad),
+        "vad_filter": vad_filter,
         "condition_on_previous_text": True,
-        # Add modest VAD padding so initial/terminal words aren't clipped by VAD (used when VAD is enabled)
-        "vad_parameters": {"speech_pad_ms": 300, "min_silence_duration_ms": 100},
     }
+    if vad_filter:
+        kwargs["vad_parameters"] = {"speech_pad_ms": int(max(0, vad_speech_pad_ms))}
     if prev_prompt:
         kwargs["initial_prompt"] = prev_prompt
     segments, info = model.transcribe(audio_path, **kwargs)
@@ -287,6 +298,8 @@ def transcribe_with_sentences(
     *,
     compute_type: str = DEFAULT_COMPUTE_TYPE,
     quiet: bool = False,
+    vad_filter: bool = DEFAULT_VAD_FILTER,
+    vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
 ) -> dict:
     """Transcribe an audio/video file and write TXT or SRT output.
 
@@ -334,8 +347,14 @@ def transcribe_with_sentences(
         all_text = ""
         all_segments = []
         try:
-            # In single-call mode, disable VAD to avoid trimming initial speech on some files
-            segments, info = _transcribe_file(model, media_file, language, beam_size, enable_vad=False)
+            segments, info = _transcribe_file(
+                model,
+                media_file,
+                language,
+                beam_size,
+                vad_filter=vad_filter,
+                vad_speech_pad_ms=vad_speech_pad_ms,
+            )
             if language is None:
                 detected_language = info.language
                 if not quiet:
@@ -361,8 +380,7 @@ def transcribe_with_sentences(
             )
             if not quiet:
                 print("Transcribing chunks...")
-            # Initialize slightly negative so the very first segment is never dropped by epsilon logic
-            last_global_end = -DEDUPE_EPSILON_SEC
+            last_global_end = 0.0
             prev_prompt = None
             for idx, info in enumerate(chunk_infos, 1):
                 chunk_file = info['path']
@@ -370,7 +388,15 @@ def transcribe_with_sentences(
                 if not quiet:
                     print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
                 try:
-                    segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt, enable_vad=True)
+                    segments, info = _transcribe_file(
+                        model,
+                        chunk_file,
+                        language,
+                        beam_size,
+                        prev_prompt=prev_prompt,
+                        vad_filter=vad_filter,
+                        vad_speech_pad_ms=vad_speech_pad_ms,
+                    )
                     # Store detected language from first chunk
                     if idx == 1 and language is None:
                         detected_language = info.language
@@ -481,6 +507,7 @@ if __name__ == "__main__":
         choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"],
         help="faster-whisper compute type",
     )
+    # VAD settings are constants; no CLI flags for VAD to keep interface simple
     vg = parser.add_mutually_exclusive_group()
     vg.add_argument("--quiet", action="store_true", help="Reduce log output")
     vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)")

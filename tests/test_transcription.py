@@ -90,9 +90,11 @@ def validate_language_code(language_code):
         return language_code
 
 def test_transcribe_file(media_file, model_size="medium", language=None, 
-                        chunk_length_sec=None, device="cpu", compute_type="int8",
+                        chunk_length_sec=None, device="cpu", compute_type="auto",
                         beam_size=3, output_format="txt", translate_to_english=False,
-                        apply_restoration=False):
+                        apply_restoration=False,
+                        vad_filter=True, vad_speech_pad_ms=200,
+                        dump_raw=False):
     """
     Test transcription with various Whisper settings.
     
@@ -117,6 +119,7 @@ def test_transcribe_file(media_file, model_size="medium", language=None,
     print(f"  Beam size: {beam_size}")
     print(f"  Chunking: {chunk_length_sec} seconds" if chunk_length_sec else "  Chunking: disabled")
     print(f"  Output format: {output_format}")
+    print(f"  VAD: {'on' if vad_filter else 'off'} (pad {vad_speech_pad_ms} ms)")
     print(f"  Translate to English: {translate_to_english}")
     print("-" * 50)
     
@@ -133,11 +136,17 @@ def test_transcribe_file(media_file, model_size="medium", language=None,
     if chunk_length_sec:
         # Use chunking
         print("Processing with chunking...")
-        result = transcribe_with_chunking(model, media_file, chunk_length_sec, language, beam_size, translate_to_english)
+        result = transcribe_with_chunking(
+            model, media_file, chunk_length_sec, language, beam_size, translate_to_english,
+            vad_filter=vad_filter, vad_speech_pad_ms=vad_speech_pad_ms,
+        )
     else:
         # Process entire file
         print("Processing entire file...")
-        result = transcribe_full_file(model, media_file, language, beam_size, translate_to_english)
+        result = transcribe_full_file(
+            model, media_file, language, beam_size, translate_to_english,
+            vad_filter=vad_filter, vad_speech_pad_ms=vad_speech_pad_ms,
+        )
     
     # Output results
     if output_format == "txt":
@@ -147,12 +156,20 @@ def test_transcribe_file(media_file, model_size="medium", language=None,
     elif output_format == "raw":
         output_raw(result, media_file)
     
+    # Optionally also write raw output for debugging, regardless of main output format
+    if dump_raw and output_format != "raw":
+        output_raw(result, media_file)
+    
     print(f"Total processing time: {time.time() - start_time:.2f} seconds")
 
-def transcribe_full_file(model, media_file, language, beam_size, translate_to_english=False):
+def transcribe_full_file(model, media_file, language, beam_size, translate_to_english=False,
+                         vad_filter=True, vad_speech_pad_ms=200):
     """Transcribe entire file without chunking."""
     task = "translate" if translate_to_english else "transcribe"
-    segments, info = model.transcribe(media_file, language=language, beam_size=beam_size, task=task)
+    kwargs = {"language": language, "beam_size": beam_size, "task": task, "vad_filter": vad_filter}
+    if vad_filter:
+        kwargs["vad_parameters"] = {"speech_pad_ms": int(max(0, vad_speech_pad_ms))}
+    segments, info = model.transcribe(media_file, **kwargs)
     
     all_segments = []
     all_text = ""
@@ -173,7 +190,8 @@ def transcribe_full_file(model, media_file, language, beam_size, translate_to_en
         'task': task
     }
 
-def transcribe_with_chunking(model, media_file, chunk_length_sec, language, beam_size, translate_to_english=False):
+def transcribe_with_chunking(model, media_file, chunk_length_sec, language, beam_size, translate_to_english=False,
+                             vad_filter=True, vad_speech_pad_ms=200):
     """Transcribe file with chunking."""
     task = "translate" if translate_to_english else "transcribe"
     audio = AudioSegment.from_file(media_file)
@@ -193,7 +211,10 @@ def transcribe_with_chunking(model, media_file, chunk_length_sec, language, beam
     # Process each chunk
     for i, chunk_file in enumerate(chunks):
         print(f"  Processing chunk {i+1}/{len(chunks)}")
-        segments, info = model.transcribe(chunk_file, language=language, beam_size=beam_size, task=task)
+        kwargs = {"language": language, "beam_size": beam_size, "task": task, "vad_filter": vad_filter}
+        if vad_filter:
+            kwargs["vad_parameters"] = {"speech_pad_ms": int(max(0, vad_speech_pad_ms))}
+        segments, info = model.transcribe(chunk_file, **kwargs)
         
         for segment in segments:
             all_segments.append({
@@ -280,6 +301,23 @@ def output_raw(result, media_file):
     print(f"Output saved to: {output_file}")
 
 def main():
+    """CLI entry point for ad-hoc transcription testing.
+
+    Usage:
+      python tests/test_transcription.py <media_file> [options]
+
+    Example (write TXT plus a raw Whisper dump for debugging):
+      python tests/test_transcription.py \
+        audio-files/example.mp3 \
+        --output-format txt \
+        --dump-raw
+
+    This script loads a Whisper model and transcribes either the full file
+    (with --single) or in user-defined chunks (with --chunk-length). It can
+    optionally apply punctuation restoration to the concatenated TXT output
+    (--apply-restoration). Use --dump-raw to also emit a raw dump capturing the
+    model’s detected language, confidence, and per-segment timings.
+    """
     parser = argparse.ArgumentParser(description="Test Whisper transcription with various settings")
     parser.add_argument("media_file", help="Path to audio or video file")
     parser.add_argument("--list-languages", action="store_true", 
@@ -290,8 +328,8 @@ def main():
     parser.add_argument("--language", help="Language code (en, es, fr, de, ja, ru, cs, etc.) or auto-detect if not specified")
     parser.add_argument("--chunk-length", type=int, help="Chunk length in seconds (disable chunking if not specified)")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Device to use (default: cpu)")
-    parser.add_argument("--compute-type", default="int8", choices=["int8", "float16", "float32"], 
-                       help="Compute type (default: int8)")
+    parser.add_argument("--compute-type", default="auto", choices=["auto", "int8", "float16", "float32"], 
+                       help="Compute type (default: auto)")
     parser.add_argument("--beam-size", type=int, default=3, help="Beam size for decoding (default: 3)")
     parser.add_argument("--output-format", default="txt", choices=["txt", "srt", "raw"], 
                        help="Output format (default: txt)")
@@ -299,8 +337,14 @@ def main():
                        help="Translate the output to English")
     parser.add_argument("--apply-restoration", action="store_true",
                        help="Apply punctuation restoration to the concatenated text before writing TXT output")
+    parser.add_argument("--dump-raw", action="store_true",
+                        help="Also write raw Whisper output for debugging (in addition to chosen format)")
     parser.add_argument("--single", action="store_true",
                        help="Bypass manual chunking and transcribe the full file in a single call")
+    parser.add_argument("--no-vad", dest="vad_filter", action="store_false",
+                        help="Disable VAD filtering (may help avoid clipping the first words)")
+    parser.add_argument("--vad-speech-pad-ms", type=int, default=200,
+                        help="Padding (ms) added around detected speech when VAD is enabled (default: 200)")
     
     args = parser.parse_args()
     
@@ -339,7 +383,10 @@ def main():
         beam_size=args.beam_size,
         output_format=args.output_format,
         translate_to_english=args.translate,
-        apply_restoration=args.apply_restoration
+        apply_restoration=args.apply_restoration,
+        vad_filter=args.vad_filter,
+        vad_speech_pad_ms=args.vad_speech_pad_ms,
+        dump_raw=args.dump_raw,
     )
 
 if __name__ == "__main__":
