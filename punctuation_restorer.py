@@ -342,6 +342,35 @@ def _es_wrap_imperative_exclamations(text: str) -> str:
     out = re.sub(r'!\s*\?', '!', out)
     return out
 
+def _es_capitalize_sentence_starts(text: str) -> str:
+    """Capitalize the first alphabetical character of each sentence for Spanish.
+
+    Preserves leading punctuation/quotes and capitalizes after '¿' or '¡'.
+    """
+    parts = _split_sentences_preserving_delims(text)
+    for i in range(0, len(parts), 2):
+        if i >= len(parts):
+            break
+        s = parts[i] or ''
+        if not s:
+            continue
+        idx = 0
+        n = len(s)
+        # Skip leading whitespace
+        while idx < n and s[idx].isspace():
+            idx += 1
+        # Skip opening quotes/brackets/dashes
+        while idx < n and s[idx] in '"“”«»([({—-':
+            idx += 1
+        # Skip inverted punctuation then spaces
+        if idx < n and s[idx] in '¡¿':
+            idx += 1
+            while idx < n and s[idx].isspace():
+                idx += 1
+        if idx < n and s[idx].islower():
+            parts[i] = s[:idx] + s[idx].upper() + s[idx+1:]
+    return ''.join(parts)
+
 def _es_normalize_tag_questions(text: str) -> str:
     """Normalize common Spanish tag questions and ensure comma before the tag.
 
@@ -2193,6 +2222,9 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Final mixed-punctuation cleanup after exclamation pairing
     text = re.sub(r'!\s*\.', '!', text)
     text = re.sub(r'!\s*\?', '!', text)
+
+    # Capitalize sentence starts (handles leading punctuation/quotes)
+    text = _es_capitalize_sentence_starts(text)
 
     # Cleanup spacing and duplicates
     text = re.sub(r"\s+", " ", text)
