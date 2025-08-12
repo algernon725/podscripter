@@ -51,21 +51,6 @@ Notes:
 
 ---
 
-## Features
-
-- **Local Processing**: No API keys or usage limits, run everything on your own machine.
-- **Dockerized Environment**: Easily install and run the tool in an isolated container.
-- **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
-- **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
-- **Automatic Language Detection**: Automatically detects the language of your audio content by default.
-- **Primary Language Support**: English (en), Spanish (es), French (fr), German (de). Other languages are experimental.
-- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with an optional spaCy-based capitalization pass.
-- **Batch Processing**: Transcribe multiple files using simple shell loops.
-- **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
-- **Hugging Face Integration**: Leverages Hugging Face models and caches for local, offline workflows.
-
----
-
 ## Requirements
 
 - Apple Mac with an M series processor.
