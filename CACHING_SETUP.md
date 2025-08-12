@@ -2,13 +2,13 @@
 
 This guide explains how to set up Docker volume caching to avoid re-downloading models every time you run the container.
 
-## 🎯 Problem
+## Problem
 
 When running the podscripter container, large model files are downloaded every time:
 - **Whisper models**: `model.bin`, `model.safetensors` (for speech recognition)
 - **Sentence-transformers models**: `paraphrase-multilingual-MiniLM-L12-v2` (for punctuation restoration)
 
-## 🔧 Solution
+## Solution
 
 ### 1. Directory Structure
 
@@ -49,7 +49,7 @@ docker run --platform linux/arm64 -it \
 ./docker-run-with-cache.sh
 ```
 
-## 📁 What Gets Cached
+## What Gets Cached
 
 ### Whisper Models (`/app/models`)
 - Speech recognition models
@@ -67,7 +67,7 @@ docker run --platform linux/arm64 -it \
 - Includes tokenizers, configs, model weights, and datasets
 - Note: Uses `HF_HOME` environment variable (deprecated `TRANSFORMERS_CACHE` removed)
 
-## 🔍 Verification
+## Verification
 
 After the first run, check that files are being cached:
 
@@ -82,14 +82,14 @@ ls -la models/sentence-transformers/
 ls -la models/huggingface/
 ```
 
-## 🚀 Benefits
+## Benefits
 
 - **Faster startup**: No model downloads on subsequent runs
 - **Offline capability**: Works without internet after first run
 - **Bandwidth savings**: Models downloaded only once
 - **Consistent performance**: Same models used every time
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### If models still download every time:
 
@@ -105,13 +105,13 @@ ls -la models/huggingface/
 rm -rf models/whisper/* models/sentence-transformers/* models/huggingface/*
 ```
 
-## 📊 Expected File Sizes
+## Expected File Sizes
 
 - **Whisper models**: ~1-2 GB (depending on model size)
 - **Sentence-transformers**: ~100-200 MB
 - **HuggingFace cache**: ~50-100 MB
 
-## 🔄 Rebuilding the Container
+## Rebuilding the Container
 
 If you update the Dockerfile, rebuild with:
 
