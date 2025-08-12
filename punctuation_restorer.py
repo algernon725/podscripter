@@ -152,11 +152,11 @@ def _get_language_thresholds(language: str) -> dict:
         return {
             'semantic_question_threshold_with_indicator': 0.70,
             'semantic_question_threshold_default': 0.80,
-            'min_total_words_no_split': 25,
-            'min_chunk_before_split': 18,
+            'min_total_words_no_split': 30,
+            'min_chunk_before_split': 20,
             'min_chunk_inside_question': 25,
-            'min_chunk_capital_break': 28,
-            'min_chunk_semantic_break': 30,
+            'min_chunk_capital_break': 38,
+            'min_chunk_semantic_break': 42,
         }
     # Defaults for other languages (align with existing logic)
     return {
@@ -1047,9 +1047,10 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         # Check if we're in the middle of a phrase that should stay together
         current_text = ' '.join(current_chunk).lower()
         
-        # General rule: don't break after articles, prepositions, or determiners
+        # General rule: don't break after articles, prepositions, determiners, or common quantifiers
         # These words typically continue the sentence
-        if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
+        if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra',
+                                    'todo', 'toda', 'todos', 'todas', 'alguno', 'alguna', 'algunos', 'algunas', 'cualquier', 'cualquiera', 'ningún', 'ninguna', 'ninguno', 'otro', 'otra', 'otros', 'otras']:
             return False
         
         # General rule: don't break after "que" followed by common verbs
@@ -1089,6 +1090,9 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
             return False
         # Avoid breaking after comma or after preposition like "de"
         if current_word.endswith(',') or current_word.lower() in ['de', 'en']:
+            return False
+        # Avoid breaking when the next word is a determiner/preposition starting a continuation
+        if next_word.lower() in ['los', 'las', 'el', 'la', 'de', 'del']:
             return False
         return True
     
