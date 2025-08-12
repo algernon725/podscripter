@@ -1,16 +1,31 @@
-## podscripter architecture and processing pipeline
+# PodScripter Architecture
 
-This document explains how the project works end-to-end, the components in its pipeline, what problems each component addresses, and the role each plays in the system.
+PodScripter transcribes audio/video into punctuated, readable text and SRT subtitles. It uses Faster-Whisper for ASR and a hybrid semantic + rule approach for punctuation and formatting. The system is designed to run entirely in Docker with model caches mounted for reproducibility and offline operation.
 
-### Overview
+## System context
 
-- **Goal**: Transcribe audio/video to readable text or SRT subtitles.
-- **Core ASR**: Faster-Whisper (`WhisperModel`) for transcription.
-- **Punctuation**: Hybrid semantic + regex restoration with optional spaCy capitalization.
-- **Languages**: English (`en`), Spanish (`es`), French (`fr`), German (`de`). Others are experimental.
-- **Runtime**: Designed to run inside Docker with local model caches for offline/fast runs.
+- **Inputs**: Audio/video files (e.g., MP3, MP4, WAV)
+- **Outputs**: Plain text (`.txt`) or subtitles (`.srt`)
+- **Primary dependencies**:
+  - Faster-Whisper (ASR)
+  - Sentence-Transformers (semantic cues for punctuation)
+  - spaCy (optional capitalization)
+  - pydub (chunking)
+- **Runtime**: Docker container; model caches bound via volumes
 
-### Architecture diagram
+## Goals and non-goals
+
+- **Goals**
+  - Accurate, readable transcripts across EN/ES/FR/DE
+  - Deterministic runs via containerization and caching
+  - CPU-friendly defaults with support for long audio
+  - Generalizable punctuation/formatting improvements over one-off fixes
+- **Non-goals**
+  - End-to-end cloud service or hosted UI
+  - Perfect linguistic analysis for all languages
+  - Arbitrary output formats beyond TXT/SRT
+
+## High-level architecture
 
 ```mermaid
 flowchart TD
@@ -67,94 +82,96 @@ flowchart TD
   Storage --> User["User Download"]
 ```
 
-### End-to-end pipeline
+## Data flow
 
-1) **CLI orchestration** (`transcribe_sentences.py`)
-- **What it is**: The entrypoint that parses args and orchestrates the run.
-- **Problem solved**: A consistent user interface with early validation and clear output.
-- **Role**: Chooses single-call vs chunked mode, manages model settings, logging, timing.
+1. Pre-validate input/output paths and clean leftover chunk files.
+2. If not `--single`, split media into ~480s chunks with ~3s overlap.
+3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
+4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
+5. Restore punctuation (semantic + regex; optional spaCy capitalization).
+6. Split/normalize sentences and write TXT or SRT.
 
-2) **Path validation** (`_validate_paths`)
-- **What it is**: Ensures input file exists and output directory is writable.
-- **Problem solved**: Fails fast on bad input and permissions.
-- **Role**: Normalizes paths and guarantees a safe place to write.
+## Components and responsibilities
 
-3) **Leftover cleanup** (`_cleanup_chunks`)
-- **What it is**: Removes any stale `*_chunk_*.wav` files before starting.
-- **Problem solved**: Avoids confusing results from previous partial runs.
-- **Role**: Keeps the working directory clean.
+- **CLI and Orchestrator** (`transcribe_sentences.py`)
+  - Parse args; validate paths
+  - Choose single-call vs chunked mode
+  - Manage model load, VAD settings, continuity prompts
+  - Write outputs (TXT/SRT)
 
-4) **Audio chunking with overlap** (`_split_audio_with_overlap`)
-- **What it is**: Splits long media into ~480s chunks with ~3s overlap using `pydub`.
-- **Problem solved**: Makes CPU-only transcription feasible and stabilizes boundary context.
-- **Role**: Produces chunk files and metadata (`path`, `start_sec`, `duration_sec`).
+- **Chunking**
+  - `_split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=3)` using pydub
+  - Generates chunk files and metadata for alignment
 
-5) **Transcription** (`_transcribe_file` → `WhisperModel.transcribe`)
-- **What it is**: Runs Faster-Whisper per file (single-call) or per chunk.
-- **Problem solved**: Converts speech to time-stamped text segments with optional VAD.
-- **Role**: Outputs `(segments, info)`, supports `initial_prompt` using a tail of prior text for context.
+- **ASR (Faster-Whisper)**
+  - `_transcribe_file(...)` → `WhisperModel.transcribe`
+  - Returns segments and info (e.g., detected language)
 
-6) **Segment alignment and deduplication** (`_accumulate_segments`, `_dedupe_segments`)
-- **What it is**: Converts per-chunk timestamps to global, removes duplicates from overlaps, concatenates text.
-- **Problem solved**: Overlapping chunks naturally create duplicate boundaries.
-- **Role**: Produces clean, globally ordered segments and a raw text stream.
+- **Alignment and deduplication**
+  - `_accumulate_segments(...)` and `_dedupe_segments(...)`
+  - Globalize timestamps and remove overlap duplicates
 
-7) **Punctuation restoration (hybrid)** (`punctuation_restorer.restore_punctuation`)
-- **What it is**: Advanced punctuation via Sentence-Transformers semantics plus curated regex rules; safe fallback if ST unavailable.
-- **Problem solved**: ASR output lacks reliable sentence boundaries and punctuation, especially questions/exclamations.
-- **Role**: Returns text with punctuation appropriate for the given language.
-
-8) **Language-specific formatting** (in `punctuation_restorer.py`)
-- **What it is**: Per-language helpers with conservative, generalizable rules.
-- **Problem solved**: Addresses language norms without brittle one-off hacks.
-- **Role**:
-  - **Spanish**: Inverted question pairing, greeting commas, exclamation wrapping for imperatives, intro/location commas, merges for possessive/gerund splits, mixed-punctuation normalization, conservative question gating.
-  - **French**: Clitic inversion hyphenation (e.g., “allez-vous”), “est-ce que” normalization.
-  - **German**: Safe commas before common subordinators, capitalization improvements for titles and likely nouns, proper-noun touch-ups.
-  - **English/others**: Light capitalization and greeting commas; default question starters list.
-
-9) **Sentence splitting and final normalization**
-- **What it is**: After punctuation restoration, `transcribe_sentences.py` splits with `re.split(r'([.!?]+)')`, trims artifacts, and ensures closing punctuation; `punctuation_restorer` applies `_finalize_text_common` for mixed punctuation and spacing.
-- **Problem solved**: Cleans remaining spacing, punctuation duplicates, and edge-case splits.
-- **Role**: Produces human-readable sentences suitable for TXT and SRT.
-
-10) **Output writers** (`_write_txt`, `_write_srt`)
-- **What it is**: Writes plain text or time-aligned SRT (sorted by start time).
-- **Problem solved**: Common, portable output formats.
-- **Role**: Delivers final artifacts and prints the output path.
-
-11) **Optional NLP capitalization** (`_apply_spacy_capitalization`)
-- **What it is**: spaCy-based capitalization for entities and proper nouns when `NLP_CAPITALIZATION=1`.
-- **Problem solved**: Heuristic capitalization can miss names/places; spaCy improves readability.
-- **Role**: Conservative final pass per language; enabled by default in the Dockerfile by setting `NLP_CAPITALIZATION=1`
-
-12) **Model caching and offline mode**
-- **What it is**: Local caches for Whisper and HF models mounted into the container.
-- **Problem solved**: Avoids re-downloading large models and enables offline/fast test runs.
-- **Role**: Sentence-Transformers loader prefers local cache and sets `HF_HUB_OFFLINE=1` when possible.
-- **Cache locations** (relative to repo root):
-  - `models/whisper/`
-  - `models/sentence-transformers/`
-  - `models/huggingface/`
-
-### Key files and functions
-
-- `transcribe_sentences.py`
-  - `transcribe_with_sentences(...)`: main orchestration
-  - `_validate_paths`, `_cleanup_chunks`, `_split_audio_with_overlap`
-  - `_transcribe_file`, `_accumulate_segments`, `_dedupe_segments`
-  - `_write_txt`, `_write_srt`
-- `punctuation_restorer.py`
+- **Punctuation and formatting** (`punctuation_restorer.py`)
   - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)`
-  - Language helpers and normalization utilities
+  - Sentence-Transformers semantic cues + curated regex rules
+  - Language-specific formatting (ES/EN/FR/DE)
+  - Optional spaCy capitalization when enabled
 
-### Development and testing
+## Configuration
 
-- All development and tests run inside Docker with caches mounted for speed and offline operation.
-- See `tests/run_all_tests.py` and `tests/README.md` for details.
+- **Environment variables**
+  - `NLP_CAPITALIZATION` (default `1` in Dockerfile): enable spaCy capitalization
+  - `HF_HOME`: Hugging Face cache root
+  - `WHISPER_CACHE_DIR`: Whisper model cache directory
+  - Optionally set `HF_HUB_OFFLINE=1` when caches are warm
+- **Runtime flags** (CLI)
+  - `--output_dir <dir>` (required)
+  - `--language <code>|auto` (default auto)
+  - `--output_format {txt|srt}` (default txt)
+  - `--single` (disable manual chunking)
+  - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default auto)
+  - `--quiet`/`--verbose` (default verbose)
 
-### Design principles
+## Operations
 
-- **Generalizable fixes over one-offs**: Prefer language-wide heuristics and semantic gates to ad-hoc sentence exceptions.
-- **Maintainability**: Centralize thresholds/keywords and keep helpers focused and testable.
-- **Performance-aware**: Defaults chosen for CPU-friendly operation; supports single-call mode when resources allow.
+- **Modes**
+  - Single-call: transcribe entire file; best context, higher resource usage
+  - Chunked: default for long files; overlap + prompt tail for continuity
+- **Caching**
+  - Mount volumes to persist models between runs:
+    - Whisper: `models/whisper/` → `/app/models`
+    - Sentence-Transformers: `models/sentence-transformers/` → `/root/.cache/torch/sentence_transformers`
+    - Hugging Face: `models/huggingface/` → `/root/.cache/huggingface`
+- **Error handling**
+  - Early exits for invalid input or unwritable output
+  - Conservative fallbacks when ST/spaCy unavailable
+
+## Performance characteristics
+
+- CPU-friendly defaults (`compute_type=auto`, modest beam size)
+- Overlap + dedupe minimizes boundary artifacts
+- Prompt tail (~200 chars) improves chunk continuity
+
+## Testing and quality gates
+
+- All tests run in Docker with caches mounted
+- Language-specific and cross-language tests for punctuation and splitting
+- Ad-hoc `tests/test_transcription.py` for manual experiments
+
+## Extensibility
+
+- Add languages via `LanguageConfig` and per-language helpers
+- Tune thresholds centrally without rewriting logic
+- Additional output formats can be added in the writer layer
+
+## Known limitations
+
+- Non EN/ES/FR/DE languages are experimental
+- spaCy capitalization requires language models; disabled if unavailable
+- Perfect punctuation restoration is not guaranteed; favors robust heuristics
+
+## Key files
+
+- `transcribe_sentences.py`: orchestration, chunking, ASR, output
+- `punctuation_restorer.py`: punctuation, language formatting, capitalization
+- `Dockerfile`: runtime and dependency setup
