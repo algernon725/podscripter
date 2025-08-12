@@ -2173,6 +2173,17 @@ def _spanish_cleanup_postprocess(text: str) -> str:
             parts_coord[i + 1] = '?'
     text = ''.join(parts_coord)
 
+    # Merge premature exclamation closure when a lowercase connector continues the clause
+    # Example: "¡Dile adiós! a todos esos momentos incómodos." -> "¡Dile adiós a todos esos momentos incómodos!"
+    text = re.sub(r"!\s+(?=(?:a|al|de|del|en|con|por|para|y|o|que)\b)", " ", text, flags=re.IGNORECASE)
+
+    # Repair proper-noun country/location pairs split by an erroneous period after a prepositional phrase
+    # Example: "... de Texas. Estados Unidos." -> "... de Texas, Estados Unidos."
+    text = re.sub(
+        r"(\bde\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ-]*),?\s*\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ-]*)\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ-]*)\.",
+        r"\1, \2 \3.",
+    )
+
     # Add exclamations for common imperative/greeting starters (not if it's already a question/exclamation)
     def _wrap_exclamations(line: str) -> str:
         s = line.strip()
