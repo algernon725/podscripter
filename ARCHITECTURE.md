@@ -22,29 +22,29 @@ flowchart TD
 
   subgraph ingestion["Ingestion"]
     Upload["User Upload: mp3/mp4/..."]
-    URLFetch["Optional: remote URL"]
   end
 
   Upload --> Pre["Preprocessing"]
-  URLFetch --> Pre
 
-  Pre --> VAD["VAD / Chunking"]
-  VAD --> Chunks["Chunks with overlap"]
+  Pre --> Chunking["Chunking"]
+  Chunking --> Chunks["Chunks with overlap"]
 
   subgraph asr["ASR Layer"]
     FW["WhisperModel (faster-whisper)"]
+    LangDetect["Language Detection (from Whisper info)"]
     ASRraw["Raw ASR Segments"]
   end
-  Chunks --> FW --> ASRraw
+  Chunks --> FW
+  FW --> ASRraw
+  FW --> LangDetect
 
   subgraph post["Postprocessing"]
     Dedup["Dedupe + Global Timestamps"]
-    LangDetect["Language Detection"]
     Punct["Punctuation Restorer (Sentence-Transformers + fallback regex + spaCy)"]
-    Format["Formatting: txt / srt / json"]
+    Format["Formatting: txt / srt"]
   end
 
-  ASRraw --> Dedup --> LangDetect --> Punct --> Format --> Storage
+  ASRraw --> Dedup --> Punct --> Format --> Storage
 
   subgraph agent["Agent / Orchestration"]
     CLI["CLI Entrypoint"]
@@ -59,12 +59,12 @@ flowchart TD
   ModelCache --> FW
   Config --> Orch
   CLI --> Orch
-  Orch --> VAD
+  Orch --> Chunking
   Orch --> FW
   Orch --> post
   Tests --> Orch
 
-  Storage --> User["User Download / S3 Upload"]
+  Storage --> User["User Download"]
 ```
 
 ### End-to-end pipeline
