@@ -1,4 +1,4 @@
-## PodScripter architecture and processing pipeline
+## podscripter architecture and processing pipeline
 
 This document explains how the project works end-to-end, the components in its pipeline, what problems each component addresses, and the role each plays in the system.
 

@@ -1,13 +1,13 @@
-# AI Agent Guidelines for PodScripter
+# AI Agent Guidelines for podscripter
 
 ## Project Overview
 
-**PodScripter** is a multilingual audio transcription tool that generates accurate, punctuated transcriptions for language learning platforms like LingQ. The project uses Docker containerization and leverages state-of-the-art NLP models for punctuation restoration.
+**podscripter** is a multilingual audio transcription tool that generates accurate, punctuated transcriptions for language learning platforms like LingQ. The project uses Docker containerization and leverages state-of-the-art NLP models for punctuation restoration.
 
 ### Core Technologies
 - **Whisper**: OpenAI's speech-to-text model for transcription
 - **Sentence-Transformers**: For semantic understanding and punctuation restoration
-- **HuggingFace Transformers**: NLP model integration
+- **Hugging Face Hub (caches)**: Used by `sentence-transformers`; managed via `HF_HOME` and optional offline mode
 - **spaCy (optional)**: Lightweight NLP capitalization and entity awareness (models: `en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`)
 - **Docker**: Containerization for reproducible environments
 - **Python 3.10+**: Primary development language
@@ -36,7 +36,7 @@
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
 - Use a singleton model loader to avoid repeated model instantiation within a process
 - For spaCy capitalization mode, models are baked into the image; enable/disable via `NLP_CAPITALIZATION` (see Docker Best Practices)
- - Sentence-Transformers loader: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` to avoid the "Creating a new one with mean pooling" message while still using caches.
+- Sentence-Transformers loader: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` to avoid the "Creating a new one with mean pooling" message while still using caches. Also sets `HF_HOME` and may set `HF_HUB_OFFLINE=1` when a local model directory is used.
 
 ### 2a. Transcription Orchestration (Whisper usage)
 - Two supported modes:
@@ -52,7 +52,7 @@
 
 ### 3. Modular Processing Pipeline
 ```
-Audio Input → Whisper Transcription → Punctuation Restoration → Sentence Splitting → Output
+Audio Input → Chunking (overlap) → Whisper Transcription (with language detection, optional VAD) → Dedup/Globalize Segments → Punctuation Restoration → Sentence Splitting → Output (TXT/SRT)
 
 - CLI flags (argparse in `transcribe_sentences.py`):
   - `--output_dir <dir>` (required)
@@ -94,8 +94,8 @@ Audio Input → Whisper Transcription → Punctuation Restoration → Sentence S
 - Do not emit optional debug output for punctuated text
 
 #### Formatting Responsibilities
-- Perform capitalization, comma insertion, hyphenation, and all punctuation fixes in `punctuation_restorer.py`
-- Do not implement formatting logic in `transcribe_sentences.py`
+- Perform punctuation, language-specific formatting, capitalization, comma insertion, and hyphenation in `punctuation_restorer.py`.
+- Keep `transcribe_sentences.py` limited to light sentence splitting and output writing; do not add new punctuation logic there.
 
 #### Language-Specific Heuristics (recent)
 - Spanish:
