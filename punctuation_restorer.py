@@ -1630,7 +1630,7 @@ def format_non_spanish_text(text: str, language: str) -> str:
         text = _collapse_acronyms(text)
 
     # Split keeping punctuation
-    parts = split_sentences_preserving_delims(text)
+    parts = _split_sentences_preserving_delims(text)
     sentences = []
     for i in range(0, len(parts), 2):
         if i >= len(parts):
