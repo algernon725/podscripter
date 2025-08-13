@@ -17,6 +17,21 @@ def test_english_sentence_splitting():
     # Test cases that demonstrate the problems
     test_cases = [
         {
+            'input': "And President Trump is putting the D. C. Police Department under federal control.",
+            'expected': "And President Trump is putting the DC Police Department under federal control.",
+            'description': 'Do not split dotted acronym DC'
+        },
+        {
+            'input': "He calls the U. S. Capitol a place of unchecked crime and squalor.",
+            'expected': "He calls the US Capitol a place of unchecked crime and squalor.",
+            'description': 'Do not split dotted acronym US'
+        },
+        {
+            'input': "He compared the speed and power of this crackdown to what's happening on the U.S.-Mexico border.",
+            'expected': "He compared the speed and power of this crackdown to what's happening on the US-Mexico border.",
+            'description': 'Compact dotted acronym U.S. before hyphen'
+        },
+        {
             'input': "i am john from new york city",
             'expected': "I am John from New York City.",
             'description': 'Introduction should be one sentence'

@@ -1617,8 +1617,20 @@ def format_non_spanish_text(text: str, language: str) -> str:
     if not text.strip():
         return text
 
+    # English: normalize dotted acronyms like "U. S.", "D. C." → "US", "DC" to avoid false sentence splits
+    if language == 'en':
+        def _collapse_acronyms(s: str) -> str:
+            # Three-letter sequences: U. S. A. -> USA (allow space or end after final period)
+            s = re.sub(r"\b([A-Z])\.\s*([A-Z])\.\s*([A-Z])\.(?=\s|$)", lambda m: ''.join(m.groups()), s)
+            # Two-letter sequences: U. S. -> US, D. C. -> DC
+            s = re.sub(r"\b([A-Z])\.\s*([A-Z])\.(?=\s|$)", lambda m: ''.join(m.groups()), s)
+            # Common compact forms with no spaces: U.S. -> US, D.C. -> DC
+            s = re.sub(r"\b([A-Z])\.([A-Z])\.(?=\s|$)", r"\1\2", s)
+            return s
+        text = _collapse_acronyms(text)
+
     # Split keeping punctuation
-        parts = split_sentences_preserving_delims(text)
+    parts = split_sentences_preserving_delims(text)
     sentences = []
     for i in range(0, len(parts), 2):
         if i >= len(parts):

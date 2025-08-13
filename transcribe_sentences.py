@@ -49,18 +49,36 @@ FOCUS_LANGS = {"en", "es", "fr", "de"}
 
 # No longer need NLTK - using simple sentence splitting
 
+# --- Helpers: language-specific pre-split normalization ---
+def _collapse_dotted_acronyms_en(text: str) -> str:
+    """Collapse dotted uppercase acronyms to avoid false sentence splits.
+
+    Examples:
+      - "U. S." → "US", "D. C." → "DC", "U.S." → "US"
+      - Also matches when followed by hyphen or whitespace (e.g., "U.S.-Mexico").
+    """
+    if not text:
+        return text
+    # Three-letter sequences: U. S. A. → USA
+    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
+    # Two-letter sequences (spaced): U. S. → US, D. C. → DC
+    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
+    # Two-letter sequences (compact): U.S. → US, D.C. → DC
+    text = re.sub(r"\b([A-Z])\.([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", r"\1\2", text)
+    return text
+
 # Defaults and tuning constants
-DEFAULT_CHUNK_SEC = 480
-DEFAULT_OVERLAP_SEC = 3
-DEFAULT_BEAM_SIZE = 3
-DEFAULT_COMPUTE_TYPE = "auto"
-DEFAULT_DEVICE = "cpu"
-DEFAULT_MODEL_NAME = "medium"
-DEFAULT_OMP_THREADS = "8"
-DEDUPE_EPSILON_SEC = 0.05
-PROMPT_TAIL_CHARS = 200
-DEFAULT_VAD_FILTER = True
-DEFAULT_VAD_SPEECH_PAD_MS = 200
+DEFAULT_CHUNK_SEC = 480 # chunk length in seconds
+DEFAULT_OVERLAP_SEC = 3 # overlap between chunks in seconds
+DEFAULT_BEAM_SIZE = 3 # beam size to use for the model
+DEFAULT_COMPUTE_TYPE = "auto" # compute type to use for the model
+DEFAULT_DEVICE = "cpu" # device to use for the model
+DEFAULT_MODEL_NAME = "medium" # Whisper model to use for the transcription
+DEFAULT_OMP_THREADS = "8" # number of threads to use for the model
+DEDUPE_EPSILON_SEC = 0.05 # number of seconds of overlap between chunks to deduplicate
+PROMPT_TAIL_CHARS = 200 # number of characters of the previous chunk to use as a prompt for the next chunk
+DEFAULT_VAD_FILTER = True # whether to use VAD to filter out non-speech segments
+DEFAULT_VAD_SPEECH_PAD_MS = 200 # padding in milliseconds to add around detected speech when VAD is enabled
 
 def get_supported_languages() -> dict[str, str]:
     """Return supported language codes and names.
@@ -436,7 +454,11 @@ def transcribe_with_sentences(
         # Use detected language if auto-detection was used, otherwise use provided language
         lang_for_punctuation = detected_language if language is None else language
         
-        # First, split the text into individual segments (as they come from Whisper)
+        # First, optionally normalize dotted acronyms for English to avoid false splits
+        if (lang_for_punctuation or '').lower() == 'en':
+            all_text = _collapse_dotted_acronyms_en(all_text)
+
+        # Then, split the text into individual segments (as they come from Whisper)
         # Split by double newlines (which separate sentences in the transcription)
         text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
         
