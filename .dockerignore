@@ -1,0 +1,14 @@
+# Exclude large local media from build context
+audio-files/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS / tooling noise
+.DS_Store
+.git
+.venv/
+.env
