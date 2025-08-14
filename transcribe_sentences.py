@@ -479,13 +479,12 @@ def transcribe_with_sentences(
                 punct = parts[idx + 1] if idx + 1 < len(parts) else ""
 
                 if chunk:
-                    # Append current chunk and its punctuation to buffer
+                    # Append current chunk to buffer (punctuation handled below)
                     buffer = (buffer + " " + chunk).strip()
-                    if punct:
-                        buffer += punct
 
-                # If punctuation is an ellipsis, continue accumulating; it's not a sentence boundary
+                # If punctuation is an ellipsis, append it and continue accumulating; not a boundary
                 if punct in ('...', '…'):
+                    buffer += punct
                     idx += 2
                     continue
 
@@ -508,15 +507,26 @@ def transcribe_with_sentences(
                         idx += 2
                         continue
 
-                # If we have a terminal punctuation or we're at the end, flush buffer as a sentence
-                if punct or (idx + 1 >= len(parts)):
+                # Default: if we have punctuation, append and flush as a sentence
+                if punct:
+                    buffer += punct
                     cleaned = re.sub(r'^[",\s]+', '', buffer)
                     if cleaned:
                         if not cleaned.endswith(('.', '!', '?')):
                             cleaned += '.'
                         sentences.append(cleaned)
                     buffer = ""
+                    idx += 2
+                    continue
 
+                # No punctuation: if at end, flush buffer; otherwise continue accumulating
+                if idx + 1 >= len(parts):
+                    cleaned = re.sub(r'^[",\s]+', '', buffer)
+                    if cleaned:
+                        if not cleaned.endswith(('.', '!', '?')):
+                            cleaned += '.'
+                        sentences.append(cleaned)
+                    buffer = ""
                 idx += 2
         # Ensure segments are sorted by start time (for consistency in results)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
