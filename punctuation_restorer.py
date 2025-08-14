@@ -234,16 +234,28 @@ def _split_sentences_preserving_delims(text: str) -> list:
 
 
 def _normalize_mixed_terminal_punctuation(text: str) -> str:
-    """Normalize mixed terminal punctuation like '?.', '!.', '!?', collapsing repeats.
-    Safe to run multiple times. Keeps first punctuation when repeats occur.
+    """Normalize mixed terminal punctuation like '?.', '!.', '!?'.
+
+    Rules:
+    - Collapse mixed pairs like .? or ?.
+    - For exclamations/questions, collapse runs (e.g., '!!!' -> '!').
+    - Preserve ellipses: keep '…' as-is and keep '...' as '...'.
+      Only reduce sequences of four or more dots to '...'.
+      Reduce exactly two dots to one dot.
+    Safe to run multiple times.
     """
     out = text
+    # Mixed pairs
     out = re.sub(r"\.\s*\?", "?", out)   # .? -> ?
     out = re.sub(r"\?\s*\.", "?", out)    # ?. -> ?
     out = re.sub(r"!\s*\.", "!", out)      # !. -> !
     out = re.sub(r"!\s*\?", "!", out)      # !? -> !
     out = re.sub(r"\?\s*!", "!", out)      # ?! -> !
-    out = re.sub(r"([.!?]){2,}", r"\1", out)  # collapse repeats
+    # Preserve ellipses
+    out = re.sub(r"\.{4,}", "...", out)     # 4+ dots -> ...
+    out = re.sub(r"(?<!\.)\.\.(?!\.)", ".", out)  # exactly two dots -> one
+    # Collapse runs of question/exclamation
+    out = re.sub(r"([!?]){2,}", r"\1", out)
     return out
 
 
@@ -2253,11 +2265,18 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Capitalize sentence starts (handles leading punctuation/quotes)
     text = _es_capitalize_sentence_starts(text)
 
+    # Do NOT capitalize after an ellipsis within a continuing clause.
+    # Example: "De tener bancarrota... rota." should keep "rota" lowercase.
+    # Handles both ASCII "..." and Unicode ellipsis "…".
+    text = re.sub(r"((?:\.\.\.|…)\s+)([A-ZÁÉÍÓÚÑ])", lambda m: m.group(1) + m.group(2).lower(), text)
+
     # Cleanup spacing and duplicates
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"¿{2,}", "¿", text)
     text = re.sub(r"\?{2,}", "?", text)
-    text = re.sub(r"\.{2,}", ".", text)
+    # Preserve ellipses '…' and '...':
+    text = re.sub(r"\.{4,}", "...", text)          # 4+ dots -> ...
+    text = re.sub(r"(?<!\.)\.\.(?!\.)", ".", text)  # reduce exactly two dots
     return text
 
 

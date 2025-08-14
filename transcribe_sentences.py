@@ -467,29 +467,38 @@ def transcribe_with_sentences(
             # Process each segment individually for better punctuation
             processed_segment = restore_punctuation(segment, lang_for_punctuation)
             
-            # Split the processed segment into sentences while preserving punctuation
-            # Split by sentence-ending punctuation but capture the punctuation
-            parts = re.split(r'([.!?]+)', processed_segment)
-            
-            for i in range(0, len(parts), 2):
-                if i < len(parts):
-                    sentence_text = parts[i].strip()
-                    punctuation = parts[i + 1] if i + 1 < len(parts) else ""
-                    
-                    if sentence_text:
-                        # Combine sentence text with its punctuation
-                        full_sentence = sentence_text + punctuation
-                        
-                        # Remove leading punctuation and whitespace
-                        cleaned = re.sub(r'^[",\s]+', '', full_sentence)
-                        
-                        # Capitalization is handled by punctuation restoration pipeline
-                        
-                        if cleaned:
-                            # Ensure the sentence ends with punctuation
-                            if not cleaned.endswith(('.', '!', '?')):
-                                cleaned += '.'
-                            sentences.append(cleaned)
+            # Split the processed segment into sentences while preserving punctuation.
+            # Capture unicode ellipsis too and treat it as non-terminal (continuation) punctuation.
+            parts = re.split(r'(…|[.!?]+)', processed_segment)
+
+            # Accumulate across ellipses so we don't split at "..." or "…"
+            buffer = ""
+            idx = 0
+            while idx < len(parts):
+                chunk = parts[idx].strip() if idx < len(parts) else ""
+                punct = parts[idx + 1] if idx + 1 < len(parts) else ""
+
+                if chunk:
+                    # Append current chunk and its punctuation to buffer
+                    buffer = (buffer + " " + chunk).strip()
+                    if punct:
+                        buffer += punct
+
+                # If punctuation is an ellipsis, continue accumulating; it's not a sentence boundary
+                if punct in ('...', '…'):
+                    idx += 2
+                    continue
+
+                # If we have a terminal punctuation or we're at the end, flush buffer as a sentence
+                if punct or (idx + 1 >= len(parts)):
+                    cleaned = re.sub(r'^[",\s]+', '', buffer)
+                    if cleaned:
+                        if not cleaned.endswith(('.', '!', '?')):
+                            cleaned += '.'
+                        sentences.append(cleaned)
+                    buffer = ""
+
+                idx += 2
         # Ensure segments are sorted by start time (for consistency in results)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
         output_file = Path(output_dir) / f"{base_name}.txt"
