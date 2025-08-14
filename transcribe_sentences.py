@@ -489,6 +489,25 @@ def transcribe_with_sentences(
                     idx += 2
                     continue
 
+                # If punctuation is a period inside a domain name (e.g., "espanolistos.com"),
+                # merge the dot and the following TLD into the buffer and continue accumulating.
+                if punct == '.':
+                    next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
+                    # previous label: last token of current chunk
+                    prev_label_match = re.search(r"([A-Za-z0-9-]+)$", chunk)
+                    # next TLD: leading letters (2-24) of next chunk
+                    next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk)
+                    if prev_label_match and next_tld_match:
+                        tld = next_tld_match.group(1)
+                        boundary = next_tld_match.group(2) or ""
+                        remainder = next_tld_match.group(3)
+                        # Append dot + TLD without inserting a space
+                        buffer += '.' + tld
+                        # Replace the next chunk with boundary + remainder to preserve punctuation/space after TLD
+                        parts[idx + 2] = boundary + remainder
+                        idx += 2
+                        continue
+
                 # If we have a terminal punctuation or we're at the end, flush buffer as a sentence
                 if punct or (idx + 1 >= len(parts)):
                     cleaned = re.sub(r'^[",\s]+', '', buffer)
