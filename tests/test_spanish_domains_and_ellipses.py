@@ -21,7 +21,7 @@ from punctuation_restorer import restore_punctuation  # noqa: E402
 
 
 def _split_like_pipeline(processed_segment: str) -> list[str]:
-    """Mirror the sentence assembly logic in transcribe_sentences.py.
+    """Mirror the sentence assembly logic in podscripter.py.
 
     Treat ellipses as non-terminal and preserve domains label.tld without splitting.
     Returns a list of finalized sentences.

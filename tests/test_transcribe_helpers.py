@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for internal helpers in transcribe_sentences.py
+Unit tests for internal helpers in podscripter.py
 
 Tests:
 - _split_audio_with_overlap on synthetic audio (silence)
@@ -17,7 +17,7 @@ PROJECT_ROOT = THIS_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import transcribe_sentences as ts  # noqa: E402
+import podscripter as ts  # noqa: E402
 from pydub import AudioSegment  # noqa: E402
 
 

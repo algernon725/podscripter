@@ -76,7 +76,7 @@ def test_advanced_punctuation():
         print(f"Input:  {input_text}")
         
         try:
-            from transcribe_sentences import restore_punctuation
+            from punctuation_restorer import restore_punctuation
             result = restore_punctuation(input_text, lang)
             print(f"Output: {result}")
             print("✓ Success")

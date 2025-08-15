@@ -93,7 +93,7 @@ flowchart TD
 
 ## Components and responsibilities
 
-- **CLI and Orchestrator** (`transcribe_sentences.py`)
+- **CLI and Orchestrator** (`podscripter.py`)
   - Parse args; validate paths
   - Choose single-call vs chunked mode
   - Manage model load, VAD settings, continuity prompts
@@ -172,6 +172,6 @@ flowchart TD
 
 ## Key files
 
-- `transcribe_sentences.py`: orchestration, chunking, ASR, output
+- `podscripter.py`: orchestration, chunking, ASR, output
 - `punctuation_restorer.py`: punctuation, language formatting, capitalization
 - `Dockerfile`: runtime and dependency setup

@@ -12,7 +12,7 @@ from punctuation_restorer import restore_punctuation
 
 
 def simulate_transcription_logic():
-    """Simulate the exact transcription logic from transcribe_sentences.py."""
+    """Simulate the exact transcription logic from podscripter.py."""
     
     print("Simulating transcription logic...")
     print("=" * 50)
@@ -80,7 +80,7 @@ def simulate_transcription_logic():
                         cleaned = cleaned[0].upper() + cleaned[1:]
                     
                     if cleaned:
-                        # Ensure the sentence ends with punctuation (as in transcribe_sentences.py)
+                        # Ensure the sentence ends with punctuation (as in podscripter.py)
                         if not cleaned.endswith(('.', '!', '?')):
                             cleaned += '.'
                         sentences.append(cleaned)

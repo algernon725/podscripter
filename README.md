@@ -41,7 +41,7 @@ docker run --rm --platform linux/arm64 \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
-  podscripter python3 /app/transcribe_sentences.py \
+  podscripter python3 /app/podscripter.py \
   /app/audio-files/example.mp3 --output_dir /app/audio-files
 ```
 
@@ -126,7 +126,7 @@ This opens an interactive terminal inside the container. You'll run all transcri
 From inside the Docker Container, run:
 
 ```bash
-python transcribe_sentences.py <media_file> --output_dir <output_dir> \
+python podscripter.py <media_file> --output_dir <output_dir> \
   [--language <code>|auto] [--output_format {txt|srt}] [--single] \
   [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
   [--quiet|--verbose]
@@ -137,7 +137,7 @@ python transcribe_sentences.py <media_file> --output_dir <output_dir> \
 To transcribe example.mp3 using default settings (auto-detect language, txt output):
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files
+python podscripter.py audio-files/example.mp3 --output_dir audio-files
 ```
 
 **Example with video file:**
@@ -145,7 +145,7 @@ python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files
 To transcribe example.mp4:
 
 ```bash
-python transcribe_sentences.py audio-files/example.mp4 --output_dir audio-files
+python podscripter.py audio-files/example.mp4 --output_dir audio-files
 ```
 
 ## Examples
@@ -154,17 +154,17 @@ One example per scenario to keep things concise.
 
 **TXT (default, auto-detect language)**
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files
+python podscripter.py audio-files/example.mp3 --output_dir audio-files
 ```
 
 **SRT (subtitles)**
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files --output_format srt
+python podscripter.py audio-files/example.mp3 --output_dir audio-files --output_format srt
 ```
 
 **Single-call (no manual chunking)**
 ```bash
-python transcribe_sentences.py audio-files/example.mp3 --output_dir audio-files --single
+python podscripter.py audio-files/example.mp3 --output_dir audio-files --single
 ```
 Use `--single` if your hardware can handle longer files in a single call for best context continuity. Default mode uses overlapped chunking with VAD.
 
@@ -232,7 +232,7 @@ To transcribe all `.mp3` and `.mp4` files in the audio-files folder with auto-de
 
   ```bash
   for f in audio-files/*.{mp3,mp4}; do
-    python transcribe_sentences.py "$f" --output_dir audio-files
+    python podscripter.py "$f" --output_dir audio-files
   done
   ```
 

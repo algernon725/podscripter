@@ -67,7 +67,7 @@ def test_punctuation_preservation():
     print("\nTesting sentence splitting logic:")
     print("-" * 40)
     
-    # Simulate the sentence splitting logic from transcribe_sentences.py
+    # Simulate the sentence splitting logic from podscripter.py
     parts = result.split('\n\n')
     sentences = []
     

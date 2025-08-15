@@ -40,7 +40,7 @@
 
 ### 2a. Transcription Orchestration (Whisper usage)
 - Two supported modes:
-  - Single-call transcription (recommended when resources allow): process full file in one call so Whisper maintains context. Enabled via `--single` flag in `transcribe_sentences.py`.
+  - Single-call transcription (recommended when resources allow): process full file in one call so Whisper maintains context. Enabled via `--single` flag in `podscripter.py`.
   - Overlapped-chunk transcription (fallback): default path with 480s chunks and 3s overlap.
 - Common settings:
   - `vad_filter=True` for both modes; default `speech_pad_ms=200` (constant). No VAD CLI flags in the main program.
@@ -54,7 +54,7 @@
 ```
 Audio Input → Chunking (overlap) → Whisper Transcription (with language detection, optional VAD) → Dedup/Globalize Segments → Punctuation Restoration → Sentence Splitting → Output (TXT/SRT)
 
-- CLI flags (argparse in `transcribe_sentences.py`):
+- CLI flags (argparse in `podscripter.py`):
   - `--output_dir <dir>` (required)
   - `--language <code>|auto` (default `auto`)
   - `--output_format {txt|srt}` (default `txt`)
@@ -73,7 +73,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### File Organization
 - Core logic in `punctuation_restorer.py`
-- Transcription orchestration in `transcribe_sentences.py`
+- Transcription orchestration in `podscripter.py`
 - Tests in `tests/` directory with descriptive names
 - Documentation in markdown files
 
@@ -95,7 +95,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 #### Formatting Responsibilities
 - Perform punctuation, language-specific formatting, capitalization, comma insertion, and hyphenation in `punctuation_restorer.py`.
-- Keep `transcribe_sentences.py` limited to light sentence splitting and output writing; allowed exceptions for assembly only:
+- Keep `podscripter.py` limited to light sentence splitting and output writing; allowed exceptions for assembly only:
   - Ellipsis continuation: treat `...` and `…` as in-sentence pauses (not boundaries)
   - Domain-aware splitting: do not split inside domains like `label.tld` (e.g., `.com`, `.net`, `.org`, etc.)
 
