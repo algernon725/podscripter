@@ -95,7 +95,9 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 #### Formatting Responsibilities
 - Perform punctuation, language-specific formatting, capitalization, comma insertion, and hyphenation in `punctuation_restorer.py`.
-- Keep `transcribe_sentences.py` limited to light sentence splitting and output writing; do not add new punctuation logic there.
+- Keep `transcribe_sentences.py` limited to light sentence splitting and output writing; allowed exceptions for assembly only:
+  - Ellipsis continuation: treat `...` and `…` as in-sentence pauses (not boundaries)
+  - Domain-aware splitting: do not split inside domains like `label.tld` (e.g., `.com`, `.net`, `.org`, etc.)
 
 #### Language-Specific Heuristics (recent)
 - Spanish:
@@ -106,6 +108,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Appositive introductions: format as "Yo soy <Nombre>, de <Ciudad>, <País>"
   - Soft sentence splitting: avoid breaking inside entities; merge `auxiliar + gerundio` and possessive splits ("tu español")
   - Optional spaCy capitalization: capitalize entities/PROPN; keep connectors (de, del, y, en, a, con, por, para, etc.) lowercase
+  - Do not split on ellipses mid-clause; keep continuation after `...`/`…` within the same sentence
+  - Do not split inside domains like `label.tld`; preserve as a single token (e.g., `espanolistos.com`)
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
 - German: insert commas before common subordinating conjunctions (`dass|weil|ob|wenn`) when safe; expand question starters/modals; capitalize `Ich` after punctuation; capitalize `Herr/Frau + Name`; minimal noun capitalization after determiners; maintain a small whitelist of proper nouns
 - English/French/German: add greeting commas (`Hello, ...`, `Bonjour, ...`, `Hallo, ...`) and capitalize sentence starts
@@ -122,6 +126,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
     - Intro average F1 threshold: ≥ 0.80
     - Overall average F1 threshold: ≥ 0.70
   - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
+  - `test_spanish_domains_and_ellipses.py` (domain handling and ellipsis continuation)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
  - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
    - Defaults: model `medium`, device `cpu`, compute type `auto`
@@ -135,6 +140,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
 - NLP capitalization mode: Dockerfile sets `ENV NLP_CAPITALIZATION=1` (on by default). Override per run with `-e NLP_CAPITALIZATION=0` to disable.
 - For performance on long files (> 1 hour): prefer single-call mode if resources allow; otherwise use overlapped chunking with 3s overlap and deduplication on merge.
+ - Use a `.dockerignore` to exclude large local media (e.g., `audio-files/`) from the build context to speed up Docker builds
 
 ### 4. Model Management
 - Cache models to avoid repeated downloads
