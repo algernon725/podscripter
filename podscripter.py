@@ -240,8 +240,15 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
             all_text = _collapse_dotted_acronyms_en(all_text)
         text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
         sentences = []
-        for segment in text_segments:
+        # For French, carry unfinished fragments across segments to avoid aggressive splits
+        carry_fragment = "" if (lang_for_punctuation or '').lower() == 'fr' else None
+        num_segments = len(text_segments)
+        for seg_idx, segment in enumerate(text_segments):
             processed_segment = restore_punctuation(segment, lang_for_punctuation)
+            if carry_fragment is not None and carry_fragment:
+                # Prepend any carried fragment from previous segment
+                processed_segment = (carry_fragment + ' ' + processed_segment).strip()
+                carry_fragment = ""
             parts = re.split(r'(…|[.!?]+)', processed_segment)
             buffer = ""; idx = 0
             while idx < len(parts):
@@ -267,14 +274,57 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
                         sentences.append(cleaned)
                     buffer = ""; idx += 2; continue
                 if idx + 1 >= len(parts):
-                    cleaned = re.sub(r'^[",\s]+', '', buffer)
-                    if cleaned:
-                        if not cleaned.endswith(('.', '!', '?')):
-                            cleaned += '.'
-                        sentences.append(cleaned)
-                    buffer = ""
+                    # End of this processed segment. For French, if no terminal punctuation,
+                    # carry the fragment to the next segment instead of forcing a period.
+                    if (lang_for_punctuation or '').lower() == 'fr' and not re.search(r'[.!?]$', buffer):
+                        carry_fragment = buffer.strip()
+                        buffer = ""
+                    else:
+                        cleaned = re.sub(r'^[",\s]+', '', buffer)
+                        if cleaned:
+                            if not cleaned.endswith(('.', '!', '?')):
+                                cleaned += '.'
+                            sentences.append(cleaned)
+                        buffer = ""
                 idx += 2
+        # Flush any remaining French fragment after all segments
+        if carry_fragment:
+            cleaned = re.sub(r'^[",\s]+', '', carry_fragment)
+            if cleaned:
+                if not cleaned.endswith(('.', '!', '?')):
+                    cleaned += '.'
+                sentences.append(cleaned)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
+        # French-only post pass: merge sentences that ended prematurely on short function words
+        if (lang_for_punctuation or '').lower() == 'fr' and sentences:
+            short_connectors = {
+                'a', 'à', 'au', 'aux', 'de', 'du', 'des', 'la', 'le', 'les', 'un', 'une',
+                'en', 'et', 'ou', 'mais', 'pour', 'sur', 'sous', 'chez', 'dans', 'par',
+                'avec', 'sans', 'vers', 'selon', 'contre', 'entre', 'après', 'avant',
+                'depuis', 'pendant', "jusqu'", 'jusque'
+            }
+            merged: list[str] = []
+            for s in sentences:
+                if merged:
+                    prev = merged[-1]
+                    # Normalize stray ",." into "," first
+                    prev_norm = re.sub(r',\s*\.', ',', prev)
+                    if prev_norm != prev:
+                        prev = prev_norm
+                    # If previous ends with a short connector + '.' and current starts lowercase/connector continuation, merge
+                    m = re.search(r'(\b[\w\u00C0-\u017F]+)\.$', prev)
+                    if m:
+                        last_word = m.group(1).lower()
+                        cur_trim = s.lstrip()
+                        cur_first = cur_trim[:1]
+                        if last_word in short_connectors and cur_trim:
+                            # Lowercase the first char of continuation (e.g., "Moins" -> "moins")
+                            cur_cont = cur_trim[0].lower() + cur_trim[1:]
+                            merged[-1] = prev[:m.start(1)] + m.group(1) + ' ' + cur_cont
+                            continue
+                merged.append(s)
+            sentences = merged
+
         output_file = Path(output_dir) / f"{base_name}.txt"; _write_txt(sentences, str(output_file))
         return {"segments": all_segments, "sentences": sentences, "detected_language": detected_language, "output_path": str(output_file), "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
 
