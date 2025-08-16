@@ -69,6 +69,8 @@ def main():
         'test_punctuation_preservation.py',
         'test_human_vs_program_intro.py',
         'test_spanish_embedded_questions.py',
+        'test_sentence_assembly_unit.py',
+        'test_chunk_merge_helpers.py',
     })
 
     multilingual_files = sorted(x for x in all_files if x.startswith('test_multilingual_'))
