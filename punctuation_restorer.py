@@ -797,50 +797,11 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
         if text and not text.endswith(('.', '!', '?')):
             text += '.'
         return text
-    
-    # Split text into words
-    words = text.split()
-    if len(words) < 3:
-        return text
-    
-    # Create potential sentence boundaries using semantic coherence
-    sentences = []
-    current_chunk = []
-    
-    for i, word in enumerate(words):
-        current_chunk.append(word)
-        
-        # Check if we should end the sentence here
-        if _should_end_sentence_here(words, i, current_chunk, model, language):
-            sentence_text = ' '.join(current_chunk)
-            if sentence_text.strip():
-                sentences.append(sentence_text)
-            current_chunk = []
-    
-    # Add remaining words as the last sentence
-    if current_chunk:
-        sentence_text = ' '.join(current_chunk)
-        if sentence_text.strip():
-            sentences.append(sentence_text)
-    
-    # Process each sentence with appropriate punctuation
-    processed_sentences = []
-    
-    for i, sentence in enumerate(sentences):
-        if not sentence.strip():
-            continue
-            
-        # Apply punctuation based on semantic analysis
-        punctuated_sentence = apply_semantic_punctuation(sentence, model, language, i, len(sentences))
-        processed_sentences.append(punctuated_sentence)
-    
-    result = ' '.join(processed_sentences)
-    
-    # Final cleanup
-    result = re.sub(r'\s+', ' ', result)
-    result = re.sub(r'\s+\.', '.', result)
-    result = re.sub(r'\s+\?', '?', result)
-    result = re.sub(r'\s+\!', '!', result)
+
+    # 1) Semantic split into sentences (token-based loop with _should_end_sentence_here)
+    sentences = _semantic_split_into_sentences(text, language, model)
+    # 2) Punctuate sentences and join
+    result = _punctuate_semantic_sentences(sentences, model, language)
     
     # Apply Spanish-specific formatting
     if language == 'es':
@@ -876,9 +837,6 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
                         sentence = sentence.rstrip('.!?') + sentence[-1]
                     
                     # Clean up any double punctuation that might have been created
-                    sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
-                    
-                    # Clean up double punctuation
                     sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
                     
                     # Clean up double inverted question marks
@@ -1004,11 +962,6 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
         # Specific fix for short phrases ending in comma
         result = re.sub(r'\b(también sí|sí|no|claro|exacto|perfecto|vale|bien)\s*,', r'\1.', result, flags=re.IGNORECASE)
         
-        # Bug 3: Fix inverted question marks in the middle of sentences
-        # Remove ¿ that appear in the middle of sentences (not at the beginning)
-        result = re.sub(r'(\w+)\s+¿(\w+)', r'\1 \2', result)  # ¿ in middle of sentence
-        result = re.sub(r'([.!?])\s+¿(\w+)', r'\1 \2', result)  # ¿ after punctuation
-        
         # Bug 4: Fix question marks followed by inverted question marks in the middle
         # Remove the problematic pattern "?¿" in the middle of sentences
         result = re.sub(r'\?\s*¿(\w+)', r' \1', result)  # ?¿ followed by word
@@ -1111,6 +1064,54 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
 
 
 from typing import List
+
+
+def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]:
+    """Split text into sentences using semantic boundary checks.
+
+    Returns a list of raw sentences (without per-language post-formatting).
+    """
+    words = text.split()
+    if len(words) < 3:
+        return [text]
+
+    sentences: List[str] = []
+    current_chunk: List[str] = []
+    for i, word in enumerate(words):
+        current_chunk.append(word)
+        if _should_end_sentence_here(words, i, current_chunk, model, language):
+            sentence_text = ' '.join(current_chunk).strip()
+            if sentence_text:
+                sentences.append(sentence_text)
+            current_chunk = []
+    if current_chunk:
+        sentence_text = ' '.join(current_chunk).strip()
+        if sentence_text:
+            sentences.append(sentence_text)
+    return sentences
+
+
+def _punctuate_semantic_sentences(sentences: List[str], model, language: str) -> str:
+    """Apply semantic punctuation to each sentence and join into a string.
+
+    Mirrors the previous in-function logic to preserve behavior.
+    """
+    processed: List[str] = []
+    total = len(sentences)
+    for i, sentence in enumerate(sentences):
+        s = (sentence or '').strip()
+        if not s:
+            continue
+        punctuated = apply_semantic_punctuation(s, model, language, i, total)
+        processed.append(punctuated)
+
+    out = ' '.join(processed)
+    # Final cleanup (preserve previous behavior)
+    out = re.sub(r'\s+', ' ', out)
+    out = re.sub(r'\s+\.', '.', out)
+    out = re.sub(r'\s+\?', '?', out)
+    out = re.sub(r'\s+\!', '!', out)
+    return out
 
 
 def _should_end_sentence_here(words: List[str], current_index: int, current_chunk: List[str], model, language: str) -> bool:
