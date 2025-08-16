@@ -40,7 +40,12 @@ from pydub import AudioSegment
 from faster_whisper import WhisperModel
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 
-from punctuation_restorer import restore_punctuation
+from punctuation_restorer import (
+    restore_punctuation,
+    normalize_dotted_acronyms_en,
+    split_processed_segment,
+    fr_merge_short_connector_breaks,
+)
 
 FOCUS_LANGS = {"en", "es", "fr", "de"}
 
@@ -174,6 +179,107 @@ def _accumulate_segments(model_segments, chunk_start: float, last_end: float, ep
     text = " ".join(d["text"] for d in deduped)
     return deduped, text, new_last
 
+def _load_model(model_name: str, device: str, compute_type: str) -> WhisperModel:
+    return WhisperModel(model_name, device=device, compute_type=compute_type)
+
+def _transcribe_single_call(model, media_file: str, language, beam_size: int, *, vad_filter: bool, vad_speech_pad_ms: int, quiet: bool) -> tuple[list[dict], str, str | None]:
+    if not quiet:
+        print("Transcribing full file in a single call (no manual chunking)...")
+    all_text = ""
+    all_segments: list[dict] = []
+    detected_language = None
+    segments, info = _transcribe_file(
+        model,
+        media_file,
+        language,
+        beam_size,
+        vad_filter=vad_filter,
+        vad_speech_pad_ms=vad_speech_pad_ms,
+    )
+    if language is None:
+        detected_language = info.language
+        if not quiet:
+            print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+    accum, text, _ = _accumulate_segments(segments, 0.0, last_end=0.0)
+    all_segments.extend(accum)
+    all_text += (text + " ")
+    return all_segments, all_text, detected_language
+
+def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, vad_filter: bool, vad_speech_pad_ms: int, overlap_sec: int, quiet: bool) -> tuple[list[dict], str, str | None]:
+    if not quiet:
+        print("Splitting media into chunks with overlap...")
+    all_text = ""
+    all_segments: list[dict] = []
+    detected_language = None
+    with TemporaryDirectory() as tmp_dir:
+        chunk_infos = _split_audio_with_overlap(
+            media_file,
+            chunk_length_sec=DEFAULT_CHUNK_SEC,
+            overlap_sec=overlap_sec,
+            chunk_dir=Path(tmp_dir),
+        )
+        if not quiet:
+            print("Transcribing chunks...")
+        last_global_end = 0.0
+        prev_prompt = None
+        for idx, info in enumerate(chunk_infos, 1):
+            chunk_file = info['path']
+            chunk_start = info['start_sec']
+            if not quiet:
+                print(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
+            segments, info = _transcribe_file(
+                model,
+                chunk_file,
+                language,
+                beam_size,
+                prev_prompt=prev_prompt,
+                vad_filter=vad_filter,
+                vad_speech_pad_ms=vad_speech_pad_ms,
+            )
+            if idx == 1 and language is None:
+                detected_language = info.language
+                if not quiet:
+                    print(f"Auto-detected language: {detected_language} (confidence: {info.language_probability:.2f})")
+            chunk_segs, text, last_global_end = _accumulate_segments(segments, chunk_start, last_global_end)
+            all_segments.extend(chunk_segs)
+            all_text += text.strip() + "\n"
+            prev_prompt = (all_text[-PROMPT_TAIL_CHARS:]).strip() if all_text else None
+            cf = Path(chunk_file)
+            if cf.exists():
+                cf.unlink()
+    return all_segments, all_text, detected_language
+
+def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: bool) -> list[str]:
+    if (lang_for_punctuation or '').lower() == 'en':
+        all_text = normalize_dotted_acronyms_en(all_text)
+    text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
+    sentences: list[str] = []
+    carry_fragment = "" if (lang_for_punctuation or '').lower() == 'fr' else None
+    for segment in text_segments:
+        processed_segment = restore_punctuation(segment, lang_for_punctuation)
+        if carry_fragment is not None and carry_fragment:
+            processed_segment = (carry_fragment + ' ' + processed_segment).strip()
+            carry_fragment = ""
+        seg_sentences, trailing = split_processed_segment(processed_segment, (lang_for_punctuation or '').lower())
+        sentences.extend(seg_sentences)
+        if trailing:
+            if (lang_for_punctuation or '').lower() == 'fr':
+                carry_fragment = trailing
+            else:
+                cleaned = re.sub(r'^[",\s]+', '', trailing)
+                if cleaned:
+                    if not cleaned.endswith(('.', '!', '?')):
+                        cleaned += '.'
+                    sentences.append(cleaned)
+    if carry_fragment:
+        cleaned = re.sub(r'^[",\s]+', '', carry_fragment)
+        if cleaned:
+            if not cleaned.endswith(('.', '!', '?')):
+                cleaned += '.'
+            sentences.append(cleaned)
+    if (lang_for_punctuation or '').lower() == 'fr' and sentences:
+        sentences = fr_merge_short_connector_breaks(sentences)
+    return sentences
 def transcribe_with_sentences(media_file: str, output_dir: str, language: str | None, output_format: str, single_call: bool = False, *, compute_type: str = DEFAULT_COMPUTE_TYPE, quiet: bool = False, vad_filter: bool = DEFAULT_VAD_FILTER, vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS) -> dict:
     os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
     _t0 = time.time(); media_path, out_dir = _validate_paths(media_file, output_dir)
@@ -181,7 +287,7 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
     if not quiet:
         _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
     try:
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        model = _load_model(model_name, device, compute_type)
     except Exception as e:
         print(f"Error loading faster-whisper model: {e}"); sys.exit(1)
     detected_language = None
@@ -236,94 +342,8 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
         if not quiet:
             print("Restoring punctuation...")
         lang_for_punctuation = detected_language if language is None else language
-        if (lang_for_punctuation or '').lower() == 'en':
-            all_text = _collapse_dotted_acronyms_en(all_text)
-        text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
-        sentences = []
-        # For French, carry unfinished fragments across segments to avoid aggressive splits
-        carry_fragment = "" if (lang_for_punctuation or '').lower() == 'fr' else None
-        num_segments = len(text_segments)
-        for seg_idx, segment in enumerate(text_segments):
-            processed_segment = restore_punctuation(segment, lang_for_punctuation)
-            if carry_fragment is not None and carry_fragment:
-                # Prepend any carried fragment from previous segment
-                processed_segment = (carry_fragment + ' ' + processed_segment).strip()
-                carry_fragment = ""
-            parts = re.split(r'(…|[.!?]+)', processed_segment)
-            buffer = ""; idx = 0
-            while idx < len(parts):
-                chunk = parts[idx].strip() if idx < len(parts) else ""
-                punct = parts[idx + 1] if idx + 1 < len(parts) else ""
-                if chunk:
-                    buffer = (buffer + " " + chunk).strip()
-                if punct in ('...', '…'):
-                    buffer += punct; idx += 2; continue
-                if punct == '.':
-                    next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
-                    prev_label_match = re.search(r"([A-Za-z0-9-]+)$", chunk)
-                    next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk)
-                    if prev_label_match and next_tld_match:
-                        tld = next_tld_match.group(1); boundary = next_tld_match.group(2) or ""; remainder = next_tld_match.group(3)
-                        buffer += '.' + tld; parts[idx + 2] = boundary + remainder; idx += 2; continue
-                if punct:
-                    buffer += punct
-                    cleaned = re.sub(r'^[",\s]+', '', buffer)
-                    if cleaned:
-                        if not cleaned.endswith(('.', '!', '?')):
-                            cleaned += '.'
-                        sentences.append(cleaned)
-                    buffer = ""; idx += 2; continue
-                if idx + 1 >= len(parts):
-                    # End of this processed segment. For French, if no terminal punctuation,
-                    # carry the fragment to the next segment instead of forcing a period.
-                    if (lang_for_punctuation or '').lower() == 'fr' and not re.search(r'[.!?]$', buffer):
-                        carry_fragment = buffer.strip()
-                        buffer = ""
-                    else:
-                        cleaned = re.sub(r'^[",\s]+', '', buffer)
-                        if cleaned:
-                            if not cleaned.endswith(('.', '!', '?')):
-                                cleaned += '.'
-                            sentences.append(cleaned)
-                        buffer = ""
-                idx += 2
-        # Flush any remaining French fragment after all segments
-        if carry_fragment:
-            cleaned = re.sub(r'^[",\s]+', '', carry_fragment)
-            if cleaned:
-                if not cleaned.endswith(('.', '!', '?')):
-                    cleaned += '.'
-                sentences.append(cleaned)
+        sentences = _assemble_sentences(all_text, lang_for_punctuation, quiet)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
-        # French-only post pass: merge sentences that ended prematurely on short function words
-        if (lang_for_punctuation or '').lower() == 'fr' and sentences:
-            short_connectors = {
-                'a', 'à', 'au', 'aux', 'de', 'du', 'des', 'la', 'le', 'les', 'un', 'une',
-                'en', 'et', 'ou', 'mais', 'pour', 'sur', 'sous', 'chez', 'dans', 'par',
-                'avec', 'sans', 'vers', 'selon', 'contre', 'entre', 'après', 'avant',
-                'depuis', 'pendant', "jusqu'", 'jusque'
-            }
-            merged: list[str] = []
-            for s in sentences:
-                if merged:
-                    prev = merged[-1]
-                    # Normalize stray ",." into "," first
-                    prev_norm = re.sub(r',\s*\.', ',', prev)
-                    if prev_norm != prev:
-                        prev = prev_norm
-                    # If previous ends with a short connector + '.' and current starts lowercase/connector continuation, merge
-                    m = re.search(r'(\b[\w\u00C0-\u017F]+)\.$', prev)
-                    if m:
-                        last_word = m.group(1).lower()
-                        cur_trim = s.lstrip()
-                        cur_first = cur_trim[:1]
-                        if last_word in short_connectors and cur_trim:
-                            # Lowercase the first char of continuation (e.g., "Moins" -> "moins")
-                            cur_cont = cur_trim[0].lower() + cur_trim[1:]
-                            merged[-1] = prev[:m.start(1)] + m.group(1) + ' ' + cur_cont
-                            continue
-                merged.append(s)
-            sentences = merged
 
         output_file = Path(output_dir) / f"{base_name}.txt"; _write_txt(sentences, str(output_file))
         return {"segments": all_segments, "sentences": sentences, "detected_language": detected_language, "output_path": str(output_file), "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}

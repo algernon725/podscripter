@@ -276,6 +276,115 @@ def _finalize_text_common(text: str) -> str:
     return out.strip()
 
 
+# --- Cross-language helpers exposed for orchestration ---
+def normalize_dotted_acronyms_en(text: str) -> str:
+    """Collapse dotted uppercase acronyms to avoid false sentence splits in English.
+
+    Examples:
+      - "U. S. A." → "USA", "U. S." → "US", "U.S." → "US"
+    """
+    if not text:
+        return text
+    # Three-letter sequences: U. S. A. → USA
+    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
+    # Two-letter sequences (spaced): U. S. → US, D. C. → DC
+    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
+    # Two-letter sequences (compact): U.S. → US, D.C. → DC
+    text = re.sub(r"\b([A-Z])\.([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", r"\1\2", text)
+    return text
+
+
+def split_processed_segment(processed: str, language: str) -> tuple[list[str], str]:
+    """Split a single, punctuation-restored segment into sentences.
+
+    Preserves ellipses (… and ...), and avoids breaking inside domains (label.tld).
+    Returns (sentences, trailing_fragment_without_terminal_punct).
+    The trailing fragment should be carried into the next segment by the caller if desired.
+    """
+    parts = re.split(r'(…|[.!?]+)', processed)
+    sentences: list[str] = []
+    buffer = ""
+    idx = 0
+    while idx < len(parts):
+        chunk = parts[idx].strip() if idx < len(parts) else ""
+        punct = parts[idx + 1] if idx + 1 < len(parts) else ""
+
+        if chunk:
+            buffer = (buffer + " " + chunk).strip()
+
+        # Ellipses are not sentence boundaries; keep accumulating
+        if punct in ("...", "…"):
+            buffer += punct
+            idx += 2
+            continue
+
+        # Domain glue: label + '.' + TLD (2-24 letters)
+        if punct == '.':
+            next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
+            prev_label_match = re.search(r"([A-Za-z0-9-]+)$", chunk)
+            next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk)
+            if prev_label_match and next_tld_match:
+                tld = next_tld_match.group(1)
+                boundary = next_tld_match.group(2) or ""
+                remainder = next_tld_match.group(3)
+                buffer += '.' + tld
+                parts[idx + 2] = boundary + remainder
+                idx += 2
+                continue
+
+        # Default: flush on terminal punctuation
+        if punct:
+            buffer += punct
+            cleaned = re.sub(r'^[",\s]+', '', buffer)
+            if cleaned:
+                if not cleaned.endswith(('.', '!', '?')):
+                    cleaned += '.'
+                sentences.append(cleaned)
+            buffer = ""
+            idx += 2
+            continue
+
+        # End without explicit punctuation → return trailing buffer to caller
+        if idx + 1 >= len(parts):
+            break
+        idx += 2
+
+    trailing = buffer.strip()
+    return sentences, trailing
+
+
+def fr_merge_short_connector_breaks(sentences: list[str]) -> list[str]:
+    """Merge French sentences that were split after short function words (e.g., 'au.', 'de.', 'et.').
+
+    Also normalizes stray sequences like ",." to "," before merging.
+    """
+    if not sentences:
+        return sentences
+    short_connectors = {
+        'a', 'à', 'au', 'aux', 'de', 'du', 'des', 'la', 'le', 'les', 'un', 'une',
+        'en', 'et', 'ou', 'mais', 'pour', 'sur', 'sous', 'chez', 'dans', 'par',
+        'avec', 'sans', 'vers', 'selon', 'contre', 'entre', 'après', 'avant',
+        'depuis', 'pendant', "jusqu'", 'jusque'
+    }
+    merged: list[str] = []
+    for s in sentences:
+        if merged:
+            prev = merged[-1]
+            # Normalize stray ",."
+            prev_norm = re.sub(r',\s*\.', ',', prev)
+            if prev_norm != prev:
+                prev = prev_norm
+            m = re.search(r'(\b[\w\u00C0-\u017F]+)\.$', prev)
+            if m:
+                last_word = m.group(1).lower()
+                cur_trim = s.lstrip()
+                if last_word in short_connectors and cur_trim:
+                    cur_cont = cur_trim[0].lower() + cur_trim[1:]
+                    merged[-1] = prev[:m.start(1)] + m.group(1) + ' ' + cur_cont
+                    continue
+        merged.append(s)
+    return merged
+
 # --- Spanish helper utilities (pure refactors of existing logic) ---
 def _es_greeting_and_leadin_commas(text: str) -> str:
     """Normalize greeting comma usage and common lead-ins for Spanish.
