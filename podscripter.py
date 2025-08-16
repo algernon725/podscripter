@@ -61,14 +61,7 @@ PROMPT_TAIL_CHARS = 200
 DEFAULT_VAD_FILTER = True
 DEFAULT_VAD_SPEECH_PAD_MS = 200
 
-def _collapse_dotted_acronyms_en(text: str) -> str:
-    if not text:
-        return text
-    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
-    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
-    text = re.sub(r"\b([A-Z])\.([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", r"\1\2", text)
-    return text
-
+ 
 def get_supported_languages() -> dict[str, str]:
     return {
         'en': 'English','es': 'Spanish','fr': 'French','de': 'German','ja': 'Japanese','ru': 'Russian','cs': 'Czech',
