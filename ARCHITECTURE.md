@@ -149,6 +149,9 @@ flowchart TD
 - **Error handling**
   - Early exits for invalid input or unwritable output
   - Conservative fallbacks when ST/spaCy unavailable
+  - Typed exceptions surfaced from the orchestrator and mapped to exit codes:
+    - `InvalidInputError` (2), `ModelLoadError` (3), `TranscriptionError` (4), `OutputWriteError` (5), unexpected (1)
+  - Logging via a single `podscripter` logger; `--quiet` sets ERROR level; default INFO; `--verbose` retains informative lifecycle logs without debug output from punctuation internals
 
 ## Performance characteristics
 
@@ -161,6 +164,9 @@ flowchart TD
 - All tests run in Docker with caches mounted
 - Language-specific and cross-language tests for punctuation and splitting
 - Ad-hoc `tests/test_transcription.py` for manual experiments
+- Focused unit tests included by default:
+  - `tests/test_sentence_assembly_unit.py` protects Spanish ellipsis/domain handling and French connector merges
+  - `tests/test_chunk_merge_helpers.py` validates dedupe and accumulation correctness for segments
 
 ## Extensibility
 

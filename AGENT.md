@@ -81,6 +81,18 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Use try-catch blocks for model loading and API calls
 - Provide meaningful error messages
 - Handle rate limiting gracefully (especially for HuggingFace API)
+- Raise typed exceptions at the source and handle them centrally in the CLI:
+  - `InvalidInputError`, `ModelLoadError`, `TranscriptionError`, `OutputWriteError`
+  - Exit codes: 2=input, 3=model load, 4=transcription, 5=write, 1=unexpected
+
+### Logging
+- Use a single logger named `podscripter` configured in `podscripter.py`
+- Levels are controlled by CLI flags:
+  - `--quiet` → ERROR
+  - default (no flag) → INFO
+  - `--verbose` → INFO plus selective detail; avoid debug noise in punctuation helpers
+- Replace ad-hoc prints with `logger.info/warning/error`
+- Keep `punctuation_restorer.py` free of optional debug output
 
 ## Project-Specific Rules
 
@@ -122,6 +134,9 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Use descriptive test names that explain the scenario
 - Test both individual functions and full transcription pipeline
 - Ensure model caches are mounted for reliable, fast tests and to avoid 429s
+- Unit guardrails included by default in the suite:
+  - `test_sentence_assembly_unit.py`: ES ellipsis continuation and domain handling; FR short-connector merge
+  - `test_chunk_merge_helpers.py`: verifies `_dedupe_segments` and `_accumulate_segments` integrity
 - Spanish-only tests to be included by default:
   - `test_spanish_embedded_questions.py` (embedded `¿ … ?` clauses)
   - `test_human_vs_program_intro.py` (human-vs-program similarity on intro + extended lines; token-level F1 thresholds)
