@@ -94,10 +94,12 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Do not emit optional debug output for punctuated text
 
 #### Formatting Responsibilities
-- Perform punctuation, language-specific formatting, capitalization, comma insertion, and hyphenation in `punctuation_restorer.py`.
-- Keep `podscripter.py` limited to light sentence splitting and output writing; allowed exceptions for assembly only:
+- Perform punctuation, language-specific formatting, capitalization, comma insertion, hyphenation, and sentence-assembly utilities in `punctuation_restorer.py`.
+- Keep `podscripter.py` focused on orchestration (I/O, model selection, mode, calling helpers) and output writing. Assembly behavior is invoked via helpers in `punctuation_restorer.py`:
   - Ellipsis continuation: treat `...` and `…` as in-sentence pauses (not boundaries)
   - Domain-aware splitting: do not split inside domains like `label.tld` (e.g., `.com`, `.net`, `.org`, etc.)
+  - French short-connector merge: repair premature breaks ending on short function words (e.g., `au.` + `Moins …` → `au moins …`)
+  - French segment carry-over: when a French segment ends without terminal punctuation, carry the trailing fragment into the next segment instead of forcing a split
 
 #### Language-Specific Heuristics (recent)
 - Spanish:
@@ -287,6 +289,9 @@ Before submitting any changes, ensure:
   - `_split_sentences_preserving_delims(text)` ensures consistent splitting everywhere
   - `_normalize_mixed_terminal_punctuation(text)` removes patterns like `!.`, `?.`, `!?`, compresses repeats
   - Final universal cleanup `_finalize_text_common(text)` normalizes punctuation/whitespace and spacing after sentence punctuation
+  - `normalize_dotted_acronyms_en(text)` collapses dotted acronyms to avoid false splits (invoked by orchestrator)
+  - `split_processed_segment(processed, language)` returns sentences/trailing fragment with ellipsis and domain-aware handling
+  - `fr_merge_short_connector_breaks(sentences)` merges French sentences split after short function words
 
 - Public API hygiene
   - Public functions are type-annotated (e.g., `restore_punctuation`, `transformer_based_restoration`, `apply_semantic_punctuation`, `is_question_semantic`, `is_exclamation_semantic`, `format_non_spanish_text`)

@@ -55,7 +55,7 @@ flowchart TD
 
   subgraph post["Postprocessing"]
     Dedup["Dedupe + Global Timestamps"]
-    Punct["Punctuation Restorer (Sentence-Transformers + fallback regex + spaCy)"]
+    Punct["Punctuation + Sentence Assembly (helpers in punctuation_restorer.py)"]
     Format["Formatting: txt / srt"]
   end
 
@@ -88,8 +88,8 @@ flowchart TD
 2. If not `--single`, split media into ~480s chunks with ~3s overlap.
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
-5. Restore punctuation (semantic + regex; optional spaCy capitalization).
-6. Split/normalize sentences and write TXT or SRT.
+5. Restore punctuation and assemble sentences using helper utilities (ellipsis/domain-aware; optional spaCy capitalization).
+6. Write TXT or SRT.
 
 ## Components and responsibilities
 
@@ -111,10 +111,14 @@ flowchart TD
   - `_accumulate_segments(...)` and `_dedupe_segments(...)`
   - Globalize timestamps and remove overlap duplicates
 
-- **Punctuation and formatting** (`punctuation_restorer.py`)
+- **Punctuation and sentence assembly** (`punctuation_restorer.py`)
   - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)`
   - Sentence-Transformers semantic cues + curated regex rules
   - Language-specific formatting (ES/EN/FR/DE)
+  - Sentence assembly helpers used by the orchestrator:
+    - `normalize_dotted_acronyms_en(text)` (avoid false splits)
+    - `split_processed_segment(processed, language)` (ellipsis continuation, domain-aware splitting)
+    - `fr_merge_short_connector_breaks(sentences)` (repair premature breaks like `au.` + `Moins …`)
   - Optional spaCy capitalization when enabled
 
 ## Configuration
