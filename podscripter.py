@@ -161,6 +161,28 @@ def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
         pass
     return media_path, out_dir
 
+def _normalize_srt_cues(segments: list[dict], *, max_duration: float = 6.0, min_gap: float = 0.2, min_duration: float = 1.0) -> list[dict]:
+    if not segments:
+        return segments
+    normalized: list[dict] = []
+    n = len(segments)
+    for i, seg in enumerate(segments):
+        start = float(seg["start"]); end = float(seg["end"]) if seg.get("end") is not None else start
+        text = seg.get("text", "")
+        # Clamp to max duration from start
+        end = min(end, start + max_duration)
+        if i < n - 1:
+            next_start = float(segments[i + 1]["start"])
+            # Ensure a small gap to the next cue
+            candidate_end = next_start - min_gap
+            if candidate_end > start:
+                end = min(end, candidate_end)
+        # Ensure a visible minimum duration
+        if end <= start:
+            end = start + min_duration
+        normalized.append({"start": start, "end": end, "text": text})
+    return normalized
+
 def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None, *, vad_filter: bool = DEFAULT_VAD_FILTER, vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS):
     kwargs = {"language": language,"beam_size": beam_size,"vad_filter": vad_filter,"condition_on_previous_text": True}
     if vad_filter:
@@ -345,6 +367,8 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
     base_name = Path(media_file).stem
     if output_format == "srt":
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
+        # Normalize SRT cue timing to avoid lingering during silence
+        all_segments = _normalize_srt_cues(all_segments)
         output_file = Path(output_dir) / f"{base_name}.srt"
         try:
             _write_srt(all_segments, str(output_file))
