@@ -14,7 +14,6 @@ docker build --platform linux/arm64 -t podscripter .
 docker run --rm --platform linux/arm64 \
   -e NLP_CAPITALIZATION=1 \
   -v $(pwd):/app \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
@@ -36,7 +35,6 @@ Example:
 docker run --rm --platform linux/arm64 \
   -e RUN_ALL=1 \
   -v $(pwd):/app \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
@@ -48,7 +46,6 @@ docker run --rm --platform linux/arm64 \
 ```bash
 docker run --rm --platform linux/arm64 \
   -v $(pwd):/app \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \

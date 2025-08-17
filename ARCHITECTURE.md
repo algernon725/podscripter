@@ -143,9 +143,8 @@ flowchart TD
   - Chunked: default for long files; overlap + prompt tail for continuity
 - **Caching**
   - Mount volumes to persist models between runs:
-    - Whisper: `models/whisper/` → `/app/models`
+    - Faster-Whisper via Hugging Face Hub: `models/huggingface/` → `/root/.cache/huggingface`
     - Sentence-Transformers: `models/sentence-transformers/` → `/root/.cache/torch/sentence_transformers`
-    - Hugging Face: `models/huggingface/` → `/root/.cache/huggingface`
 - **Error handling**
   - Early exits for invalid input or unwritable output
   - Conservative fallbacks when ST/spaCy unavailable

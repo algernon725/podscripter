@@ -23,7 +23,6 @@ RUN python -m spacy download de_core_news_sm
 COPY . .
 
 #ENV OMP_NUM_THREADS=8
-ENV WHISPER_CACHE_DIR=/app/models
 ENV HF_HOME=/root/.cache/huggingface
 ENV NLP_CAPITALIZATION=1
 

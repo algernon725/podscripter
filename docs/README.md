@@ -32,12 +32,11 @@ Minimal setup and a single run:
 docker build --platform linux/arm64 -t podscripter .
 
 # Create cache folders (first time only)
-mkdir -p audio-files models/whisper models/sentence-transformers models/huggingface
+mkdir -p audio-files models/sentence-transformers models/huggingface
 
 # Transcribe one file (TXT output). Replace example.mp3 with your file.
 docker run --rm --platform linux/arm64 \
   -v $(pwd):/app \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
@@ -80,13 +79,12 @@ Open a terminal and run:
 Create folders to store audio files and model data:
   ```bash
   mkdir -p audio-files
-  mkdir -p models/whisper models/sentence-transformers models/huggingface
+  mkdir -p models/sentence-transformers models/huggingface
   ```
 
 This creates the necessary directory structure for caching models:
-- `models/whisper/` - Caches Whisper speech recognition models
+- `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos, e.g., `Systran/faster-whisper-*`)
 - `models/sentence-transformers/` - Caches sentence embedding models for punctuation restoration
- - `models/huggingface/` - Caches Hugging Face transformer models and datasets
 
 ### 4. Build the Docker Image
 
@@ -101,7 +99,6 @@ Build the container image that will run the transcription tool:
 Run the container and mount the folders you just created:
   ```bash
   docker run --platform linux/arm64 -it \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
@@ -243,15 +240,14 @@ When learning a new language, especially through podcasts, having accurate, alig
 
 Podscripter caches models locally to avoid repeated downloads. Cache locations are created during Installation → “Set Up Required Folders” and are mounted into the container in the run commands above. In short:
 
-- Whisper models under `models/whisper/`
+- Faster-Whisper (Whisper) models are cached via the Hugging Face Hub under `models/huggingface/` (look for `hub/` entries like `Systran/faster-whisper-*`)
 - Sentence-Transformers under `models/sentence-transformers/`
-- Hugging Face cache under `models/huggingface/`
 
 Note: The Sentence-Transformers loader first attempts to load from the local cache and prefers offline use when the cache is present (avoids network calls). When caches are warm you may set `HF_HOME` and/or `HF_HUB_OFFLINE=1` to run fully offline.
 
 **To clear cache and re-download models:**
 ```bash
-rm -rf models/whisper/* models/sentence-transformers/* models/huggingface/*
+rm -rf models/sentence-transformers/* models/huggingface/*
 ```
 
 ## Output
@@ -269,7 +265,6 @@ Quick run (default selection):
 docker run --rm --platform linux/arm64 \
   -e NLP_CAPITALIZATION=1 \
   -v $(pwd):/app \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \

@@ -23,13 +23,13 @@
 - Dependencies are managed through the Dockerfile
 - Model caching is handled via Docker volumes
 - Always mount caches when running containers:
-  - `-v $(pwd)/models/whisper:/app/models`
+  - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
   - `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers`
   - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
   - `-v $(pwd)/audio-files:/app/audio-files`
 
 ### 2. Model Caching Strategy
-- Whisper models cached in `/app/models`
+- Faster-Whisper (Whisper) models cached via Hugging Face Hub under `/root/.cache/huggingface` (mounted from `models/huggingface`)
 - Sentence-Transformers cached in `/root/.cache/torch/sentence_transformers`
 - HuggingFace models cached in `/root/.cache/huggingface`
 - Use `HF_HOME` environment variable (avoid deprecated `TRANSFORMERS_CACHE`)

@@ -17,9 +17,8 @@ Create the following directory structure in your project:
 ```
 podscripter/
 ├── models/
-│   ├── whisper/              # Whisper model cache
 │   ├── sentence-transformers/ # Sentence-transformers cache
-│   └── huggingface/          # HuggingFace cache (transformers, datasets)
+│   └── huggingface/          # HuggingFace cache (transformers, datasets, Faster-Whisper)
 ├── audio-files/              # Your audio files
 └── docker-run-with-cache.sh  # Caching script
 ```
@@ -27,7 +26,7 @@ podscripter/
 ### 2. Create Directories
 
 ```bash
-mkdir -p models/whisper models/sentence-transformers models/huggingface
+mkdir -p models/sentence-transformers models/huggingface
 ```
 
 ### 3. Docker Run Command
@@ -36,7 +35,6 @@ Use this command instead of your current one:
 
 ```bash
 docker run --platform linux/arm64 -it \
-  -v $(pwd)/models/whisper:/app/models \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
@@ -51,10 +49,9 @@ docker run --platform linux/arm64 -it \
 
 ## What Gets Cached
 
-### Whisper Models (`/app/models`)
-- Speech recognition models
-- Downloaded by `faster-whisper` library
-- Files: `model.bin`, `model.safetensors`
+### Faster-Whisper Models (via Hugging Face Hub)
+- Speech recognition models under Hugging Face cache
+- Downloaded by `faster-whisper` from repositories like `Systran/faster-whisper-*`
 
 ### Sentence-Transformers (`/root/.cache/torch/sentence_transformers`)
 - Embedding models for punctuation restoration
@@ -72,9 +69,6 @@ docker run --platform linux/arm64 -it \
 After the first run, check that files are being cached:
 
 ```bash
-# Check Whisper cache
-ls -la models/whisper/
-
 # Check sentence-transformers cache
 ls -la models/sentence-transformers/
 
@@ -102,7 +96,7 @@ ls -la models/huggingface/
 
 ```bash
 # Remove cached models
-rm -rf models/whisper/* models/sentence-transformers/* models/huggingface/*
+rm -rf models/sentence-transformers/* models/huggingface/*
 ```
 
 ## Expected File Sizes
