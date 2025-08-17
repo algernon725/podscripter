@@ -83,7 +83,7 @@ Create folders to store audio files and model data:
   ```
 
 This creates the necessary directory structure for caching models:
-- `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos, e.g., `Systran/faster-whisper-*`)
+- `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos)
 - `models/sentence-transformers/` - Caches sentence embedding models for punctuation restoration
 
 ### 4. Build the Docker Image
