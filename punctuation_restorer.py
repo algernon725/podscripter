@@ -543,6 +543,9 @@ def _es_pair_inverted_questions(text: str) -> str:
             continue
         # Full-sentence question: add opening '¿' if missing
         if p == '?' and not s.startswith('¿'):
+            # If it erroneously starts with '¡', convert to '¿'
+            if s.startswith('¡'):
+                s = s[1:].lstrip()
             parts[i] = '¿' + s
         # Embedded question: contains '¿' but no '?', add before boundary
         if '¿' in s and p != '?':
@@ -865,6 +868,9 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
                     r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)'
                 ]
                 if any(re.search(pattern, sentence_lower) for pattern in question_patterns):
+                    # If leading is '¡', switch it to '¿'
+                    if sentence_text.startswith('¡'):
+                        sentence_text = sentence_text[1:].lstrip()
                     sentences[i] = '¿' + sentence_text
         result = ''.join(sentences)
         

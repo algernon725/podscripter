@@ -270,7 +270,7 @@ def output_srt(result, media_file):
         list(result['segments']),
         max_duration=4.5,
         min_gap=0.25,
-        min_duration=1.5,
+        min_duration=2.0,
         chars_per_second=15.0,
     )
     trimmed_count = 0
