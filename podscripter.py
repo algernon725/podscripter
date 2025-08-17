@@ -163,10 +163,10 @@ def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
 
 def _normalize_srt_cues(
     segments: list[dict], *,
-    max_duration: float = 3.0,
-    min_gap: float = 0.2,
-    min_duration: float = 1.0,
-    chars_per_second: float = 17.0,
+    max_duration: float = 4.5,
+    min_gap: float = 0.25,
+    min_duration: float = 1.5,
+    chars_per_second: float = 15.0,
 ) -> list[dict]:
     if not segments:
         return segments

@@ -268,10 +268,10 @@ def output_srt(result, media_file):
     original_ends = [seg['end'] for seg in result['segments']]
     segments = _normalize_srt_cues(
         list(result['segments']),
-        max_duration=3.0,
-        min_gap=0.2,
-        min_duration=1.0,
-        chars_per_second=17.0,
+        max_duration=4.5,
+        min_gap=0.25,
+        min_duration=1.5,
+        chars_per_second=15.0,
     )
     trimmed_count = 0
     total_trim = 0.0

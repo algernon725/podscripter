@@ -23,22 +23,22 @@ def test_trims_to_next_start_minus_gap():
 
 def test_max_duration_clamp():
     segs = [{"start": 0.0, "end": 20.0, "text": "Long text that would otherwise last very long if not clamped"}]
-    out = _normalize_srt_cues(segs, max_duration=3.0, min_gap=0.2, min_duration=1.0, chars_per_second=17.0)
-    assert 0.0 < out[0]["end"] <= 3.0
+    out = _normalize_srt_cues(segs, max_duration=4.5, min_gap=0.25, min_duration=1.5, chars_per_second=15.0)
+    assert 0.0 < out[0]["end"] <= 4.5
 
 
 def test_min_duration_enforced():
     segs = [{"start": 1.0, "end": 1.0, "text": "Zero length"}]
-    out = _normalize_srt_cues(segs, max_duration=3.0, min_gap=0.2, min_duration=1.0)
-    assert_float_close(out[0]["end"], 2.0)  # start + min_duration
+    out = _normalize_srt_cues(segs, max_duration=4.5, min_gap=0.25, min_duration=1.5)
+    assert_float_close(out[0]["end"], 2.5)  # start + min_duration
 
 
 def test_reading_time_shortens_long_silence_tail():
     # Start at 0, very long original ASR end, short text -> should end near start + len(text)/cps
     text = "You have clean hands."
     segs = [{"start": 0.0, "end": 15.0, "text": text}]
-    out = _normalize_srt_cues(segs, max_duration=3.0, min_gap=0.2, min_duration=1.0, chars_per_second=17.0)
-    expected = min(3.0, max(1.0, len(text) / 17.0))
+    out = _normalize_srt_cues(segs, max_duration=4.5, min_gap=0.25, min_duration=1.5, chars_per_second=15.0)
+    expected = min(4.5, max(1.5, len(text) / 15.0))
     assert_float_close(out[0]["end"] - 0.0, expected, tol=0.25)
 
 
