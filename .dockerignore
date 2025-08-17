@@ -1,5 +1,6 @@
 # Exclude large local media from build context
 audio-files/
+models/
 
 # Python cache files
 __pycache__/
