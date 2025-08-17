@@ -161,16 +161,25 @@ def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
         pass
     return media_path, out_dir
 
-def _normalize_srt_cues(segments: list[dict], *, max_duration: float = 6.0, min_gap: float = 0.2, min_duration: float = 1.0) -> list[dict]:
+def _normalize_srt_cues(
+    segments: list[dict], *,
+    max_duration: float = 3.0,
+    min_gap: float = 0.2,
+    min_duration: float = 1.0,
+    chars_per_second: float = 17.0,
+) -> list[dict]:
     if not segments:
         return segments
     normalized: list[dict] = []
     n = len(segments)
     for i, seg in enumerate(segments):
         start = float(seg["start"]); end = float(seg["end"]) if seg.get("end") is not None else start
-        text = seg.get("text", "")
-        # Clamp to max duration from start
-        end = min(end, start + max_duration)
+        text = (seg.get("text", "") or "").strip()
+        # Desired duration based on reading speed, clamped between min/max
+        desired_duration = max(min_duration, min(max_duration, (len(text) / chars_per_second) if text else min_duration))
+        desired_end = start + desired_duration
+        # Clamp to max duration from start and reading-time target
+        end = min(end, start + max_duration, desired_end)
         if i < n - 1:
             next_start = float(segments[i + 1]["start"])
             # Ensure a small gap to the next cue
