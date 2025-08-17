@@ -39,6 +39,7 @@ from pathlib import Path
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
 from punctuation_restorer import restore_punctuation
+from podscripter import _normalize_srt_cues
 
 def get_supported_languages():
     """Return a dictionary of commonly used language codes.
@@ -263,6 +264,27 @@ def output_srt(result, media_file):
     output_dir = "audio-files"
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, f"{Path(media_file).stem}_test.srt")
+    # Normalize cues to avoid lingering during silence
+    original_ends = [seg['end'] for seg in result['segments']]
+    segments = _normalize_srt_cues(
+        list(result['segments']),
+        max_duration=3.0,
+        min_gap=0.2,
+        min_duration=1.0,
+        chars_per_second=17.0,
+    )
+    trimmed_count = 0
+    total_trim = 0.0
+    max_trim = 0.0
+    for before, after in zip(original_ends, segments):
+        try:
+            delta = float(before) - float(after['end'])
+        except Exception:
+            delta = 0.0
+        if delta > 0.0005:
+            trimmed_count += 1
+            total_trim += max(0.0, delta)
+            max_trim = max(max_trim, delta)
     
     def format_timestamp(seconds):
         h = int(seconds // 3600)
@@ -272,12 +294,16 @@ def output_srt(result, media_file):
         return f"{h:02}:{m:02}:{s:02},{ms:03}"
     
     with open(output_file, 'w', encoding='utf-8') as f:
-        for i, segment in enumerate(result['segments'], 1):
+        for i, segment in enumerate(segments, 1):
             start = format_timestamp(segment['start'])
             end = format_timestamp(segment['end'])
             f.write(f"{i}\n{start} --> {end}\n{segment['text']}\n\n")
     
     print(f"Output saved to: {output_file}")
+    print(
+        f"SRT normalization: trimmed {trimmed_count}/{len(segments)} cues "
+        f"(max trim {max_trim:.1f}s, total {total_trim:.1f}s)"
+    )
 
 def output_raw(result, media_file):
     """Output raw transcription data."""

@@ -377,7 +377,27 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
     if output_format == "srt":
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
         # Normalize SRT cue timing to avoid lingering during silence
-        all_segments = _normalize_srt_cues(all_segments)
+        original_ends = [seg["end"] for seg in all_segments]
+        normalized_segments = _normalize_srt_cues(all_segments)
+        # Compute normalization stats for logging
+        trimmed_count = 0
+        total_trim = 0.0
+        max_trim = 0.0
+        for before, after in zip(original_ends, normalized_segments):
+            try:
+                delta = float(before) - float(after["end"])
+            except Exception:
+                delta = 0.0
+            if delta > 0.0005:
+                trimmed_count += 1
+                total_trim += max(0.0, delta)
+                max_trim = max(max_trim, delta)
+        all_segments = normalized_segments
+        if not quiet:
+            logger.info(
+                f"SRT normalization: trimmed {trimmed_count}/{len(all_segments)} cues "
+                f"(max trim {max_trim:.1f}s, total {total_trim:.1f}s)"
+            )
         output_file = Path(output_dir) / f"{base_name}.srt"
         try:
             _write_srt(all_segments, str(output_file))
