@@ -268,7 +268,7 @@ def output_srt(result, media_file):
     original_ends = [seg['end'] for seg in result['segments']]
     segments = _normalize_srt_cues(
         list(result['segments']),
-        max_duration=4.5,
+        max_duration=5.0,
         min_gap=0.25,
         min_duration=2.0,
         chars_per_second=15.0,
