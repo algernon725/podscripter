@@ -2322,6 +2322,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     text = re.sub(
         r"(\bde\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ-]*),?\s*\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ-]*)\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ-]*)\.",
         r"\1, \2 \3.",
+        text,
     )
 
     # Add exclamations for common imperative/greeting starters (not if it's already a question/exclamation)
