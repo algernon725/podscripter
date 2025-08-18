@@ -65,7 +65,33 @@ def test_german_sentence_splitting():
             'input': "danke für deine zeit heute",
             'expected': "Danke für deine Zeit heute.",
             'description': 'Polite closing'
-        }
+        },
+        # Additional synthetic cases
+        {
+            'input': "er kauft z b brot und milch",
+            'expected': "Er kauft z. B. Brot und Milch.",
+            'description': 'Abbreviation z. B. should not split'
+        },
+        {
+            'input': "es kostet 3 5 euro",
+            'expected': "Es kostet 3.5 Euro.",
+            'description': 'Decimal number should keep dot not sentence split'
+        },
+        {
+            'input': "er sagte ich komme gleich",
+            'expected': "Er sagte: Ich komme gleich.",
+            'description': 'Reported speech with colon'
+        },
+        {
+            'input': "wie schön das ist",
+            'expected': "Wie schön das ist!",
+            'description': 'Exclamation form'
+        },
+        {
+            'input': "ich glaube dass er kommt weil er zugesagt hat",
+            'expected': "Ich glaube, dass er kommt, weil er zugesagt hat.",
+            'description': 'Multiple subordinate clauses with commas'
+        },
     ]
     
     correct_results = 0
