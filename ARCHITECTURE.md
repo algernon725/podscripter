@@ -120,6 +120,7 @@ flowchart TD
     - `split_processed_segment(processed, language)` (ellipsis continuation, domain-aware splitting)
     - `fr_merge_short_connector_breaks(sentences)` (repair premature breaks like `au.` + `Moins …`)
   - Optional spaCy capitalization when enabled
+  - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
 ## Configuration
 
@@ -166,6 +167,7 @@ flowchart TD
 - Focused unit tests included by default:
   - `tests/test_sentence_assembly_unit.py` protects Spanish ellipsis/domain handling and French connector merges
   - `tests/test_chunk_merge_helpers.py` validates dedupe and accumulation correctness for segments
+  - `tests/test_srt_normalization.py` validates SRT cue trimming behavior
 
 ## Extensibility
 

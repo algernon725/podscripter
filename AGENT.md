@@ -93,6 +93,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `--verbose` → INFO plus selective detail; avoid debug noise in punctuation helpers
 - Replace ad-hoc prints with `logger.info/warning/error`
 - Keep `punctuation_restorer.py` free of optional debug output
+- SRT path logs a normalization summary (trimmed cues, max/total seconds) when writing subtitles
 
 ## Project-Specific Rules
 
@@ -112,6 +113,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Domain-aware splitting: do not split inside domains like `label.tld` (e.g., `.com`, `.net`, `.org`, etc.)
   - French short-connector merge: repair premature breaks ending on short function words (e.g., `au.` + `Moins …` → `au moins …`)
   - French segment carry-over: when a French segment ends without terminal punctuation, carry the trailing fragment into the next segment instead of forcing a split
+  - SRT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s)
 
 #### Language-Specific Heuristics (recent)
 - Spanish:
@@ -124,6 +126,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Optional spaCy capitalization: capitalize entities/PROPN; keep connectors (de, del, y, en, a, con, por, para, etc.) lowercase
   - Do not split on ellipses mid-clause; keep continuation after `...`/`…` within the same sentence
   - Do not split inside domains like `label.tld`; preserve as a single token (e.g., `espanolistos.com`)
+  - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
 - German: insert commas before common subordinating conjunctions (`dass|weil|ob|wenn`) when safe; expand question starters/modals; capitalize `Ich` after punctuation; capitalize `Herr/Frau + Name`; minimal noun capitalization after determiners; maintain a small whitelist of proper nouns
 - English/French/German: add greeting commas (`Hello, ...`, `Bonjour, ...`, `Hallo, ...`) and capitalize sentence starts
