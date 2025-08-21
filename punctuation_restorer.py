@@ -187,7 +187,7 @@ class LanguageConfig:
     question_starters: list
 
 
-def get_language_config(language: str) -> LanguageConfig:
+def _get_language_config(language: str) -> LanguageConfig:
     # Generic defaults
     default_connectors = {
         "de", "del", "la", "las", "los", "el", "lo",
@@ -771,14 +771,14 @@ def restore_punctuation(text: str, language: str = 'en') -> str:
     
     # Use advanced punctuation restoration
     try:
-        return advanced_punctuation_restoration(text, language, True)  # Enable custom patterns by default
+        return _advanced_punctuation_restoration(text, language, True)  # Enable custom patterns by default
     except Exception as e:
         logger.warning(f"Advanced punctuation restoration failed: {e}")
         logger.info("Returning original text without punctuation restoration.")
         return text
 
 
-def advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
+def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
     
@@ -793,7 +793,7 @@ def advanced_punctuation_restoration(text: str, language: str = 'en', use_custom
     
     # Use SentenceTransformers for better sentence boundary detection
     if SENTENCE_TRANSFORMERS_AVAILABLE:
-        return transformer_based_restoration(text, language, use_custom_patterns)
+        return _transformer_based_restoration(text, language, use_custom_patterns)
     else:
         # Simple fallback: just clean up whitespace and add basic punctuation
         text = re.sub(r'\s+', ' ', text.strip())
@@ -802,7 +802,7 @@ def advanced_punctuation_restoration(text: str, language: str = 'en', use_custom
         return text
 
 
-def transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
+def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
@@ -1081,7 +1081,7 @@ def transformer_based_restoration(text: str, language: str = 'en', use_custom_pa
             result = _apply_spacy_capitalization(result, language)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
-        result = format_non_spanish_text(result, language)
+        result = _format_non_spanish_text(result, language)
 
         # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
@@ -1130,7 +1130,7 @@ def _punctuate_semantic_sentences(sentences: List[str], model, language: str) ->
         s = (sentence or '').strip()
         if not s:
             continue
-        punctuated = apply_semantic_punctuation(s, model, language, i, total)
+        punctuated = _apply_semantic_punctuation(s, model, language, i, total)
         processed.append(punctuated)
 
     out = ' '.join(processed)
@@ -1166,7 +1166,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     
     # Minimum sentence length (avoid very short sentences)
     # For very short inputs, don't split at all
-    cfg = get_language_config(language)
+    cfg = _get_language_config(language)
     thresholds = cfg.thresholds
     if len(words) <= thresholds.get('min_total_words_no_split', 25):  # If the entire input is short, don't split
         return False
@@ -1252,7 +1252,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         if next_word and next_word and next_word[0].islower():
             if next_word.lower() in ['y', 'o', 'pero', 'que', 'de', 'en', 'para', 'con', 'por', 'sin', 'sobre']:
                 return False
-        return check_semantic_break(words, current_index, model)
+        return _check_semantic_break(words, current_index, model)
     
     return False
 
@@ -1320,7 +1320,7 @@ def _is_continuation_word(word: str, language: str) -> bool:
     return word.lower() in words
 
 
-def check_semantic_break(words: List[str], current_index: int, model) -> bool:
+def _check_semantic_break(words: List[str], current_index: int, model) -> bool:
     """
     Check if there's a semantic break at the current position.
     
@@ -1352,7 +1352,7 @@ def check_semantic_break(words: List[str], current_index: int, model) -> bool:
         return False
 
 
-def apply_semantic_punctuation(sentence: str, model, language: str, sentence_index: int, total_sentences: int) -> str:
+def _apply_semantic_punctuation(sentence: str, model, language: str, sentence_index: int, total_sentences: int) -> str:
     """
     Apply appropriate punctuation to a sentence using semantic analysis.
     
@@ -1450,7 +1450,7 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
         
         # Lower threshold for better question detection, but be more conservative for Spanish
         max_similarity = max(similarities)
-        cfg = get_language_config(language)
+        cfg = _get_language_config(language)
         if language == 'es':
             thr = cfg.thresholds
             return max_similarity > (thr['semantic_question_threshold_with_indicator'] if starts_with_indicator else thr['semantic_question_threshold_default'])
@@ -1518,7 +1518,7 @@ def has_question_indicators(sentence, language):
             # Only consider it a question if it's not a common greeting or statement
             if language == 'es':
                 # Avoid false positives for common greetings and statements
-                if any(greeting in sentence_lower for greeting in get_language_config('es').greetings):
+                if any(greeting in sentence_lower for greeting in _get_language_config('es').greetings):
                     continue
                 if any(statement in sentence_lower for statement in ['gracias', 'por favor', 'de nada', 'no hay problema']):
                     continue
@@ -1722,7 +1722,7 @@ def _get_exclamation_patterns(language):
     return exclamation_patterns.get(language, exclamation_patterns['en'])
 
 
-def apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
+def _apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
     """
     Apply basic punctuation rules to a sentence.
     
@@ -1756,7 +1756,7 @@ def apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
     
     return sentence
 
-def format_non_spanish_text(text: str, language: str) -> str:
+def _format_non_spanish_text(text: str, language: str) -> str:
     """Basic capitalization and comma heuristics for non-Spanish languages.
 
     - Capitalize first letter of each sentence
@@ -1792,7 +1792,7 @@ def format_non_spanish_text(text: str, language: str) -> str:
 
         # Greeting comma for common patterns, via LanguageConfig
         lower = s.lower()
-        cfg_local = get_language_config(language)
+        cfg_local = _get_language_config(language)
         if cfg_local.greetings:
             if any(lower.startswith(g + ' ') for g in cfg_local.greetings):
                 # Insert comma after the greeting token (first word)
@@ -1830,7 +1830,7 @@ def format_non_spanish_text(text: str, language: str) -> str:
         if not p:
             # Use question mark if starts with typical question words
             starts_question = False
-            starters = get_language_config(language).question_starters or EN_QUESTION_STARTERS
+            starters = _get_language_config(language).question_starters or EN_QUESTION_STARTERS
             lower_s = s.lower()
             for w in starters:
                 if lower_s.startswith(w + ' '):
@@ -1898,7 +1898,7 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
                 ent_token_idxs.add(t.i)
 
     # Never capitalize these connectors (common Spanish function words)
-    cfg = get_language_config(language)
+    cfg = _get_language_config(language)
     connectors = cfg.connectors
 
     def should_capitalize(tok) -> bool:
@@ -1927,11 +1927,11 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
             # Spanish-specific de-capitalization for possessive + noun artifacts: "tu Español" -> "tu español"
             if language == 'es' and tok.i > 0:
                 prev = doc[tok.i - 1].text.lower()
-                if prev in get_language_config(language).possessives and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
+                if prev in _get_language_config(language).possessives and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
                     t = t[0].lower() + t[1:]
             # Additionally, avoid capitalizing possessive itself mid-sentence: "Tu" -> "tu"
         if language == 'es':
-            if tok.text in {w.title() for w in get_language_config(language).possessives}:
+            if tok.text in {w.title() for w in _get_language_config(language).possessives}:
                 # Lowercase unless at sentence start
                 at_sent_start = getattr(tok, 'is_sent_start', False)
                 prev_text = doc[tok.i - 1].text if tok.i > 0 else ''
