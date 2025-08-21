@@ -80,9 +80,7 @@ logger = logging.getLogger("podscripter.punctuation")
 
 __all__ = [
     "restore_punctuation",
-    "normalize_dotted_acronyms_en",
-    "split_processed_segment",
-    "fr_merge_short_connector_breaks",
+    "assemble_sentences_from_processed",
 ]
 
 # Try to import sentence transformers for better punctuation restoration
@@ -288,7 +286,7 @@ def _finalize_text_common(text: str) -> str:
 
 
 # --- Cross-language helpers exposed for orchestration ---
-def normalize_dotted_acronyms_en(text: str) -> str:
+def _normalize_dotted_acronyms_en(text: str) -> str:
     """Collapse dotted uppercase acronyms to avoid false sentence splits in English.
 
     Examples:
@@ -305,7 +303,7 @@ def normalize_dotted_acronyms_en(text: str) -> str:
     return text
 
 
-def split_processed_segment(processed: str, language: str) -> tuple[list[str], str]:
+def _split_processed_segment(processed: str, language: str) -> tuple[list[str], str]:
     """Split a single, punctuation-restored segment into sentences.
 
     Preserves ellipses (… and ...), and avoids breaking inside domains (label.tld).
@@ -364,7 +362,7 @@ def split_processed_segment(processed: str, language: str) -> tuple[list[str], s
     return sentences, trailing
 
 
-def fr_merge_short_connector_breaks(sentences: list[str]) -> list[str]:
+def _fr_merge_short_connector_breaks(sentences: list[str]) -> list[str]:
     """Merge French sentences that were split after short function words (e.g., 'au.', 'de.', 'et.').
 
     Also normalizes stray sequences like ",." to "," before merging.
@@ -395,6 +393,19 @@ def fr_merge_short_connector_breaks(sentences: list[str]) -> list[str]:
                     continue
         merged.append(s)
     return merged
+
+
+def assemble_sentences_from_processed(processed: str, language: str) -> tuple[list[str], str]:
+    """
+    Public helper to split a single processed segment into sentences with
+    language-specific post-processing.
+
+    Returns (sentences, trailing_fragment).
+    """
+    sentences, trailing = _split_processed_segment(processed, language)
+    if (language or '').lower() == 'fr' and sentences:
+        sentences = _fr_merge_short_connector_breaks(sentences)
+    return sentences, trailing
 
 # --- Spanish helper utilities (pure refactors of existing logic) ---
 def _es_greeting_and_leadin_commas(text: str) -> str:

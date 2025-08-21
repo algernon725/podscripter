@@ -44,9 +44,6 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 
 from punctuation_restorer import (
     restore_punctuation,
-    normalize_dotted_acronyms_en,
-    split_processed_segment,
-    fr_merge_short_connector_breaks,
 )
 
 FOCUS_LANGS = {"en", "es", "fr", "de"}
@@ -398,6 +395,7 @@ def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, vad
 
 def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: bool) -> list[str]:
     if (lang_for_punctuation or '').lower() == 'en':
+        from punctuation_restorer import _normalize_dotted_acronyms_en as normalize_dotted_acronyms_en
         all_text = normalize_dotted_acronyms_en(all_text)
     text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
     sentences: list[str] = []
@@ -407,7 +405,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         if carry_fragment is not None and carry_fragment:
             processed_segment = (carry_fragment + ' ' + processed_segment).strip()
             carry_fragment = ""
-        seg_sentences, trailing = split_processed_segment(processed_segment, (lang_for_punctuation or '').lower())
+        from punctuation_restorer import assemble_sentences_from_processed
+        seg_sentences, trailing = assemble_sentences_from_processed(processed_segment, (lang_for_punctuation or '').lower())
         sentences.extend(seg_sentences)
         if trailing:
             if (lang_for_punctuation or '').lower() == 'fr':
@@ -425,7 +424,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                 cleaned += '.'
             sentences.append(cleaned)
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
-        sentences = fr_merge_short_connector_breaks(sentences)
+        # Already handled inside assemble_sentences_from_processed per segment; kept for safety
+        pass
     return sentences
 def transcribe_with_sentences(
     media_file: str,
