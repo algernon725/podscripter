@@ -36,6 +36,7 @@ import time
 import argparse
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
@@ -76,7 +77,27 @@ class TranscriptionError(Exception):
 class OutputWriteError(Exception):
     pass
 
- 
+class SegmentDict(TypedDict):
+    start: float
+    end: float
+    text: str
+
+class TranscriptionResult(TypedDict):
+    segments: list[SegmentDict]
+    sentences: list[str]
+    detected_language: str | None
+    output_path: str | None
+    num_segments: int
+    elapsed_secs: float
+
+__all__ = [
+    "transcribe",
+    "get_supported_languages",
+    "validate_language_code",
+    "TranscriptionResult",
+    "SegmentDict",
+]
+
 def get_supported_languages() -> dict[str, str]:
     return {
         'en': 'English','es': 'Spanish','fr': 'French','de': 'German','ja': 'Japanese','ru': 'Russian','cs': 'Czech',
@@ -101,6 +122,93 @@ def validate_language_code(language_code: str | None) -> str | None:
             logger.info(f"  {code}: {name} (experimental)")
     logger.info("Whisper supports many more languages. The code will still work if it's valid.")
     return language_code
+
+def transcribe(
+    media_file: str,
+    *,
+    output_format: str = "txt",
+    language: str | None = None,
+    single_call: bool = False,
+    model: WhisperModel | None = None,
+    model_name: str = DEFAULT_MODEL_NAME,
+    device: str = DEFAULT_DEVICE,
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+    beam_size: int = DEFAULT_BEAM_SIZE,
+    overlap_sec: int = DEFAULT_OVERLAP_SEC,
+    quiet: bool = False,
+    vad_filter: bool = DEFAULT_VAD_FILTER,
+    vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
+    write_output: bool = True,
+    output_dir: str | Path | None = None,
+) -> TranscriptionResult:
+    """
+    Transcribe an audio/video file and optionally write the result to disk.
+
+    This is the high-level, library-friendly API. It returns a structured result
+    and can reuse a preloaded Whisper model to avoid repeated loads.
+
+    Args:
+        media_file: Path to the input media file.
+        output_format: "txt" for sentences or "srt" for subtitles.
+        language: Language code (e.g., "en", "es", "fr", "de"). If None, auto-detect.
+        single_call: If True, transcribe the whole file in one pass; otherwise chunk with overlap.
+        model: Optional preloaded faster_whisper.WhisperModel instance to reuse.
+        model_name: Model name to load if `model` is not provided.
+        device: Compute device for model loading (e.g., "cpu").
+        compute_type: Faster-Whisper compute type (e.g., "auto", "int8", "float16").
+        beam_size: Beam size passed to transcription.
+        overlap_sec: Overlap (seconds) between chunks when chunking is used.
+        quiet: Reduce log output from this function (caller controls logging handlers/levels).
+        vad_filter: Enable voice activity detection during transcription.
+        vad_speech_pad_ms: VAD speech pad in milliseconds.
+        write_output: If True, write a .txt or .srt file to `output_dir` and set `output_path`.
+                      If False, no files are written and `output_dir` may be None.
+        output_dir: Directory to write outputs when `write_output=True`.
+
+    Returns:
+        TranscriptionResult: dict-like object with keys:
+            - segments: List of {start: float, end: float, text: str}
+            - sentences: List[str] (for txt output)
+            - detected_language: Optional[str]
+            - output_path: Optional[str] (path to written file if `write_output=True`)
+            - num_segments: int
+            - elapsed_secs: float
+
+    Raises:
+        InvalidInputError: Input file missing/unreadable or invalid args.
+        ModelLoadError: Faster-Whisper model failed to load.
+        TranscriptionError: Transcription failed.
+        OutputWriteError: Failed to write output file.
+
+    Examples:
+        # Write a TXT file and get the output path
+        from pathlib import Path
+        from podscripter import transcribe
+
+        res = transcribe("audio.mp3", output_format="txt", output_dir=Path("out"), write_output=True)
+        print(res["output_path"])
+
+        # Library-only usage: no files written
+        res = transcribe("audio.mp3", output_format="txt", write_output=False)
+        sentences = res["sentences"]
+    """
+    return transcribe_with_sentences(
+        media_file,
+        output_dir,
+        language,
+        output_format,
+        single_call,
+        model=model,
+        model_name=model_name,
+        device=device,
+        compute_type=compute_type,
+        beam_size=beam_size,
+        overlap_sec=overlap_sec,
+        quiet=quiet,
+        vad_filter=vad_filter,
+        vad_speech_pad_ms=vad_speech_pad_ms,
+        write_output=write_output,
+    )
 
 def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format):
     logger.info("\n" + "="*60)
@@ -319,17 +427,47 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         sentences = fr_merge_short_connector_breaks(sentences)
     return sentences
-def transcribe_with_sentences(media_file: str, output_dir: str, language: str | None, output_format: str, single_call: bool = False, *, compute_type: str = DEFAULT_COMPUTE_TYPE, quiet: bool = False, vad_filter: bool = DEFAULT_VAD_FILTER, vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS) -> dict:
-    os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
+def transcribe_with_sentences(
+    media_file: str,
+    output_dir: str | Path | None,
+    language: str | None,
+    output_format: str,
+    single_call: bool = False,
+    *,
+    model: WhisperModel | None = None,
+    model_name: str = DEFAULT_MODEL_NAME,
+    device: str = DEFAULT_DEVICE,
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+    beam_size: int = DEFAULT_BEAM_SIZE,
+    overlap_sec: int = DEFAULT_OVERLAP_SEC,
+    quiet: bool = False,
+    vad_filter: bool = DEFAULT_VAD_FILTER,
+    vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
+    write_output: bool = True,
+) -> TranscriptionResult:
     _t0 = time.time()
-    media_path, out_dir = _validate_paths(media_file, output_dir)
-    model_name = DEFAULT_MODEL_NAME; beam_size = DEFAULT_BEAM_SIZE; device = DEFAULT_DEVICE
+    # Validate media path
+    media_path = Path(media_file)
+    if not media_path.exists() or not media_path.is_file():
+        raise InvalidInputError(f"Input file does not exist or is not a file: {media_file}")
+    if not os.access(media_path, os.R_OK):
+        raise InvalidInputError(f"Input file is not readable: {media_file}")
+    # Validate output directory only if writing output
+    if write_output:
+        if output_dir is None:
+            raise InvalidInputError("output_dir must be provided when write_output=True")
+        _, out_dir = _validate_paths(media_file, str(output_dir))
+    else:
+        out_dir = None
+    model_name = model_name; beam_size = beam_size; device = device
     if not quiet:
         _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
-    try:
-        model = _load_model(model_name, device, compute_type)
-    except Exception as e:
-        raise ModelLoadError(f"Error loading faster-whisper model: {e}")
+    # Load model if not provided
+    if model is None:
+        try:
+            model = _load_model(model_name, device, compute_type)
+        except Exception as e:
+            raise ModelLoadError(f"Error loading faster-whisper model: {e}")
     detected_language = None
     if single_call:
         if not quiet:
@@ -348,7 +486,7 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
     else:
         if not quiet:
             logger.info("Splitting media into chunks with overlap...")
-        overlap_sec = DEFAULT_OVERLAP_SEC; all_text = ""; all_segments = []
+        all_text = ""; all_segments = []
         with TemporaryDirectory() as tmp_dir:
             chunk_infos = _split_audio_with_overlap(media_file, chunk_length_sec=DEFAULT_CHUNK_SEC, overlap_sec=overlap_sec, chunk_dir=Path(tmp_dir))
             if not quiet:
@@ -398,12 +536,15 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
                 f"SRT normalization: trimmed {trimmed_count}/{len(all_segments)} cues "
                 f"(max trim {max_trim:.1f}s, total {total_trim:.1f}s)"
             )
-        output_file = Path(output_dir) / f"{base_name}.srt"
-        try:
-            _write_srt(all_segments, str(output_file))
-        except Exception as e:
-            raise OutputWriteError(f"Failed to write SRT: {e}")
-        return {"segments": all_segments, "sentences": [], "detected_language": detected_language, "output_path": str(output_file), "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
+        output_path: str | None = None
+        if write_output and out_dir is not None:
+            output_file = Path(out_dir) / f"{base_name}.srt"
+            try:
+                _write_srt(all_segments, str(output_file))
+            except Exception as e:
+                raise OutputWriteError(f"Failed to write SRT: {e}")
+            output_path = str(output_file)
+        return {"segments": all_segments, "sentences": [], "detected_language": detected_language, "output_path": output_path, "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
     else:
         if not quiet:
             logger.info("Restoring punctuation...")
@@ -411,12 +552,15 @@ def transcribe_with_sentences(media_file: str, output_dir: str, language: str | 
         sentences = _assemble_sentences(all_text, lang_for_punctuation, quiet)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
-        output_file = Path(output_dir) / f"{base_name}.txt"
-        try:
-            _write_txt(sentences, str(output_file))
-        except Exception as e:
-            raise OutputWriteError(f"Failed to write TXT: {e}")
-        return {"segments": all_segments, "sentences": sentences, "detected_language": detected_language, "output_path": str(output_file), "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
+        output_path_txt: str | None = None
+        if write_output and out_dir is not None:
+            output_file = Path(out_dir) / f"{base_name}.txt"
+            try:
+                _write_txt(sentences, str(output_file))
+            except Exception as e:
+                raise OutputWriteError(f"Failed to write TXT: {e}")
+            output_path_txt = str(output_file)
+        return {"segments": all_segments, "sentences": sentences, "detected_language": detected_language, "output_path": output_path_txt, "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
 
 def _cleanup_chunks(media_file):
     media_dir = Path(media_file).resolve().parent
@@ -425,6 +569,93 @@ def _cleanup_chunks(media_file):
             p.unlink(); logger.info(f"Removed leftover chunk file: {p}")
         except Exception as e:
             logger.warning(f"Error removing chunk file {p}: {e}")
+
+def transcribe(
+    media_file: str,
+    *,
+    output_format: str = "txt",
+    language: str | None = None,
+    single_call: bool = False,
+    model: WhisperModel | None = None,
+    model_name: str = DEFAULT_MODEL_NAME,
+    device: str = DEFAULT_DEVICE,
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+    beam_size: int = DEFAULT_BEAM_SIZE,
+    overlap_sec: int = DEFAULT_OVERLAP_SEC,
+    quiet: bool = False,
+    vad_filter: bool = DEFAULT_VAD_FILTER,
+    vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
+    write_output: bool = True,
+    output_dir: str | Path | None = None,
+) -> TranscriptionResult:
+    """
+    Transcribe an audio/video file and optionally write the result to disk.
+
+    This is the high-level, library-friendly API. It returns a structured result
+    and can reuse a preloaded Whisper model to avoid repeated loads.
+
+    Args:
+        media_file: Path to the input media file.
+        output_format: "txt" for sentences or "srt" for subtitles.
+        language: Language code (e.g., "en", "es", "fr", "de"). If None, auto-detect.
+        single_call: If True, transcribe the whole file in one pass; otherwise chunk with overlap.
+        model: Optional preloaded faster_whisper.WhisperModel instance to reuse.
+        model_name: Model name to load if `model` is not provided.
+        device: Compute device for model loading (e.g., "cpu").
+        compute_type: Faster-Whisper compute type (e.g., "auto", "int8", "float16").
+        beam_size: Beam size passed to transcription.
+        overlap_sec: Overlap (seconds) between chunks when chunking is used.
+        quiet: Reduce log output from this function (caller controls logging handlers/levels).
+        vad_filter: Enable voice activity detection during transcription.
+        vad_speech_pad_ms: VAD speech pad in milliseconds.
+        write_output: If True, write a .txt or .srt file to `output_dir` and set `output_path`.
+                      If False, no files are written and `output_dir` may be None.
+        output_dir: Directory to write outputs when `write_output=True`.
+
+    Returns:
+        TranscriptionResult: dict-like object with keys:
+            - segments: List of {start: float, end: float, text: str}
+            - sentences: List[str] (for txt output)
+            - detected_language: Optional[str]
+            - output_path: Optional[str] (path to written file if `write_output=True`)
+            - num_segments: int
+            - elapsed_secs: float
+
+    Raises:
+        InvalidInputError: Input file missing/unreadable or invalid args.
+        ModelLoadError: Faster-Whisper model failed to load.
+        TranscriptionError: Transcription failed.
+        OutputWriteError: Failed to write output file.
+
+    Examples:
+        # Write a TXT file and get the output path
+        from pathlib import Path
+        from podscripter import transcribe
+
+        res = transcribe("audio.mp3", output_format="txt", output_dir=Path("out"), write_output=True)
+        print(res["output_path"])
+
+        # Library-only usage: no files written
+        res = transcribe("audio.mp3", output_format="txt", write_output=False)
+        sentences = res["sentences"]
+    """
+    return transcribe_with_sentences(
+        media_file,
+        output_dir,
+        language,
+        output_format,
+        single_call,
+        model=model,
+        model_name=model_name,
+        device=device,
+        compute_type=compute_type,
+        beam_size=beam_size,
+        overlap_sec=overlap_sec,
+        quiet=quiet,
+        vad_filter=vad_filter,
+        vad_speech_pad_ms=vad_speech_pad_ms,
+        write_output=write_output,
+    )
 
 def main():
     parser = argparse.ArgumentParser(description="Transcribe audio/video to sentences (TXT) or subtitles (SRT).")
@@ -446,9 +677,20 @@ def main():
     logger.setLevel(logging.ERROR if quiet else logging.INFO)
     language_arg = args.language.strip().lower() if args.language else "auto"
     language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
+    # CLI-only: set threads
+    os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
     start_time = time.time(); _cleanup_chunks(args.media_file)
     try:
-        result = transcribe_with_sentences(args.media_file, args.output_dir, language, args.output_format, single_call=args.single, compute_type=args.compute_type, quiet=quiet)
+        result = transcribe_with_sentences(
+            args.media_file,
+            args.output_dir,
+            language,
+            args.output_format,
+            single_call=args.single,
+            compute_type=args.compute_type,
+            quiet=quiet,
+            write_output=True,
+        )
         if not quiet and result.get("detected_language"):
             logger.info(f"Detected language: {result['detected_language']}")
         logger.info(f"Wrote: {result['output_path']}")

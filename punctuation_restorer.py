@@ -65,6 +65,7 @@ Supports English, Spanish, French, and German with advanced NLP techniques.
 # centralized here to keep tuning safe and maintainable across languages.
 
 import re
+import logging
 from typing import Optional
 from dataclasses import dataclass
 import os
@@ -74,6 +75,16 @@ import warnings
 # Suppress PyTorch FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
 
+# Module logger for library-friendly messaging
+logger = logging.getLogger("podscripter.punctuation")
+
+__all__ = [
+    "restore_punctuation",
+    "normalize_dotted_acronyms_en",
+    "split_processed_segment",
+    "fr_merge_short_connector_breaks",
+]
+
 # Try to import sentence transformers for better punctuation restoration
 try:
     from sentence_transformers import SentenceTransformer
@@ -81,7 +92,7 @@ try:
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
-    print("Warning: SentenceTransformers not available. Advanced punctuation restoration may be limited.")
+    logger.warning("SentenceTransformers not available. Advanced punctuation restoration may be limited.")
 
 
 # Optional spaCy import for NLP-based capitalization
@@ -751,8 +762,8 @@ def restore_punctuation(text: str, language: str = 'en') -> str:
     try:
         return advanced_punctuation_restoration(text, language, True)  # Enable custom patterns by default
     except Exception as e:
-        print(f"Warning: Advanced punctuation restoration failed: {e}")
-        print("Returning original text without punctuation restoration.")
+        logger.warning(f"Advanced punctuation restoration failed: {e}")
+        logger.info("Returning original text without punctuation restoration.")
         return text
 
 
