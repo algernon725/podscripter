@@ -115,10 +115,8 @@ flowchart TD
   - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)`
   - Sentence-Transformers semantic cues + curated regex rules
   - Language-specific formatting (ES/EN/FR/DE)
-  - Sentence assembly helpers used by the orchestrator:
-    - `normalize_dotted_acronyms_en(text)` (avoid false splits)
-    - `split_processed_segment(processed, language)` (ellipsis continuation, domain-aware splitting)
-    - `fr_merge_short_connector_breaks(sentences)` (repair premature breaks like `au.` + `Moins …`)
+  - Sentence assembly public helper:
+    - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Optional spaCy capitalization when enabled
   - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
