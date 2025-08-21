@@ -189,7 +189,7 @@ def transcribe(
         res = transcribe("audio.mp3", output_format="txt", write_output=False)
         sentences = res["sentences"]
     """
-    return transcribe_with_sentences(
+    return _transcribe_with_sentences(
         media_file,
         output_dir,
         language,
@@ -427,7 +427,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety
         pass
     return sentences
-def transcribe_with_sentences(
+def _transcribe_with_sentences(
     media_file: str,
     output_dir: str | Path | None,
     language: str | None,
@@ -681,7 +681,7 @@ def main():
     os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
     start_time = time.time(); _cleanup_chunks(args.media_file)
     try:
-        result = transcribe_with_sentences(
+        result = _transcribe_with_sentences(
             args.media_file,
             args.output_dir,
             language,

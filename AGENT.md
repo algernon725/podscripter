@@ -331,7 +331,7 @@ Before submitting any changes, ensure:
 - Robustness and hygiene
   - Chunks are written into a `TemporaryDirectory` for automatic cleanup
   - SRT export sorts segments by start time
-  - `transcribe_with_sentences(...)` returns a structured dict: `segments`, `sentences`, `detected_language`, `output_path`, `num_segments`, `elapsed_secs`
+  - Public API: `transcribe(...)` returns a structured result (`segments`, `sentences`, `detected_language`, `output_path`, `num_segments`, `elapsed_secs`)
   - Early input/output validation via `_validate_paths`
   - Constants hoisted (e.g., `DEFAULT_CHUNK_SEC`, `DEFAULT_OVERLAP_SEC`, `DEDUPE_EPSILON_SEC`, `PROMPT_TAIL_CHARS`)
   - Prefer `pathlib.Path` over `os.path`/`glob`; keep orchestration helpers private
