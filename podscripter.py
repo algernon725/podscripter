@@ -60,6 +60,17 @@ PROMPT_TAIL_CHARS = 200
 DEFAULT_VAD_FILTER = True
 DEFAULT_VAD_SPEECH_PAD_MS = 200
 
+# Common valid Whisper model names for validation
+ALLOWED_MODEL_NAMES = [
+    "tiny",
+    "base",
+    "small",
+    "medium",
+    "large",
+    "large-v2",
+    "large-v3",
+]
+
 logger = logging.getLogger("podscripter")
 
 class InvalidInputError(Exception):
@@ -575,6 +586,13 @@ def main():
     parser.add_argument("media_file", help="Path to the media file to transcribe")
     parser.add_argument("--output_dir", required=True, help="Directory where output will be written")
     parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr, de). Use 'auto' for auto-detect")
+    parser.add_argument(
+        "--model",
+        dest="model_name",
+        choices=ALLOWED_MODEL_NAMES,
+        default=None,
+        help=f"Whisper model to use (default: {DEFAULT_MODEL_NAME})",
+    )
     parser.add_argument("--output_format", choices=["txt", "srt"], default="txt", help="Output format (txt or srt)")
     parser.add_argument("--single", action="store_true", help="Transcribe the entire file in a single call (no manual chunking)")
     parser.add_argument("--compute-type", dest="compute_type", default=DEFAULT_COMPUTE_TYPE, choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"], help="faster-whisper compute type")
@@ -592,6 +610,21 @@ def main():
     language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
     # CLI-only: set threads
     os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
+    # Determine model precedence: CLI > env var > default
+    env_model = (os.environ.get("WHISPER_MODEL") or "").strip()
+    effective_model_name = None
+    if args.model_name is not None:
+        effective_model_name = args.model_name
+    elif env_model:
+        if env_model in ALLOWED_MODEL_NAMES:
+            effective_model_name = env_model
+        else:
+            logger.warning(
+                f"Ignoring invalid WHISPER_MODEL='{env_model}'. Valid options: {', '.join(ALLOWED_MODEL_NAMES)}."
+            )
+            effective_model_name = DEFAULT_MODEL_NAME
+    else:
+        effective_model_name = DEFAULT_MODEL_NAME
     start_time = time.time(); _cleanup_chunks(args.media_file)
     try:
         result = _transcribe_with_sentences(
@@ -600,6 +633,7 @@ def main():
             language,
             args.output_format,
             single_call=args.single,
+            model_name=effective_model_name,
             compute_type=args.compute_type,
             quiet=quiet,
             write_output=True,
