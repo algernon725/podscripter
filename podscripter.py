@@ -137,6 +137,7 @@ def transcribe(
     output_format: str = "txt",
     language: str | None = None,
     single_call: bool = False,
+    translate_to_english: bool = False,
     model: WhisperModel | None = None,
     model_name: str = DEFAULT_MODEL_NAME,
     device: str = DEFAULT_DEVICE,
@@ -159,6 +160,7 @@ def transcribe(
         media_file: Path to the input media file.
         output_format: "txt" for sentences or "srt" for subtitles.
         language: Language code (e.g., "en", "es", "fr", "de"). If None, auto-detect.
+        translate_to_english: If True, run Whisper with task="translate" (English output).
         single_call: If True, transcribe the whole file in one pass; otherwise chunk with overlap.
         model: Optional preloaded faster_whisper.WhisperModel instance to reuse.
         model_name: Model name to load if `model` is not provided.
@@ -206,6 +208,7 @@ def transcribe(
         language,
         output_format,
         single_call,
+        translate_to_english=translate_to_english,
         model=model,
         model_name=model_name,
         device=device,
@@ -218,13 +221,14 @@ def transcribe(
         write_output=write_output,
     )
 
-def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format):
+def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english: bool):
     logger.info("\n" + "="*60)
     logger.info("TRANSCRIPTION PARAMETERS")
     logger.info("="*60)
     logger.info(f"File name:        {Path(media_file).name}")
     logger.info(f"Model:            {model_name}")
     logger.info(f"Language:         {'Auto-detect' if language is None else language}")
+    logger.info(f"Task:             {'translate' if translate_to_english else 'transcribe'}")
     logger.info(f"Beam size:        {beam_size}")
     logger.info(f"Compute type:     {compute_type}")
     logger.info(f"Output format:    {output_format}")
@@ -308,8 +312,9 @@ def _normalize_srt_cues(
         normalized.append({"start": start, "end": end, "text": text})
     return normalized
 
-def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None, *, vad_filter: bool = DEFAULT_VAD_FILTER, vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS):
-    kwargs = {"language": language,"beam_size": beam_size,"vad_filter": vad_filter,"condition_on_previous_text": True}
+def _transcribe_file(model, audio_path: str, language, beam_size: int, prev_prompt: str | None = None, *, translate_to_english: bool = False, vad_filter: bool = DEFAULT_VAD_FILTER, vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS):
+    task = "translate" if translate_to_english else "transcribe"
+    kwargs = {"language": language,"beam_size": beam_size,"vad_filter": vad_filter,"condition_on_previous_text": True, "task": task}
     if vad_filter:
         kwargs["vad_parameters"] = {"speech_pad_ms": int(max(0, vad_speech_pad_ms))}
     if prev_prompt:
@@ -337,7 +342,7 @@ def _accumulate_segments(model_segments, chunk_start: float, last_end: float, ep
 def _load_model(model_name: str, device: str, compute_type: str) -> WhisperModel:
     return WhisperModel(model_name, device=device, compute_type=compute_type)
 
-def _transcribe_single_call(model, media_file: str, language, beam_size: int, *, vad_filter: bool, vad_speech_pad_ms: int, quiet: bool) -> tuple[list[dict], str, str | None]:
+def _transcribe_single_call(model, media_file: str, language, beam_size: int, *, translate_to_english: bool, vad_filter: bool, vad_speech_pad_ms: int, quiet: bool) -> tuple[list[dict], str, str | None]:
     if not quiet:
         logger.info("Transcribing full file in a single call (no manual chunking)...")
     all_text = ""
@@ -348,6 +353,7 @@ def _transcribe_single_call(model, media_file: str, language, beam_size: int, *,
         media_file,
         language,
         beam_size,
+        translate_to_english=translate_to_english,
         vad_filter=vad_filter,
         vad_speech_pad_ms=vad_speech_pad_ms,
     )
@@ -360,7 +366,7 @@ def _transcribe_single_call(model, media_file: str, language, beam_size: int, *,
     all_text += (text + " ")
     return all_segments, all_text, detected_language
 
-def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, vad_filter: bool, vad_speech_pad_ms: int, overlap_sec: int, quiet: bool) -> tuple[list[dict], str, str | None]:
+def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, translate_to_english: bool, vad_filter: bool, vad_speech_pad_ms: int, overlap_sec: int, quiet: bool) -> tuple[list[dict], str, str | None]:
     if not quiet:
         logger.info("Splitting media into chunks with overlap...")
     all_text = ""
@@ -388,6 +394,7 @@ def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, vad
                 language,
                 beam_size,
                 prev_prompt=prev_prompt,
+                translate_to_english=translate_to_english,
                 vad_filter=vad_filter,
                 vad_speech_pad_ms=vad_speech_pad_ms,
             )
@@ -445,6 +452,7 @@ def _transcribe_with_sentences(
     output_format: str,
     single_call: bool = False,
     *,
+    translate_to_english: bool = False,
     model: WhisperModel | None = None,
     model_name: str = DEFAULT_MODEL_NAME,
     device: str = DEFAULT_DEVICE,
@@ -472,7 +480,7 @@ def _transcribe_with_sentences(
         out_dir = None
     model_name = model_name; beam_size = beam_size; device = device
     if not quiet:
-        _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format)
+        _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english)
     # Load model if not provided
     if model is None:
         try:
@@ -485,7 +493,7 @@ def _transcribe_with_sentences(
             logger.info("Transcribing full file in a single call (no manual chunking)...")
         all_text = ""; all_segments = []
         try:
-            segments, info = _transcribe_file(model, media_file, language, beam_size, vad_filter=vad_filter, vad_speech_pad_ms=vad_speech_pad_ms)
+            segments, info = _transcribe_file(model, media_file, language, beam_size, translate_to_english=translate_to_english, vad_filter=vad_filter, vad_speech_pad_ms=vad_speech_pad_ms)
             if language is None:
                 detected_language = info.language
                 if not quiet:
@@ -508,7 +516,7 @@ def _transcribe_with_sentences(
                 if not quiet:
                     logger.info(f"Transcribing chunk {idx}/{len(chunk_infos)}: {chunk_file} (start={chunk_start:.2f}s)")
                 try:
-                    segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt, vad_filter=vad_filter, vad_speech_pad_ms=vad_speech_pad_ms)
+                    segments, info = _transcribe_file(model, chunk_file, language, beam_size, prev_prompt=prev_prompt, translate_to_english=translate_to_english, vad_filter=vad_filter, vad_speech_pad_ms=vad_speech_pad_ms)
                     if idx == 1 and language is None:
                         detected_language = info.language
                         if not quiet:
@@ -559,7 +567,7 @@ def _transcribe_with_sentences(
     else:
         if not quiet:
             logger.info("Restoring punctuation...")
-        lang_for_punctuation = detected_language if language is None else language
+        lang_for_punctuation = 'en' if translate_to_english else (detected_language if language is None else language)
         sentences = _assemble_sentences(all_text, lang_for_punctuation, quiet)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
@@ -595,6 +603,7 @@ def main():
     )
     parser.add_argument("--output_format", choices=["txt", "srt"], default="txt", help="Output format (txt or srt)")
     parser.add_argument("--single", action="store_true", help="Transcribe the entire file in a single call (no manual chunking)")
+    parser.add_argument("--translate", action="store_true", help="Translate output to English (sets Whisper task=translate)")
     parser.add_argument("--compute-type", dest="compute_type", default=DEFAULT_COMPUTE_TYPE, choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"], help="faster-whisper compute type")
     vg = parser.add_mutually_exclusive_group(); vg.add_argument("--quiet", action="store_true", help="Reduce log output"); vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)"); parser.set_defaults(verbose=True)
     args = parser.parse_args()
@@ -633,6 +642,7 @@ def main():
             language,
             args.output_format,
             single_call=args.single,
+            translate_to_english=args.translate,
             model_name=effective_model_name,
             compute_type=args.compute_type,
             quiet=quiet,
