@@ -96,7 +96,7 @@ flowchart TD
 - **CLI and Orchestrator** (`podscripter.py`)
   - Parse args; validate paths
   - Choose single-call vs chunked mode
-  - Manage model load, VAD settings, continuity prompts
+  - Manage model load, model selection, translation task, VAD settings, continuity prompts
   - Write outputs (TXT/SRT)
 
 - **Chunking**
@@ -106,6 +106,7 @@ flowchart TD
 - **ASR (Faster-Whisper)**
   - `_transcribe_file(...)` → `WhisperModel.transcribe`
   - Returns segments and info (e.g., detected language)
+  - Sets `task=translate` when `--translate` is provided; info logs include the selected task in CLI
 
 - **Alignment and deduplication**
   - `_accumulate_segments(...)` and `_dedupe_segments(...)`
@@ -117,6 +118,7 @@ flowchart TD
   - Language-specific formatting (ES/EN/FR/DE)
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
+  - Cross-segment carry of trailing fragments for French and Spanish
   - Optional spaCy capitalization when enabled
   - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
@@ -132,6 +134,8 @@ flowchart TD
   - `--language <code>|auto` (default auto)
   - `--output_format {txt|srt}` (default txt)
   - `--single` (disable manual chunking)
+  - `--model {tiny,base,small,medium,large,large-v2,large-v3}` (default `medium`; precedence: CLI > `WHISPER_MODEL` env > default)
+  - `--translate` (Whisper `task=translate`; punctuation uses English rules)
   - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default auto)
   - `--quiet`/`--verbose` (default verbose)
 

@@ -59,6 +59,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `--language <code>|auto` (default `auto`)
   - `--output_format {txt|srt}` (default `txt`)
   - `--single` (bypass manual chunking)
+  - `--model {tiny,base,small,medium,large,large-v2,large-v3}` (default `medium`; precedence: CLI > `WHISPER_MODEL` env > default)
+  - `--translate` (Whisper `task=translate`; punctuation uses English rules)
   - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default `auto`)
   - `--quiet`/`--verbose` (default `--verbose`)
 ```
@@ -111,7 +113,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Keep `podscripter.py` focused on orchestration (I/O, model selection, mode, calling helpers) and output writing. Assembly behavior is invoked via helpers in `punctuation_restorer.py`:
   - Ellipsis continuation and domain-aware splitting are exposed via `assemble_sentences_from_processed(processed, language)` (public API)
   - The detailed helpers for dotted acronym normalization, French connector merges, etc., are private (`_normalize_dotted_acronyms_en`, `_fr_merge_short_connector_breaks`, and others)
-  - French segment carry-over: when a French segment ends without terminal punctuation, carry the trailing fragment into the next segment instead of forcing a split
+  - Segment carry-over: when a segment ends without terminal punctuation, carry the trailing fragment into the next segment for French and Spanish
   - SRT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s)
 
 #### Language-Specific Heuristics (recent)
@@ -145,6 +147,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
     - Intro average F1 threshold: ≥ 0.80
     - Overall average F1 threshold: ≥ 0.70
   - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
+    - Includes embedded Spanish samples and a human-reference excerpt; computes SequenceMatcher ratio, token F1, and sentence-level alignment metrics (no external media required)
   - `test_spanish_domains_and_ellipses.py` (domain handling and ellipsis continuation)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
  - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
@@ -163,6 +166,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 4. Model Management
 - Cache models to avoid repeated downloads
+ - `WHISPER_MODEL` env var may be set; overridden by the CLI `--model` flag
 - Handle model loading errors gracefully
 - Use appropriate model sizes for the task
 - Consider memory usage when selecting models
