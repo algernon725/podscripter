@@ -417,7 +417,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         all_text = normalize_dotted_acronyms_en(all_text)
     text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
     sentences: list[str] = []
-    carry_fragment = "" if (lang_for_punctuation or '').lower() == 'fr' else None
+    # Carry trailing fragments across segments for languages that commonly split clauses across lines
+    carry_fragment = "" if (lang_for_punctuation or '').lower() in ('fr', 'es') else None
     for segment in text_segments:
         processed_segment = restore_punctuation(segment, lang_for_punctuation)
         if carry_fragment is not None and carry_fragment:
