@@ -159,8 +159,9 @@ def _get_language_thresholds(language: str) -> dict:
     """
     if language == 'es':
         return {
-            'semantic_question_threshold_with_indicator': 0.70,
-            'semantic_question_threshold_default': 0.80,
+            # Slightly lower thresholds to improve recall of genuine questions in Spanish
+            'semantic_question_threshold_with_indicator': 0.66,
+            'semantic_question_threshold_default': 0.76,
             'min_total_words_no_split': 30,
             'min_chunk_before_split': 20,
             'min_chunk_inside_question': 25,
@@ -2191,7 +2192,9 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         return text
 
     # Normalize domains: join tokens like "espanolistos . com" -> "espanolistos.com"
-    text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es)\b", r"\1.\2", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", r"\1.\2", text, flags=re.IGNORECASE)
+    # Also handle 'www . domain . tld'
+    text = re.sub(r"\b(www)\s*[.\-]\s*([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", r"\1.\2.\3", text, flags=re.IGNORECASE)
 
     # Don't touch inside domains thereafter (best-effort by skipping tokens with ".tld")
 
@@ -2294,6 +2297,20 @@ def _spanish_cleanup_postprocess(text: str) -> str:
 
     # Greetings and lead-ins
     text = _es_greeting_and_leadin_commas(text)
+
+    # Ensure comma after common discourse markers at sentence start
+    # Applies only when followed by a likely clause (lowercase start)
+    markers = [
+        "Bueno", "Entonces", "Pues", "Además", "Ademas", "Así que", "Asi que",
+        "Obvio", "O sea", "A ver", "Miren", "Mira", "Veamos", "En fin"
+    ]
+    for m in markers:
+        pattern = rf"(?i)(^|[\n\.!?]\s*)({m})(\s+)(?!,)(?=[a-záéíóúñ])"
+        repl = r"\1\2,\3"
+        try:
+            text = re.sub(pattern, repl, text)
+        except re.error:
+            pass
 
     # Style: repeated adverb comma (muy muy -> muy, muy)
     text = re.sub(r"(?i)\bmuy\s+muy\b", "muy, muy", text)
