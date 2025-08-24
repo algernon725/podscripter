@@ -155,6 +155,17 @@ def test_es_wrap_imperative_exclamations():
     assert pr._es_wrap_imperative_exclamations("Bienvenidos a Españolistos.") == "¡Bienvenidos a Españolistos!"
 
 
+def test_es_mid_sentence_exclamation_closure():
+    # Should close exclamation when '¡' appears after a lead-in
+    s = "Entonces, ¡empecemos."
+    out = pr._spanish_cleanup_postprocess(s)
+    assert out.endswith("¡empecemos!") or out == "Entonces, ¡empecemos!"
+    # Other variants
+    s2 = "Bueno, ¡vamos."
+    out2 = pr._spanish_cleanup_postprocess(s2)
+    assert out2.endswith("¡vamos!") or out2 == "Bueno, ¡vamos!"
+
+
 if __name__ == "__main__":
     # Run tests directly
     for name, fn in sorted(globals().items()):

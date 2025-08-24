@@ -2412,6 +2412,16 @@ def _spanish_cleanup_postprocess(text: str) -> str:
                     parts5[i + 1] = '!'
                 else:
                     parts5[i] = s.rstrip(' .?') + '!'
+        else:
+            # Mid-sentence exclamation: if the sentence contains '¡' anywhere and lacks a closing '!'
+            if '¡' in s_stripped:
+                # Consider it needing closure when no '!' in content and trailing punct missing or '.'
+                needs_closure = ('!' not in s_stripped)
+                if needs_closure and (p in ('', '.')):
+                    if i + 1 < len(parts5) and p:
+                        parts5[i + 1] = '!'
+                    else:
+                        parts5[i] = s.rstrip(' .?') + '!'
     text = ''.join(parts5)
 
     # Final mixed-punctuation cleanup after exclamation pairing
