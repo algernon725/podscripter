@@ -639,10 +639,70 @@ def _es_intro_location_appositive_commas(text: str) -> str:
 _QUESTION_PATTERN_EMBEDDINGS = {}
 _EXCL_PATTERN_EMBEDDINGS = {}
 
+def _get_question_patterns(language: str) -> list[str]:
+    """Return curated question pattern prompts per language for semantic gating.
+
+    These are short exemplars used to build an embedding bank that helps
+    classify whether a sentence is interrogative. Keep lists small and
+    language-appropriate. For languages without curation, return a minimal set.
+    """
+    lang = (language or 'en').lower()
+    if lang == 'es':
+        # Core interrogatives and common verb-first yes/no starters
+        core = [
+            'qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué',
+        ]
+        starters = [
+            'puedes', 'puede', 'podrías', 'podría', 'quieres', 'quiere',
+            'tienes', 'tiene', 'hay', 'es', 'está', 'están', 'vas', 'va',
+            'te parece', 'le parece', 'crees', 'cree', 'piensas', 'piensa',
+        ]
+        # Include accented/non-accented variants for robustness
+        variants = list(core) + [s for s in starters]
+        return [f'{w} … ?' for w in variants] + [
+            '¿…?', '¿Podemos …?', '¿Te gustaría …?', '¿Hay …?',
+        ]
+    if lang == 'fr':
+        return [
+            'qui … ?', 'quoi … ?', 'où … ?', 'quand … ?', 'pourquoi … ?', 'comment … ?',
+            'est-ce que … ?',
+        ]
+    if lang == 'de':
+        return [
+            'wer … ?', 'was … ?', 'wo … ?', 'wann … ?', 'warum … ?', 'wie … ?',
+            'ist … ?', 'sind … ?', 'gibt es … ?',
+        ]
+    # English/minimal default
+    return [
+        'what … ?', 'where … ?', 'when … ?', 'why … ?', 'how … ?', 'who … ?', 'is … ?', 'are … ?',
+    ]
+
+def _get_exclamation_patterns(language: str) -> list[str]:
+    """Return curated exclamation exemplars per language for semantic gating."""
+    lang = (language or 'en').lower()
+    if lang == 'es':
+        return [
+            '¡qué increíble!', '¡qué maravilloso!', '¡qué sorpresa!', '¡no puedo creerlo!',
+            '¡qué fantástico!', '¡qué emocionante!', '¡qué gran idea!', '¡qué alivio!',
+            '¡qué hermoso!', '¡qué bueno!', '¡vamos!', '¡bienvenidos!', '¡empecemos!',
+        ]
+    if lang == 'fr':
+        return [
+            'c’est incroyable !', 'quelle surprise !', 'formidable !', 'incroyable !',
+        ]
+    if lang == 'de':
+        return [
+            'das ist unglaublich!', 'wunderbar!', 'fantastisch!', 'toll!',
+        ]
+    # English/minimal default
+    return [
+        'amazing!', 'incredible!', 'unbelievable!', 'what a relief!', 'let’s go!', 'attention!',
+    ]
+
 def _get_question_pattern_embeddings(language: str, model):
     if language in _QUESTION_PATTERN_EMBEDDINGS:
         return _QUESTION_PATTERN_EMBEDDINGS[language]
-    patterns = get_question_patterns(language)
+    patterns = _get_question_patterns(language)
     if not patterns:
         _QUESTION_PATTERN_EMBEDDINGS[language] = None
         return None
@@ -658,7 +718,7 @@ def _get_question_pattern_embeddings(language: str, model):
 def _get_exclamation_pattern_embeddings(language: str, model):
     if language in _EXCL_PATTERN_EMBEDDINGS:
         return _EXCL_PATTERN_EMBEDDINGS[language]
-    patterns = get_exclamation_patterns(language)
+    patterns = _get_exclamation_patterns(language)
     if not patterns:
         _EXCL_PATTERN_EMBEDDINGS[language] = None
         return None
