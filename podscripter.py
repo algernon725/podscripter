@@ -428,7 +428,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
             def _mask(m):
                 return f"{m.group(1)}__DOT__{m.group(2)}"
-            out = re.sub(rf"\b([a-z0-9\-]+)\.({tld_alt})\b", _mask, s, flags=re.IGNORECASE)
+            out = re.sub(rf"\b([a-z0-9\-]{3,})\.({tld_alt})\b", _mask, s, flags=re.IGNORECASE)
             # Fix missing space after ., ?, ! (avoid ellipses)
             out = re.sub(r"(?<!\.)\.\s*([^\s.])", r". \1", out)
             out = re.sub(r"\?\s*(\S)", r"? \1", out)
@@ -486,7 +486,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             cur = (sentences[i] or '').strip()
             if i + 1 < len(sentences):
                 nxt = (sentences[i + 1] or '').strip()
-                m1 = re.search(r"([A-Za-z0-9\-]+)\.$", cur)
+                m1 = re.search(r"([A-Za-z0-9\-]{3,})\.$", cur)
                 m2 = re.match(rf"^({tlds})(\b|\W)(.*)$", nxt, flags=re.IGNORECASE)
                 if m1 and m2:
                     label = m1.group(1)
