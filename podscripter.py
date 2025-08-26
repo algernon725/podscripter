@@ -416,10 +416,39 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         from punctuation_restorer import _normalize_dotted_acronyms_en as normalize_dotted_acronyms_en
         all_text = normalize_dotted_acronyms_en(all_text)
     text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
+    # Merge cross-segment domain splits: "label." at end of one segment + "com"/TLD at start of next
+    merged_segments: list[str] = []
+    i = 0
+    while i < len(text_segments):
+        curr = text_segments[i]
+        if i + 1 < len(text_segments):
+            nxt = text_segments[i + 1]
+            # Detect domain boundary across segments
+            m_prev = re.search(r"([A-Za-z0-9\-]+)\s*\.$", curr)
+            m_next = re.match(r"^\s*([A-Za-z]{2,24})(\b|\W)(.*)$", nxt)
+            if m_prev and m_next:
+                tld = m_next.group(1)
+                # Only glue if TLD looks like a real TLD (common ones or 2-24 letters) and not a Spanish word like "Como"
+                # Require exact token 'com', 'net', 'org', or 2-3 letter country codes; avoid 'como', 'comida', etc.
+                tld_lower = tld.lower()
+                if tld_lower in {"com", "net", "org", "io", "co", "es", "edu", "gov", "uk", "us", "ar", "mx"} or (2 <= len(tld_lower) <= 24 and re.fullmatch(r"[a-z]{2,24}", tld_lower)):
+                    # Merge: replace trailing dot and pull TLD from next
+                    boundary = m_next.group(2) or ""
+                    remainder = m_next.group(3)
+                    merged = re.sub(r"\.?$", "", curr).rstrip() + "." + tld_lower
+                    # Keep the rest of the next segment after the TLD
+                    tail = (boundary + remainder).lstrip()
+                    if tail:
+                        merged = (merged + " " + tail).strip()
+                    merged_segments.append(merged)
+                    i += 2
+                    continue
+        merged_segments.append(curr)
+        i += 1
     sentences: list[str] = []
     # Carry trailing fragments across segments for languages that commonly split clauses across lines
     carry_fragment = "" if (lang_for_punctuation or '').lower() in ('fr', 'es') else None
-    for segment in text_segments:
+    for segment in merged_segments:
         processed_segment = restore_punctuation(segment, lang_for_punctuation)
         if carry_fragment is not None and carry_fragment:
             processed_segment = (carry_fragment + ' ' + processed_segment).strip()

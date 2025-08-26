@@ -332,13 +332,17 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
         if punct == '.':
             next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
             prev_label_match = re.search(r"([A-Za-z0-9-]+)$", chunk)
-            next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk)
+            # Allow leading whitespace before TLD and preserve it
+            leading_ws_len = len(next_chunk) - len(next_chunk.lstrip())
+            leading_ws = next_chunk[:leading_ws_len]
+            next_chunk_lstripped = next_chunk[leading_ws_len:]
+            next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk_lstripped)
             if prev_label_match and next_tld_match:
                 tld = next_tld_match.group(1)
                 boundary = next_tld_match.group(2) or ""
                 remainder = next_tld_match.group(3)
                 buffer += '.' + tld
-                parts[idx + 2] = boundary + remainder
+                parts[idx + 2] = leading_ws + boundary + remainder
                 idx += 2
                 continue
 
@@ -1960,8 +1964,18 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
 
     def should_capitalize(tok) -> bool:
         txt = tok.text
+        # Skip URLs/email/handles or tokens that themselves look like domain fragments
         if any(ch in txt for ch in ['@', '/', '://']) or re.search(r"\w+\.\w+", txt):
             return False
+        # Skip TLD token in domain pattern split across tokens: label '.' TLD
+        try:
+            if tok.i >= 2:
+                prev_dot = doc[tok.i - 1].text
+                prev_label = doc[tok.i - 2].text
+                if prev_dot == '.' and re.fullmatch(r"[A-Za-z0-9-]+", prev_label) and re.fullmatch(r"[A-Za-z]{2,24}", txt):
+                    return False
+        except Exception:
+            pass
         low = txt.lower()
         if low in connectors:
             return False
@@ -2251,6 +2265,11 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", r"\1.\2", text, flags=re.IGNORECASE)
     # Also handle 'www . domain . tld'
     text = re.sub(r"\b(www)\s*[.\-]\s*([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", r"\1.\2.\3", text, flags=re.IGNORECASE)
+
+    # Ensure TLDs are lowercase within domains: label.TLD -> label.tld
+    def _lowercase_tld(m):
+        return f"{m.group(1)}.{m.group(2).lower()}"
+    text = re.sub(r"\b([a-z0-9\-]+)\.([A-Za-z]{2,24})\b", _lowercase_tld, text, flags=re.IGNORECASE)
 
     # Don't touch inside domains thereafter (best-effort by skipping tokens with ".tld")
 

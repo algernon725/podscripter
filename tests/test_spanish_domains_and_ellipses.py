@@ -47,13 +47,17 @@ def _split_like_pipeline(processed_segment: str) -> list[str]:
         if punct == '.':
             next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
             prev_label_match = re.search(r"([A-Za-z0-9-]+)$", chunk)
-            next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk)
+            # Allow leading whitespace before TLD and preserve it
+            leading_ws_len = len(next_chunk) - len(next_chunk.lstrip())
+            leading_ws = next_chunk[:leading_ws_len]
+            next_chunk_lstripped = next_chunk[leading_ws_len:]
+            next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk_lstripped)
             if prev_label_match and next_tld_match:
                 tld = next_tld_match.group(1)
                 boundary = next_tld_match.group(2) or ""
                 remainder = next_tld_match.group(3)
                 buffer += '.' + tld
-                parts[idx + 2] = boundary + remainder
+                parts[idx + 2] = leading_ws + boundary + remainder
                 idx += 2
                 continue
 
@@ -100,6 +104,8 @@ def test_domains_not_split():
         assert ".com" in joined or ".net" in joined or ".org" in joined
         # No duplicate dot before TLD
         assert "..com" not in joined and "..net" not in joined and "..org" not in joined
+        # TLD should be lowercase
+        assert ".Com" not in joined and ".Net" not in joined and ".Org" not in joined
 
 
 def test_ellipsis_not_split():
