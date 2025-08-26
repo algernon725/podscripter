@@ -88,6 +88,8 @@ def test_domains_not_split():
         "Visita example.net ahora mismo",
         "Nuestro sitio es ejemplo.org para más información",
         "Espanolistos.com",
+        # Real-world sample reported in bug
+        "Solamente debes ir a espanolistos.com y ahí descargas la transcripción y puedes escuchar y leer al mismo tiempo",
     ]
     for s in samples:
         processed = restore_punctuation(s, 'es')

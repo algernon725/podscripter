@@ -891,45 +891,41 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Apply Spanish-specific formatting
     if language == 'es':
-        # Split into sentences and format each one properly
-        sentences = _split_sentences_preserving_delims(result)
+        # Domain-preserving sentence split and formatting
+        # Use the same splitter used during assembly to avoid breaking inside domains like label.tld
+        sentences_list, trailing_fragment = assemble_sentences_from_processed(result, 'es')
+        if trailing_fragment:
+            cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
+            if cleaned and not cleaned.endswith(('.', '!', '?')):
+                cleaned += '.'
+            if cleaned:
+                sentences_list.append(cleaned)
+
         formatted_sentences = []
-        
-        for i in range(0, len(sentences), 2):
-            if i < len(sentences):
-                sentence = sentences[i].strip()
-                punctuation = sentences[i + 1] if i + 1 < len(sentences) else ''
-                
-                if sentence:
-                    # Apply basic Spanish formatting to the sentence
-                    # Capitalize first letter
-                    if sentence and sentence[0].isalpha():
-                        sentence = sentence[0].upper() + sentence[1:]
-                    
-                    # (Removed) narrow proper-noun whitelist capitalization
-                    
-                    # Add proper punctuation if missing (but don't add if punctuation already exists)
-                    if not sentence.endswith(('.', '!', '?')):
-                        # Check if it's a question
-                        question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
-                        sentence_lower = sentence.lower()
-                        
-                        if any(word in sentence_lower for word in question_words):
-                            sentence += '?'
-                        else:
-                            sentence += '.'
-                    elif sentence.endswith(('.', '!', '?')) and len(sentence) > 1:
-                        # If sentence already ends with punctuation, make sure it's only one
-                        sentence = sentence.rstrip('.!?') + sentence[-1]
-                    
-                    # Clean up any double punctuation that might have been created
-                    sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
-                    
-                    # Clean up double inverted question marks
-                    sentence = re.sub(r'¿{2,}', '¿', sentence)
-                    
-                    formatted_sentences.append(sentence + punctuation)
-        
+        for s in sentences_list:
+            sentence = (s or '').strip()
+            if not sentence:
+                continue
+            # Capitalize first letter
+            if sentence and sentence[0].isalpha():
+                sentence = sentence[0].upper() + sentence[1:]
+
+            # Ensure sentence ends with single terminal punctuation
+            if not sentence.endswith(('.', '!', '?')):
+                question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
+                sentence_lower = sentence.lower()
+                if any(word in sentence_lower for word in question_words):
+                    sentence += '?'
+                else:
+                    sentence += '.'
+            else:
+                sentence = sentence.rstrip('.!?') + sentence[-1]
+
+            # Clean up duplicates
+            sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
+            sentence = re.sub(r'¿{2,}', '¿', sentence)
+            formatted_sentences.append(sentence)
+
         result = ' '.join(formatted_sentences)
         
         # Add inverted question marks for questions (comprehensive approach)
