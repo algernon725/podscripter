@@ -258,7 +258,15 @@ def _split_audio_with_overlap(media_file: str, chunk_length_sec: int = DEFAULT_C
 def _write_txt(sentences, output_file):
     with open(output_file, "w") as f:
         for sentence in sentences:
-            f.write(f"{sentence.strip()}\n\n")
+            s = (sentence or "").strip()
+            if not s:
+                continue
+            # Final safeguard: if a string still contains multiple sentences, split them
+            parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s)
+            for p in parts:
+                p = (p or "").strip()
+                if p:
+                    f.write(f"{p}\n\n")
 
 def _write_srt(segments, output_file):
     def format_timestamp(seconds):
