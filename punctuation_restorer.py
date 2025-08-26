@@ -281,8 +281,23 @@ def _finalize_text_common(text: str) -> str:
         return text
     out = _normalize_mixed_terminal_punctuation(text)
     out = re.sub(r"\s+", " ", out)
-    # Insert/normalize space between end punctuation and next capital (including accented capitals)
-    out = re.sub(r"([.!?])\s*([A-ZÁÉÍÓÚÑ])", r"\1 \2", out)
+    # Avoid touching domain patterns label.tld by temporarily masking them
+    def _mask_domains(m):
+        return m.group(1) + "__DOT__" + m.group(2)
+    # Only mask well-known TLDs to avoid false positives like "no.tienen"
+    tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+    masked = re.sub(rf"\b([a-z0-9\-]+)\.({tld_alt})\b", _mask_domains, out, flags=re.IGNORECASE)
+    # Ensure single space after sentence punctuation when followed by a letter (including lowercase accented)
+    masked = re.sub(r"(?<!\.)\.\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r". \1", masked)
+    masked = re.sub(r"\?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"? \1", masked)
+    masked = re.sub(r"!\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"! \1", masked)
+    # Capitalize after terminators when appropriate
+    masked = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
+    # Unmask domains
+    out = re.sub(r"__DOT__", ".", masked)
+    # Normalize comma spacing globally
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r",\s*", ", ", out)
     return out.strip()
 
 
@@ -1140,8 +1155,19 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
             result = _apply_spacy_capitalization(result, language)
-        # Ensure a single space after terminal punctuation within sentences
-        result = re.sub(r'([.!?])\s*(?=\S)', r'\1 ', result)
+        # Normalize comma spacing: no space before, single space after
+        result = re.sub(r'\s+,', ',', result)
+        result = re.sub(r',\s*', ', ', result)
+        # Ensure a single space after terminal punctuation when followed by a non-space and not part of an ellipsis
+        result = re.sub(r'(?<!\.)\.([^\s.])', r'. \1', result)
+        result = re.sub(r'\?\s*(?=\S)', r'? ', result)
+        result = re.sub(r'!\s*(?=\S)', r'! ', result)
+        # Capitalize the first letter after sentence terminators when appropriate (Spanish sentences start capitalized)
+        def _cap_after_terminator(m):
+            punct = m.group(1)
+            ch = m.group(2)
+            return f"{punct} {ch.upper()}"
+        result = re.sub(r'([.!?])\s+([a-záéíóúñ])', _cap_after_terminator, result)
         # Final domain TLD lowercasing safeguard (after all formatting/capitalization)
         result = re.sub(r"\b([a-z0-9\-]+)\.([A-Za-z]{2,24})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
     else:

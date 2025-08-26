@@ -412,6 +412,31 @@ def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, tra
     return all_segments, all_text, detected_language
 
 def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: bool) -> list[str]:
+    def _sanitize_sentence_output(s: str, language: str) -> str:
+        try:
+            if (language or '').lower() != 'es' or not s:
+                return s
+            # Mask domains to avoid touching label.tld
+            tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+            def _mask(m):
+                return f"{m.group(1)}__DOT__{m.group(2)}"
+            out = re.sub(rf"\b([a-z0-9\-]+)\.({tld_alt})\b", _mask, s, flags=re.IGNORECASE)
+            # Fix missing space after ., ?, ! (avoid ellipses)
+            out = re.sub(r"(?<!\.)\.\s*([^\s.])", r". \1", out)
+            out = re.sub(r"\?\s*(\S)", r"? \1", out)
+            out = re.sub(r"!\s*(\S)", r"! \1", out)
+            # Capitalize after terminators when appropriate
+            out = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", out)
+            # Normalize comma spacing
+            out = re.sub(r"\s+,", ",", out)
+            out = re.sub(r",\s*", ", ", out)
+            # Replace stray intra-word periods between lowercase letters: "vendedores.ambulantes" -> "vendedores ambulantes"
+            out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
+            # Unmask domains
+            out = re.sub(r"__DOT__", ".", out)
+            return out
+        except Exception:
+            return s
     if (lang_for_punctuation or '').lower() == 'en':
         from punctuation_restorer import _normalize_dotted_acronyms_en as normalize_dotted_acronyms_en
         all_text = normalize_dotted_acronyms_en(all_text)
@@ -426,7 +451,9 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             carry_fragment = ""
         from punctuation_restorer import assemble_sentences_from_processed
         seg_sentences, trailing = assemble_sentences_from_processed(processed_segment, (lang_for_punctuation or '').lower())
-        sentences.extend(seg_sentences)
+        # Sanitize each sentence before collecting
+        for s in seg_sentences:
+            sentences.append(_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()))
         if trailing:
             if (lang_for_punctuation or '').lower() == 'fr':
                 carry_fragment = trailing
@@ -435,13 +462,13 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                 if cleaned:
                     if not cleaned.endswith(('.', '!', '?')):
                         cleaned += '.'
-                    sentences.append(cleaned)
+                    sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
     if carry_fragment:
         cleaned = re.sub(r'^[",\s]+', '', carry_fragment)
         if cleaned:
             if not cleaned.endswith(('.', '!', '?')):
                 cleaned += '.'
-            sentences.append(cleaned)
+            sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety
         pass
