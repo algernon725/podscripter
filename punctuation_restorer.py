@@ -338,7 +338,7 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
             next_chunk_lstripped = next_chunk[leading_ws_len:]
             next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk_lstripped)
             if prev_label_match and next_tld_match:
-                tld = next_tld_match.group(1)
+                tld = next_tld_match.group(1).lower()
                 boundary = next_tld_match.group(2) or ""
                 remainder = next_tld_match.group(3)
                 buffer += '.' + tld
@@ -508,7 +508,7 @@ def _es_capitalize_sentence_starts(text: str) -> str:
         while idx < n and s[idx].isspace():
             idx += 1
         # Skip opening quotes/brackets/dashes
-        while idx < n and s[idx] in '"“”«»([({—-':
+        while idx < n and s[idx] in '"“"«»([({—-':
             idx += 1
         # Skip inverted punctuation then spaces
         if idx < n and s[idx] in '¡¿':
@@ -692,7 +692,7 @@ def _get_exclamation_patterns(language: str) -> list[str]:
         ]
     if lang == 'fr':
         return [
-            'c’est incroyable !', 'quelle surprise !', 'formidable !', 'incroyable !',
+            "c'est incroyable !", 'quelle surprise !', 'formidable !', 'incroyable !',
         ]
     if lang == 'de':
         return [
@@ -700,7 +700,7 @@ def _get_exclamation_patterns(language: str) -> list[str]:
         ]
     # English/minimal default
     return [
-        'amazing!', 'incredible!', 'unbelievable!', 'what a relief!', 'let’s go!', 'attention!',
+        'amazing!', 'incredible!', 'unbelievable!', 'what a relief!', "let's go!", 'attention!',
     ]
 
 def _get_question_pattern_embeddings(language: str, model):
@@ -1140,6 +1140,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
             result = _apply_spacy_capitalization(result, language)
+        # Ensure a single space after terminal punctuation within sentences
+        result = re.sub(r'([.!?])\s*(?=\S)', r'\1 ', result)
+        # Final domain TLD lowercasing safeguard (after all formatting/capitalization)
+        result = re.sub(r"\b([a-z0-9\-]+)\.([A-Za-z]{2,24})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
         result = _format_non_spanish_text(result, language)
@@ -2262,9 +2266,9 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         return text
 
     # Normalize domains: join tokens like "espanolistos . com" -> "espanolistos.com"
-    text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", r"\1.\2", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", text, flags=re.IGNORECASE)
     # Also handle 'www . domain . tld'
-    text = re.sub(r"\b(www)\s*[.\-]\s*([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", r"\1.\2.\3", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(www)\s*[.\-]\s*([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2)}.{m.group(3).lower()}", text, flags=re.IGNORECASE)
 
     # Ensure TLDs are lowercase within domains: label.TLD -> label.tld
     def _lowercase_tld(m):
