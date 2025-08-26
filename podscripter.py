@@ -477,6 +477,31 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             if not cleaned.endswith(('.', '!', '?')):
                 cleaned += '.'
             sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
+    # Merge domain splits that accidentally became separate sentences: "Label." + "Com ..."
+    if sentences:
+        merged: list[str] = []
+        i = 0
+        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+        while i < len(sentences):
+            cur = (sentences[i] or '').strip()
+            if i + 1 < len(sentences):
+                nxt = (sentences[i + 1] or '').strip()
+                m1 = re.search(r"([A-Za-z0-9\-]+)\.$", cur)
+                m2 = re.match(rf"^({tlds})(\b|\W)(.*)$", nxt, flags=re.IGNORECASE)
+                if m1 and m2:
+                    label = m1.group(1)
+                    tld = m2.group(1).lower()
+                    remainder = (m2.group(3) or '')
+                    remainder = remainder.lstrip()
+                    merged_sentence = cur[:-1] + "." + tld
+                    if remainder:
+                        merged_sentence = (merged_sentence + " " + remainder).strip()
+                    merged.append(merged_sentence)
+                    i += 2
+                    continue
+            merged.append(cur)
+            i += 1
+        sentences = merged
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety
         pass
