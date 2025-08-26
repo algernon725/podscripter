@@ -477,6 +477,43 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             if not cleaned.endswith(('.', '!', '?')):
                 cleaned += '.'
             sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
+    # Merge repeated emphatic single-word sentences per language
+    lang_lower = (lang_for_punctuation or '').lower()
+    if sentences:
+        merged_emph: list[str] = []
+        i = 0
+        emph_map = {
+            'es': {'no', 'si', 'sí'},
+            'fr': {'non', 'oui'},
+            'de': {'nein', 'ja'},
+        }
+        def _is_emphatic(word: str) -> bool:
+            w = word.strip().strip('.!?').lower()
+            allowed = emph_map.get(lang_lower, set())
+            return w in allowed
+        while i < len(sentences):
+            cur = (sentences[i] or '').strip()
+            if _is_emphatic(cur):
+                words = []
+                while i < len(sentences) and _is_emphatic((sentences[i] or '').strip()):
+                    words.append((sentences[i] or '').strip().strip('.!?'))
+                    i += 1
+                if words:
+                    # Normalize accents for Spanish
+                    if lang_lower == 'es':
+                        norm = ['sí' if w.lower() in {'si', 'sí'} else 'no' for w in words]
+                    else:
+                        norm = [w.lower() for w in words]
+                    out = norm[0].capitalize()
+                    if len(norm) > 1:
+                        out += ', ' + ', '.join(norm[1:])
+                    if not out.endswith(('.', '!', '?')):
+                        out += '.'
+                    merged_emph.append(out)
+                    continue
+            merged_emph.append(cur)
+            i += 1
+        sentences = merged_emph
     # Merge domain splits that accidentally became separate sentences: "Label." + "Com ..."
     if sentences:
         merged: list[str] = []
