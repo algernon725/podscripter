@@ -319,43 +319,7 @@ def _normalize_dotted_acronyms_en(text: str) -> str:
     return text
 
 
-def _merge_emphatic_repeats(text: str, language: str) -> str:
-    """Merge repeated one-word emphatic sentences into a single sentence.
-
-    Examples:
-    - es: "No. No. No." -> "No, no, no."
-    - fr: "Non. Non." -> "Non, non."
-    - de: "Ja. Ja. Ja." -> "Ja, ja, ja."
-    """
-    if not text:
-        return text
-    lang = (language or '').lower()
-    if lang == 'es':
-        token_re = r"no|si|sí"
-        canonical = lambda w: 'sí' if w.lower() in {'si', 'sí'} else 'no'
-    elif lang == 'fr':
-        token_re = r"oui|non"
-        canonical = lambda w: w.lower()
-    elif lang == 'de':
-        token_re = r"ja|nein"
-        canonical = lambda w: w.lower()
-    else:
-        return text
-
-    pattern = re.compile(rf"(?i)\b(?:{token_re})(?:\.\s+(?:{token_re}))+\.\b")
-    def repl(m: re.Match) -> str:
-        s = m.group(0)
-        words = re.findall(rf"(?i)\b({token_re})\b", s)
-        if not words:
-            return s
-        norm = [canonical(w) for w in words]
-        out = (norm[0][:1].upper() + norm[0][1:]) if norm[0] else ''
-        if len(norm) > 1:
-            out += ', ' + ', '.join(norm[1:])
-        if not out.endswith(('.', '!', '?')):
-            out += '.'
-        return out
-    return pattern.sub(repl, text)
+# (Removed) emphatic repeat merging to simplify maintenance
 
 def _split_processed_segment(processed: str, language: str) -> tuple[list[str], str]:
     """Split a single, punctuation-restored segment into sentences.
@@ -948,8 +912,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Apply Spanish-specific formatting
     if language == 'es':
-        # Merge emphatic repeats prior to sentence splitting
-        result = _merge_emphatic_repeats(result, language)
         # Domain-preserving sentence split and formatting
         # Use the same splitter used during assembly to avoid breaking inside domains like label.tld
         sentences_list, trailing_fragment = assemble_sentences_from_processed(result, 'es')
@@ -1195,6 +1157,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
             result = _apply_spacy_capitalization(result, language)
+        # (Removed) final collapse of emphatic repeats
         # Normalize comma spacing: no space before, single space after
         result = re.sub(r'\s+,', ',', result)
         result = re.sub(r',\s*', ', ', result)
