@@ -128,6 +128,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Do not split on ellipses mid-clause; keep continuation after `...`/`…` within the same sentence
   - Do not split inside domains like `label.tld`; preserve as a single token (e.g., `espanolistos.com`)
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
+  - TXT writer ensures one sentence per paragraph; domains preserved across sentence boundaries (e.g., `Label.` + `Com ...` → `label.com ...`, with lowercase TLDs)
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
 - German: insert commas before common subordinating conjunctions (`dass|weil|ob|wenn`) when safe; expand question starters/modals; capitalize `Ich` after punctuation; capitalize `Herr/Frau + Name`; minimal noun capitalization after determiners; maintain a small whitelist of proper nouns
 - English/French/German: add greeting commas (`Hello, ...`, `Bonjour, ...`, `Hallo, ...`) and capitalize sentence starts
@@ -305,6 +306,7 @@ Before submitting any changes, ensure:
   - `_es_normalize_tag_questions`, `_es_fix_collocations`
   - `_es_pair_inverted_questions`
   - `_es_merge_possessive_splits`, `_es_merge_aux_gerund`, `_es_merge_capitalized_one_word_sentences`, `_es_intro_location_appositive_commas`
+  - Emphatic one‑word repeat collapsing (e.g., "No. No. No." → "No, no, no.") has been removed for maintainability
 
 - Shared utilities
   - `_split_sentences_preserving_delims(text)` ensures consistent splitting everywhere
