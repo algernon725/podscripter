@@ -345,6 +345,22 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
             idx += 2
             continue
 
+        # Decimal number glue: prev ends with digits and next starts with digits (e.g., 99.9, 121.73)
+        # Heuristic: restrict to short numeric groups to avoid gluing years like 2019. 9 meses
+        if punct == '.':
+            next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
+            prev_num_match = re.search(r"(\d{1,3})$", chunk)
+            next_frac_match = re.match(r"^(\d{1,3})(.*)$", next_chunk)
+            if prev_num_match and next_frac_match:
+                frac_digits = next_frac_match.group(1)
+                remainder_after_frac = next_frac_match.group(2)
+                # Glue: append '.' + fraction digits
+                buffer += '.' + frac_digits
+                # Leave remainder (e.g., '% de la población') for subsequent processing
+                parts[idx + 2] = remainder_after_frac
+                idx += 2
+                continue
+
         # Domain glue: label + '.' + TLD (2-24 letters)
         if punct == '.':
             next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""

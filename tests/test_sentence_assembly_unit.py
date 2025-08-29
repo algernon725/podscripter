@@ -48,3 +48,11 @@ def test_fr_merge_short_connector_breaks_negative():
     assert_eq(out, sentences)
 
 
+def test_es_decimal_preservation_percent_and_plain():
+    # Ensure decimals aren't split across sentences (e.g., 99.9% and 121.73)
+    processed = "Qué significa eso de que hay una alfabetización del 99.9% de la población. También hablaremos de 121.73 kilómetros."
+    out, trailing = assemble_sentences_from_processed(processed, 'es')
+    assert_eq(trailing, "")
+    assert any("99.9%" in s for s in out), f"Missing 99.9% in {out}"
+    assert any("121.73" in s for s in out), f"Missing 121.73 in {out}"
+

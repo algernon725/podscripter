@@ -429,8 +429,9 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             def _mask(m):
                 return f"{m.group(1)}__DOT__{m.group(2)}"
             out = re.sub(rf"\b([a-z0-9\-]{3,})\.({tld_alt})\b", _mask, s, flags=re.IGNORECASE)
-            # Fix missing space after ., ?, ! (avoid ellipses)
-            out = re.sub(r"(?<!\.)\.\s*([^\s.])", r". \1", out)
+            # Fix missing space after ., ?, ! (avoid ellipses and decimals)
+            # Do not insert a space for decimal numbers like 99.9 or 121.73
+            out = re.sub(r"(?<!\d)\.\s*(?!\d)([^\s.])", r". \1", out)
             out = re.sub(r"\?\s*(\S)", r"? \1", out)
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate
@@ -440,6 +441,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = re.sub(r",\s*", ", ", out)
             # Replace stray intra-word periods between lowercase letters: "vendedores.ambulantes" -> "vendedores ambulantes"
             out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
+            # Tighten percent formatting: keep number and % together
+            out = re.sub(r"(\d)\s+%", r"\1%", out)
             # Unmask domains
             out = re.sub(r"__DOT__", ".", out)
             return out
@@ -531,6 +534,29 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                     remainder = (m2.group(3) or '')
                     remainder = remainder.lstrip()
                     merged_sentence = cur[:-1] + "." + tld
+                    if remainder:
+                        merged_sentence = (merged_sentence + " " + remainder).strip()
+                    merged.append(merged_sentence)
+                    i += 2
+                    continue
+            merged.append(cur)
+            i += 1
+        sentences = merged
+    # Merge decimal splits that accidentally became separate sentences: "99." + "9% de ..." or "121." + "73 ..."
+    if sentences:
+        merged: list[str] = []
+        i = 0
+        while i < len(sentences):
+            cur = (sentences[i] or '').strip()
+            if i + 1 < len(sentences):
+                nxt = (sentences[i + 1] or '').strip()
+                m1 = re.search(r"(\d{1,3})\.$", cur)
+                m2 = re.match(r"^(\d{1,3})(%?)(\b.*)$", nxt)
+                if m1 and m2:
+                    frac = m2.group(1)
+                    percent = m2.group(2) or ''
+                    remainder = (m2.group(3) or '').lstrip()
+                    merged_sentence = cur[:-1] + "." + frac + percent
                     if remainder:
                         merged_sentence = (merged_sentence + " " + remainder).strip()
                     merged.append(merged_sentence)
