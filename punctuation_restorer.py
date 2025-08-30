@@ -929,8 +929,14 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     # Apply Spanish-specific formatting
     if language == 'es':
         # Domain-preserving sentence split and formatting
-        # Use the same splitter used during assembly to avoid breaking inside domains like label.tld
-        sentences_list, trailing_fragment = assemble_sentences_from_processed(result, 'es')
+        # CRITICAL: Mask domains before calling assemble_sentences_from_processed to prevent re-splitting
+        tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+        result_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences_list, trailing_fragment = assemble_sentences_from_processed(result_masked, 'es')
+        # Unmask domains in the resulting sentences
+        sentences_list = [re.sub(r"__DOT__", ".", s) for s in sentences_list]
+        if trailing_fragment:
+            trailing_fragment = re.sub(r"__DOT__", ".", trailing_fragment)
         if trailing_fragment:
             cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
             if cleaned and not cleaned.endswith(('.', '!', '?')):
@@ -967,7 +973,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Add inverted question marks for questions (comprehensive approach)
         # First, identify all sentences that end with question marks
-        sentences = _split_sentences_preserving_delims(result)
+        # CRITICAL: Mask domains before splitting to prevent breaking them
+        result_masked_for_split = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences = _split_sentences_preserving_delims(result_masked_for_split)
+        # Unmask domains in the split sentences
+        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
         for i in range(0, len(sentences), 2):
             if i >= len(sentences):
                 break
@@ -1019,7 +1029,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Bug 1: Fix missing punctuation at the end of sentences
         # Ensure all sentences end with proper punctuation
-        sentences = _split_sentences_preserving_delims(result)
+        # CRITICAL: Mask domains before splitting to prevent breaking them
+        result_masked_for_punct = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences = _split_sentences_preserving_delims(result_masked_for_punct)
+        # Unmask domains in the split sentences
+        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
@@ -1045,7 +1059,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Fix any remaining sentences without punctuation at the end
         # This catches any sentences that might have been missed
-        sentences = _split_sentences_preserving_delims(result)
+        # CRITICAL: Mask domains before splitting to prevent breaking them  
+        result_masked_for_final = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences = _split_sentences_preserving_delims(result_masked_for_final)
+        # Unmask domains in the split sentences
+        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
@@ -1062,7 +1080,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Additional comprehensive fix for any remaining sentences without punctuation
         # Split by sentences and ensure each one ends with punctuation
-        sentences = re.split(r'([.!?]+)', result)
+        # CRITICAL: Mask domains before splitting to prevent breaking them
+        result_masked_for_comprehensive = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences = re.split(r'([.!?]+)', result_masked_for_comprehensive)
+        # Unmask domains in the split sentences
+        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
@@ -1091,7 +1113,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Additional cleanup for Spanish-specific patterns
         # Fix sentences that start with ¿ but don't end with ?
-        sentences = re.split(r'([.!?]+)', result)
+        # CRITICAL: Mask domains before splitting to prevent breaking them
+        result_masked_for_patterns = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences = re.split(r'([.!?]+)', result_masked_for_patterns)
+        # Unmask domains in the split sentences
+        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
@@ -1139,7 +1165,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # FINAL STEP: Add inverted question marks for all questions
         # This runs after all punctuation has been added
         # Use semantic gating to decide whether to keep/add inverted question marks
-        sentences = re.split(r'([.!?]+)', result)
+        # CRITICAL: Mask domains before splitting to prevent breaking them
+        result_masked_for_semantic = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        sentences = re.split(r'([.!?]+)', result_masked_for_semantic)
+        # Unmask domains in the split sentences
+        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
         model_for_gate = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
@@ -1209,9 +1239,14 @@ def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]
 
     Returns a list of raw sentences (without per-language post-formatting).
     """
-    words = text.split()
+    # CRITICAL: Mask domains before splitting to prevent semantic splitter from breaking them
+    tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+    text_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", text, flags=re.IGNORECASE)
+    
+    words = text_masked.split()
     if len(words) < 3:
-        return [text]
+        # Unmask before returning
+        return [re.sub(r"__DOT__", ".", text_masked)]
 
     sentences: List[str] = []
     current_chunk: List[str] = []
@@ -1220,11 +1255,15 @@ def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]
         if _should_end_sentence_here(words, i, current_chunk, model, language):
             sentence_text = ' '.join(current_chunk).strip()
             if sentence_text:
+                # Unmask domains before adding to sentences
+                sentence_text = re.sub(r"__DOT__", ".", sentence_text)
                 sentences.append(sentence_text)
             current_chunk = []
     if current_chunk:
         sentence_text = ' '.join(current_chunk).strip()
         if sentence_text:
+            # Unmask domains before adding to sentences
+            sentence_text = re.sub(r"__DOT__", ".", sentence_text)
             sentences.append(sentence_text)
     return sentences
 
@@ -2457,7 +2496,12 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         r"estás|está|están|"
         r"hay|es|son"
     )
-    parts_coord = re.split(r'([.!?]+)', text)
+    # CRITICAL: Mask domains before splitting to prevent breaking them
+    tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+    text_masked_for_coord = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", text, flags=re.IGNORECASE)
+    parts_coord = re.split(r'([.!?]+)', text_masked_for_coord)
+    # Unmask domains in the split parts
+    parts_coord = [re.sub(r"__DOT__", ".", part) for part in parts_coord]
     for i in range(0, len(parts_coord), 2):
         if i >= len(parts_coord):
             break

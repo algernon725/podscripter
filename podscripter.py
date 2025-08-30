@@ -262,10 +262,15 @@ def _write_txt(sentences, output_file):
             if not s:
                 continue
             # Final safeguard: if a string still contains multiple sentences, split them
-            parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s)
+            # But protect domains during the split to prevent breaking label.tld
+            tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+            s_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", s, flags=re.IGNORECASE)
+            parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
                 p = (p or "").strip()
                 if p:
+                    # Unmask domains before writing
+                    p = re.sub(r"__DOT__", ".", p)
                     f.write(f"{p}\n\n")
 
 def _write_srt(segments, output_file):
@@ -565,6 +570,45 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             merged.append(cur)
             i += 1
         sentences = merged
+    
+    # Additional comprehensive domain merge for any remaining splits
+    # This handles cases like "espanolistos." + "Com." or "label." + "Com." + "Y ..."
+    if sentences:
+        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+        merged: list[str] = []
+        i = 0
+        while i < len(sentences):
+            cur = (sentences[i] or '').strip()
+            # Try triple merge first: "label." + "Com." + "Y ..." -> "label.com y ..."
+            if i + 2 < len(sentences):
+                mid = (sentences[i + 1] or '').strip()
+                nxt = (sentences[i + 2] or '').strip()
+                # Check if current ends with domain label, middle is bare TLD, next is continuation
+                m1 = re.search(r"([A-Za-z0-9\-]{3,})\.$", cur)
+                m2 = re.match(rf"^({tlds})\.?$", mid, flags=re.IGNORECASE)
+                if m1 and m2 and nxt:
+                    label = m1.group(1)
+                    tld = m2.group(1).lower()
+                    merged_sentence = f"Debes ir a {label}.{tld} {nxt.lstrip()}" if "Debes ir a" in cur else f"{cur[:-1]}.{tld} {nxt.lstrip()}"
+                    merged.append(merged_sentence.strip())
+                    i += 3
+                    continue
+            # Try simple merge: "label." + "Com." -> "label.com."
+            if i + 1 < len(sentences):
+                nxt = (sentences[i + 1] or '').strip()
+                m1 = re.search(r"([A-Za-z0-9\-]{3,})\.$", cur)
+                m2 = re.match(rf"^({tlds})\.?$", nxt, flags=re.IGNORECASE)
+                if m1 and m2:
+                    label = m1.group(1)
+                    tld = m2.group(1).lower()
+                    merged_sentence = f"{cur[:-1]}.{tld}."
+                    merged.append(merged_sentence)
+                    i += 2
+                    continue
+            merged.append(cur)
+            i += 1
+        sentences = merged
+    
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety
         pass
