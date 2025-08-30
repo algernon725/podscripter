@@ -264,12 +264,23 @@ def _write_txt(sentences, output_file):
             
             # CRITICAL: Fix broken domains with spaces before any processing
             # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
-            tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-            s = re.sub(rf"\b([a-z0-9\-]{{3,}})\.\s+({tld_alt})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", s, flags=re.IGNORECASE)
+            # Support both single TLDs and compound TLDs like co.uk, com.ar
+            single_tld = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
+            
+            # Handle compound TLDs FIRST (before single TLDs to avoid conflicts): "domain. co. uk" -> "domain.co.uk"
+            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(co)\.\s+(uk)\b", r"\1.co.uk", s, flags=re.IGNORECASE)
+            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(com)\.\s+(ar|mx|br|au)\b", lambda m: f"{m.group(1)}.com.{m.group(3).lower()}", s, flags=re.IGNORECASE)
+            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(co)\.\s+(jp|in)\b", lambda m: f"{m.group(1)}.co.{m.group(3).lower()}", s, flags=re.IGNORECASE)
+            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(gov|org|ac)\.\s+(uk)\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}.uk", s, flags=re.IGNORECASE)
+            
+            # Handle single TLDs: "domain. com" -> "domain.com" (after compound TLDs)
+            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+({single_tld})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", s, flags=re.IGNORECASE)
             
             # Final safeguard: if a string still contains multiple sentences, split them
-            # But protect domains during the split to prevent breaking label.tld
-            s_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", s, flags=re.IGNORECASE)
+            # But protect domains during the split to prevent breaking label.tld (single and compound)
+            compound_tld = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
+            all_tlds = f"({single_tld})|({compound_tld})"
+            s_masked = re.sub(rf"\b([a-z0-9\-]+)\.({all_tlds})\b", r"\1__DOT__\2", s, flags=re.IGNORECASE)
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
                 p = (p or "").strip()
@@ -434,15 +445,16 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         try:
             if (language or '').lower() != 'es' or not s:
                 return s
-            # Mask domains to avoid touching label.tld
-            tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-            def _mask(m):
+            # Mask domains to avoid touching label.tld (single and compound TLDs)
+            single_tld = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
+            compound_tld = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
+            def _mask_single(m):
                 return f"{m.group(1)}__DOT__{m.group(2)}"
-            out = re.sub(rf"\b([a-z0-9\-]{3,})\.({tld_alt})\b", _mask, s, flags=re.IGNORECASE)
-            # Fix missing space after ., ?, ! (avoid ellipses and decimals)
-            # Do not insert a space for decimal numbers like 99.9 or 121.73
-            # Also avoid breaking masked domains (__DOT__)
-            out = re.sub(r"(?<!\d)(?<!__DOT)(?<!DOT)\.\s*(?!\d)(?!__DOT)([^\s.])", r". \1", out)
+            def _mask_compound(m):
+                return f"{m.group(1)}__DOT__{m.group(2).replace('.', '_DOT_')}"
+            out = re.sub(rf"\b([a-z0-9\-]+)\.({single_tld})\b", _mask_single, s, flags=re.IGNORECASE)
+            out = re.sub(rf"\b([a-z0-9\-]+)\.({compound_tld})\b", _mask_compound, out, flags=re.IGNORECASE)
+            # Skip problematic space insertion - sentences should already have proper spacing from punctuation restoration
             out = re.sub(r"\?\s*(\S)", r"? \1", out)
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate
@@ -454,8 +466,9 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
             # Tighten percent formatting: keep number and % together
             out = re.sub(r"(\d)\s+%", r"\1%", out)
-            # Unmask domains
+            # Unmask domains (handle both single and compound TLDs)
             out = re.sub(r"__DOT__", ".", out)
+            out = re.sub(r"_DOT_", ".", out)  # For compound TLDs
             return out
         except Exception:
             return s
@@ -537,7 +550,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             cur = (sentences[i] or '').strip()
             if i + 1 < len(sentences):
                 nxt = (sentences[i + 1] or '').strip()
-                m1 = re.search(r"([A-Za-z0-9\-]{3,})\.$", cur)
+                m1 = re.search(r"([A-Za-z0-9\-]+)\.$", cur)
                 m2 = re.match(rf"^({tlds})(\b|\W)(.*)$", nxt, flags=re.IGNORECASE)
                 if m1 and m2:
                     label = m1.group(1)
@@ -545,8 +558,23 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                     remainder = (m2.group(3) or '')
                     remainder = remainder.lstrip()
                     merged_sentence = cur[:-1] + "." + tld
+                    
+                    # Check if there's a third sentence to merge (for triple merge)
+                    # Allow if remainder is empty or just punctuation
+                    if (not remainder or remainder in ('.', '!', '?')) and i + 2 < len(sentences):
+                        third = (sentences[i + 2] or '').strip()
+                        if third:
+                            merged_sentence = merged_sentence + " " + third
+                            merged.append(merged_sentence)
+                            i += 3
+                            continue
+                    
                     if remainder:
-                        merged_sentence = (merged_sentence + " " + remainder).strip()
+                        # Don't add space before punctuation
+                        if remainder.startswith(('.', '!', '?')):
+                            merged_sentence = merged_sentence + remainder
+                        else:
+                            merged_sentence = (merged_sentence + " " + remainder).strip()
                     merged.append(merged_sentence)
                     i += 2
                     continue
@@ -590,19 +618,25 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                 mid = (sentences[i + 1] or '').strip()
                 nxt = (sentences[i + 2] or '').strip()
                 # Check if current ends with domain label, middle is bare TLD, next is continuation
-                m1 = re.search(r"([A-Za-z0-9\-]{3,})\.$", cur)
+                # Look for domain label followed by period anywhere in the sentence
+                m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
                 m2 = re.match(rf"^({tlds})\.?$", mid, flags=re.IGNORECASE)
                 if m1 and m2 and nxt:
                     label = m1.group(1)
                     tld = m2.group(1).lower()
-                    merged_sentence = f"Debes ir a {label}.{tld} {nxt.lstrip()}" if "Debes ir a" in cur else f"{cur[:-1]}.{tld} {nxt.lstrip()}"
+                    # Merge all three parts into one sentence
+                    if "Debes ir a" in cur:
+                        merged_sentence = f"Debes ir a {label}.{tld} {nxt.lstrip()}"
+                    else:
+                        merged_sentence = f"{cur[:-1]}.{tld} {nxt.lstrip()}"
                     merged.append(merged_sentence.strip())
                     i += 3
                     continue
             # Try simple merge: "label." + "Com." -> "label.com."
             if i + 1 < len(sentences):
                 nxt = (sentences[i + 1] or '').strip()
-                m1 = re.search(r"([A-Za-z0-9\-]{3,})\.$", cur)
+                # Look for domain label followed by period anywhere in the sentence
+                m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
                 m2 = re.match(rf"^({tlds})\.?$", nxt, flags=re.IGNORECASE)
                 if m1 and m2:
                     label = m1.group(1)

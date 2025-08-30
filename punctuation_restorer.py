@@ -285,16 +285,22 @@ def _finalize_text_common(text: str) -> str:
     def _mask_domains(m):
         return m.group(1) + "__DOT__" + m.group(2)
     # Only mask well-known TLDs to avoid false positives like "no.tienen"
-    tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-    masked = re.sub(rf"\b([a-z0-9\-]+)\.({tld_alt})\b", _mask_domains, out, flags=re.IGNORECASE)
+    # Support both single and compound TLDs
+    single_tld = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
+    compound_tld = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
+    def _mask_compound(m):
+        return m.group(1) + "__DOT__" + m.group(2).replace('.', '_DOT_')
+    masked = re.sub(rf"\b([a-z0-9\-]+)\.({single_tld})\b", _mask_domains, out, flags=re.IGNORECASE)
+    masked = re.sub(rf"\b([a-z0-9\-]+)\.({compound_tld})\b", _mask_compound, masked, flags=re.IGNORECASE)
     # Ensure single space after sentence punctuation when followed by a letter (including lowercase accented)
     masked = re.sub(r"(?<!\.)\.\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r". \1", masked)
     masked = re.sub(r"\?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"? \1", masked)
     masked = re.sub(r"!\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"! \1", masked)
     # Capitalize after terminators when appropriate
     masked = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
-    # Unmask domains
+    # Unmask domains (handle both single and compound TLDs)
     out = re.sub(r"__DOT__", ".", masked)
+    out = re.sub(r"_DOT_", ".", out)  # For compound TLDs
     # Normalize comma spacing globally
     out = re.sub(r"\s+,", ",", out)
     out = re.sub(r",\s*", ", ", out)
@@ -1249,13 +1255,18 @@ def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]
     Returns a list of raw sentences (without per-language post-formatting).
     """
     # CRITICAL: Mask domains before splitting to prevent semantic splitter from breaking them
-    tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-    text_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", text, flags=re.IGNORECASE)
+    # Support both single and compound TLDs
+    single_tld = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
+    compound_tld = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
+    text_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({single_tld})\b", r"\1__DOT__\2", text, flags=re.IGNORECASE)
+    text_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({compound_tld})\b", lambda m: f"{m.group(1)}__DOT__{m.group(2).replace('.', '_DOT_')}", text_masked, flags=re.IGNORECASE)
     
     words = text_masked.split()
     if len(words) < 3:
-        # Unmask before returning
-        return [re.sub(r"__DOT__", ".", text_masked)]
+        # Unmask before returning (handle both single and compound TLDs)
+        unmasked = re.sub(r"__DOT__", ".", text_masked)
+        unmasked = re.sub(r"_DOT_", ".", unmasked)
+        return [unmasked]
 
     sentences: List[str] = []
     current_chunk: List[str] = []
@@ -1264,15 +1275,17 @@ def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]
         if _should_end_sentence_here(words, i, current_chunk, model, language):
             sentence_text = ' '.join(current_chunk).strip()
             if sentence_text:
-                # Unmask domains before adding to sentences
+                # Unmask domains before adding to sentences (handle both single and compound TLDs)
                 sentence_text = re.sub(r"__DOT__", ".", sentence_text)
+                sentence_text = re.sub(r"_DOT_", ".", sentence_text)
                 sentences.append(sentence_text)
             current_chunk = []
     if current_chunk:
         sentence_text = ' '.join(current_chunk).strip()
         if sentence_text:
-            # Unmask domains before adding to sentences
+            # Unmask domains before adding to sentences (handle both single and compound TLDs)
             sentence_text = re.sub(r"__DOT__", ".", sentence_text)
+            sentence_text = re.sub(r"_DOT_", ".", sentence_text)
             sentences.append(sentence_text)
     return sentences
 
