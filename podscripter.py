@@ -261,9 +261,14 @@ def _write_txt(sentences, output_file):
             s = (sentence or "").strip()
             if not s:
                 continue
+            
+            # CRITICAL: Fix broken domains with spaces before any processing
+            # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
+            tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+            s = re.sub(rf"\b([a-z0-9\-]{{3,}})\.\s+({tld_alt})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", s, flags=re.IGNORECASE)
+            
             # Final safeguard: if a string still contains multiple sentences, split them
             # But protect domains during the split to prevent breaking label.tld
-            tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
             s_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", s, flags=re.IGNORECASE)
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
@@ -436,7 +441,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = re.sub(rf"\b([a-z0-9\-]{3,})\.({tld_alt})\b", _mask, s, flags=re.IGNORECASE)
             # Fix missing space after ., ?, ! (avoid ellipses and decimals)
             # Do not insert a space for decimal numbers like 99.9 or 121.73
-            out = re.sub(r"(?<!\d)\.\s*(?!\d)([^\s.])", r". \1", out)
+            # Also avoid breaking masked domains (__DOT__)
+            out = re.sub(r"(?<!\d)(?<!__DOT)(?<!DOT)\.\s*(?!\d)(?!__DOT)([^\s.])", r". \1", out)
             out = re.sub(r"\?\s*(\S)", r"? \1", out)
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate

@@ -1010,7 +1010,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # result = re.sub(r'\b(andrea|carlos|maría|juan|ana)\s+(de)\s+(colombia|santander|madrid|españa|méxico|argentina)\b', r'\1 \2, \3', result, flags=re.IGNORECASE)
         
         # Ensure proper sentence separation
-        result = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result)
+        # CRITICAL: Mask domains before space insertion to prevent breaking them
+        result_masked_for_separation = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_separation = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result_masked_for_separation)
+        result = re.sub(r"__DOT__", ".", result_masked_for_separation)
         
         # Insert comma after common Spanish greeting starters
         result = re.sub(r'(^|[\n\.\!?]\s*)(Hola)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
@@ -1101,7 +1104,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Replace trailing commas with proper punctuation
         result = re.sub(r',\s*$', '.', result)  # End of text
         result = re.sub(r',\s*([.!?])', r'\1', result)  # Before other punctuation
-        result = re.sub(r',\s*([A-Z])', r'. \1', result)  # Before capital letters (new sentence)
+        # CRITICAL: Mask domains before comma-to-period conversion to prevent breaking them
+        result_masked_for_comma = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_comma = re.sub(r',\s*([A-Z])', r'. \1', result_masked_for_comma)  # Before capital letters (new sentence)
+        result = re.sub(r"__DOT__", ".", result_masked_for_comma)
         
         # Specific fix for short phrases ending in comma
         result = re.sub(r'\b(también sí|sí|no|claro|exacto|perfecto|vale|bien)\s*,', r'\1.', result, flags=re.IGNORECASE)
@@ -1208,7 +1214,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result = re.sub(r'\s+,', ',', result)
         result = re.sub(r',\s*', ', ', result)
         # Ensure a single space after terminal punctuation when followed by a non-space and not part of an ellipsis
-        result = re.sub(r'(?<!\.)\.([^\s.])', r'. \1', result)
+        # CRITICAL: Mask domains before space insertion to prevent breaking them
+        result_masked_for_spacing = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_spacing = re.sub(r'(?<!\.)\.([^\s.])', r'. \1', result_masked_for_spacing)
+        result = re.sub(r"__DOT__", ".", result_masked_for_spacing)
         result = re.sub(r'\?\s*(?=\S)', r'? ', result)
         result = re.sub(r'!\s*(?=\S)', r'! ', result)
         # Capitalize the first letter after sentence terminators when appropriate (Spanish sentences start capitalized)
