@@ -45,6 +45,7 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 from punctuation_restorer import (
     restore_punctuation,
 )
+from domain_utils import fix_spaced_domains, mask_domains, unmask_domains
 
 FOCUS_LANGS = {"en", "es", "fr", "de"}
 
@@ -265,28 +266,18 @@ def _write_txt(sentences, output_file):
             # CRITICAL: Fix broken domains with spaces before any processing
             # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
             # Support both single TLDs and compound TLDs like co.uk, com.ar
-            single_tld = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
-            
-            # Handle compound TLDs FIRST (before single TLDs to avoid conflicts): "domain. co. uk" -> "domain.co.uk"
-            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(co)\.\s+(uk)\b", r"\1.co.uk", s, flags=re.IGNORECASE)
-            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(com)\.\s+(ar|mx|br|au)\b", lambda m: f"{m.group(1)}.com.{m.group(3).lower()}", s, flags=re.IGNORECASE)
-            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(co)\.\s+(jp|in)\b", lambda m: f"{m.group(1)}.co.{m.group(3).lower()}", s, flags=re.IGNORECASE)
-            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+(gov|org|ac)\.\s+(uk)\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}.uk", s, flags=re.IGNORECASE)
-            
-            # Handle single TLDs: "domain. com" -> "domain.com" (after compound TLDs)
-            s = re.sub(rf"\b([a-z0-9\-]+)\.\s+({single_tld})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", s, flags=re.IGNORECASE)
+            # Exclude common Spanish words to avoid false positives like "uno.de"
+            s = fix_spaced_domains(s, use_exclusions=True)
             
             # Final safeguard: if a string still contains multiple sentences, split them
             # But protect domains during the split to prevent breaking label.tld (single and compound)
-            compound_tld = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
-            all_tlds = f"({single_tld})|({compound_tld})"
-            s_masked = re.sub(rf"\b([a-z0-9\-]+)\.({all_tlds})\b", r"\1__DOT__\2", s, flags=re.IGNORECASE)
+            s_masked = mask_domains(s, use_exclusions=True)
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
                 p = (p or "").strip()
                 if p:
                     # Unmask domains before writing
-                    p = re.sub(r"__DOT__", ".", p)
+                    p = unmask_domains(p)
                     f.write(f"{p}\n\n")
 
 def _write_srt(segments, output_file):
@@ -445,15 +436,10 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         try:
             if (language or '').lower() != 'es' or not s:
                 return s
-            # Mask domains to avoid touching label.tld (single and compound TLDs)
-            single_tld = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
-            compound_tld = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
-            def _mask_single(m):
-                return f"{m.group(1)}__DOT__{m.group(2)}"
-            def _mask_compound(m):
-                return f"{m.group(1)}__DOT__{m.group(2).replace('.', '_DOT_')}"
-            out = re.sub(rf"\b([a-z0-9\-]+)\.({single_tld})\b", _mask_single, s, flags=re.IGNORECASE)
-            out = re.sub(rf"\b([a-z0-9\-]+)\.({compound_tld})\b", _mask_compound, out, flags=re.IGNORECASE)
+            
+            # Use centralized domain masking with Spanish exclusions
+            out = mask_domains(s, use_exclusions=True)
+            
             # Fix missing space after ., ?, ! (avoid ellipses, decimals, and already-masked domains)
             # Use a simpler approach - domains are masked so we can be more direct
             out = re.sub(r"\.([A-ZÁÉÍÓÚÑ¿¡])", r". \1", out)  # Add space before capital letters
@@ -469,9 +455,9 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
             # Tighten percent formatting: keep number and % together
             out = re.sub(r"(\d)\s+%", r"\1%", out)
-            # Unmask domains (handle both single and compound TLDs)
-            out = re.sub(r"__DOT__", ".", out)
-            out = re.sub(r"_DOT_", ".", out)  # For compound TLDs
+            
+            # Unmask domains using centralized function
+            out = unmask_domains(out)
             return out
         except Exception:
             return s
