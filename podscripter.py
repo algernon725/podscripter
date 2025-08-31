@@ -256,7 +256,7 @@ def _split_audio_with_overlap(media_file: str, chunk_length_sec: int = DEFAULT_C
             break
     return chunk_infos
 
-def _write_txt(sentences, output_file):
+def _write_txt(sentences, output_file, language: str | None = None):
     with open(output_file, "w") as f:
         for sentence in sentences:
             s = (sentence or "").strip()
@@ -267,11 +267,11 @@ def _write_txt(sentences, output_file):
             # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
             # Support both single TLDs and compound TLDs like co.uk, com.ar
             # Exclude common Spanish words to avoid false positives like "uno.de"
-            s = fix_spaced_domains(s, use_exclusions=True, language=lang_for_punctuation)
+            s = fix_spaced_domains(s, use_exclusions=True, language=language)
             
             # Final safeguard: if a string still contains multiple sentences, split them
             # But protect domains during the split to prevent breaking label.tld (single and compound)
-            s_masked = mask_domains(s, use_exclusions=True, language=lang_for_punctuation)
+            s_masked = mask_domains(s, use_exclusions=True, language=language)
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
                 p = (p or "").strip()
@@ -772,7 +772,7 @@ def _transcribe_with_sentences(
         if write_output and out_dir is not None:
             output_file = Path(out_dir) / f"{base_name}.txt"
             try:
-                _write_txt(sentences, str(output_file))
+                _write_txt(sentences, str(output_file), language=lang_for_punctuation)
             except Exception as e:
                 raise OutputWriteError(f"Failed to write TXT: {e}")
             output_path_txt = str(output_file)
