@@ -44,12 +44,13 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str = None) -
     Example:
         "Visit google.com and uno.de" -> "Visit google__DOT__com and uno.de" (with exclusions)
         "Visit google.com and uno.de" -> "Visit google__DOT__com and uno__DOT__de" (without exclusions)
-        "Necesita ser tratada.de hecho" -> "Necesita ser tratada.de hecho" (Spanish: .de excluded)
+        "Necesita ser tratada.de hecho" -> "Necesita ser tratada.de hecho" (Spanish: .de/.es excluded)
     """
-    # Exclude .de TLD for Spanish text since "de" is an extremely common Spanish preposition
+    # Exclude .de and .es TLDs for Spanish text since "de" and "es" are extremely common Spanish words
     single_tlds = SINGLE_TLDS
     if language and language.lower() == 'es':
         single_tlds = single_tlds.replace('de|', '').replace('|de', '')
+        single_tlds = single_tlds.replace('es|', '').replace('|es', '')
     
     def _mask_single(m):
         label = m.group(1)
@@ -113,12 +114,13 @@ def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str = N
         
     Example:
         "Visit google. com and uno. de" -> "Visit google.com and uno. de" (with exclusions)
-        "Tratada. de hecho" -> "Tratada. de hecho" (Spanish: .de excluded)
+        "Tratada. de hecho" -> "Tratada. de hecho" (Spanish: .de/.es excluded)
     """
-    # Exclude .de TLD for Spanish text since "de" is an extremely common Spanish preposition
+    # Exclude .de and .es TLDs for Spanish text since "de" and "es" are extremely common Spanish words
     single_tlds = SINGLE_TLDS
     if language and language.lower() == 'es':
         single_tlds = single_tlds.replace('de|', '').replace('|de', '')
+        single_tlds = single_tlds.replace('es|', '').replace('|es', '')
     
     def _fix_single_tld(m):
         label = m.group(1)

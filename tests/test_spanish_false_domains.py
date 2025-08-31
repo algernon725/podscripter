@@ -33,6 +33,9 @@ def test_spanish_false_domains():
         ("Era una noche.de verano", "noche.de should split into 'noche. de'"),
         ("La historia.de siempre", "historia.de should split into 'historia. de'"),
         ("Un poco.de todo", "poco.de should split into 'poco. de'"),
+        # New cases for common Spanish verb "es" (is)
+        ("estas fuentes naturales.es bien", "naturales.es should split into 'naturales. es'"),
+        ("en las cuidades no.es que una maquina", "no.es should split into 'no. es'"),
     ]
     
     # Real domains that should be preserved
