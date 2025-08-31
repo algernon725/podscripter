@@ -454,7 +454,10 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                 return f"{m.group(1)}__DOT__{m.group(2).replace('.', '_DOT_')}"
             out = re.sub(rf"\b([a-z0-9\-]+)\.({single_tld})\b", _mask_single, s, flags=re.IGNORECASE)
             out = re.sub(rf"\b([a-z0-9\-]+)\.({compound_tld})\b", _mask_compound, out, flags=re.IGNORECASE)
-            # Skip problematic space insertion - sentences should already have proper spacing from punctuation restoration
+            # Fix missing space after ., ?, ! (avoid ellipses, decimals, and already-masked domains)
+            # Use a simpler approach - domains are masked so we can be more direct
+            out = re.sub(r"\.([A-ZÁÉÍÓÚÑ¿¡])", r". \1", out)  # Add space before capital letters
+            out = re.sub(r"\.([a-záéíóúñ])", r". \1", out)    # Add space before lowercase letters (new sentences)
             out = re.sub(r"\?\s*(\S)", r"? \1", out)
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate
