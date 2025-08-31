@@ -28,6 +28,11 @@ def test_spanish_false_domains():
         ("Hay tres.es opciones disponibles", "tres.es should split into 'tres. es'"),
         ("El.co es una buena opción", "El.co should split into 'El. co'"),
         ("Muy.de acuerdo con la propuesta", "Muy.de should split into 'Muy. de'"),
+        # New cases for common Spanish preposition "de"
+        ("Necesita ser tratada.de hecho", "tratada.de should split into 'tratada. de'"),
+        ("Era una noche.de verano", "noche.de should split into 'noche. de'"),
+        ("La historia.de siempre", "historia.de should split into 'historia. de'"),
+        ("Un poco.de todo", "poco.de should split into 'poco. de'"),
     ]
     
     # Real domains that should be preserved
@@ -50,12 +55,17 @@ def test_spanish_false_domains():
         output = result[0] if result else test_input
         
         # Check if it was correctly split
-        if ("uno.de" in test_input and ("uno. de" in output.lower() or "uno. De" in output)) or \
-           ("Este.es" in test_input and ("este. es" in output.lower() or "Este. Es" in output)) or \
-           ("dos.com" in test_input and ("dos. com" in output.lower() or "dos. Com" in output)) or \
-           ("tres.es" in test_input and ("tres. es" in output.lower() or "tres. Es" in output)) or \
-           ("El.co" in test_input and ("el. co" in output.lower() or "El. Co" in output)) or \
-           ("Muy.de" in test_input and ("muy. de" in output.lower() or "Muy. De" in output)):
+        correctly_split = False
+        if ".de" in test_input and ". de" in output.lower():
+            correctly_split = True
+        elif ".es" in test_input and ". es" in output.lower():
+            correctly_split = True
+        elif ".com" in test_input and ". com" in output.lower():
+            correctly_split = True
+        elif ".co" in test_input and ". co" in output.lower():
+            correctly_split = True
+            
+        if correctly_split:
             print(f"✅ PASS: {output}")
         else:
             print(f"❌ FAIL: {output}")

@@ -300,7 +300,7 @@ def _finalize_text_common(text: str) -> str:
     out = _normalize_mixed_terminal_punctuation(text)
     out = re.sub(r"\s+", " ", out)
     # Use centralized domain masking with Spanish exclusions
-    masked = mask_domains(out, use_exclusions=True)
+    masked = mask_domains(out, use_exclusions=True, language='es')
     # Ensure single space after sentence punctuation when followed by a letter (including lowercase accented)
     masked = re.sub(r"(?<!\.)\.\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r". \1", masked)
     masked = re.sub(r"\?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"? \1", masked)
@@ -1264,7 +1264,7 @@ def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]
     """
     # CRITICAL: Mask domains before splitting to prevent semantic splitter from breaking them
     # Support both single and compound TLDs, exclude common Spanish words to avoid false positives
-    text_masked = mask_domains(text, use_exclusions=True)
+    text_masked = mask_domains(text, use_exclusions=True, language=language)
     
     words = text_masked.split()
     if len(words) < 3:

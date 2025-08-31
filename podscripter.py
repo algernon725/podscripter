@@ -267,11 +267,11 @@ def _write_txt(sentences, output_file):
             # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
             # Support both single TLDs and compound TLDs like co.uk, com.ar
             # Exclude common Spanish words to avoid false positives like "uno.de"
-            s = fix_spaced_domains(s, use_exclusions=True)
+            s = fix_spaced_domains(s, use_exclusions=True, language=lang_for_punctuation)
             
             # Final safeguard: if a string still contains multiple sentences, split them
             # But protect domains during the split to prevent breaking label.tld (single and compound)
-            s_masked = mask_domains(s, use_exclusions=True)
+            s_masked = mask_domains(s, use_exclusions=True, language=lang_for_punctuation)
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
                 p = (p or "").strip()
@@ -438,7 +438,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                 return s
             
             # Use centralized domain masking with Spanish exclusions
-            out = mask_domains(s, use_exclusions=True)
+            out = mask_domains(s, use_exclusions=True, language=language)
             
             # Fix missing space after ., ?, ! (avoid ellipses, decimals, and already-masked domains)
             # Use a simpler approach - domains are masked so we can be more direct

@@ -29,13 +29,14 @@ def _is_spanish_word(label: str) -> bool:
     return bool(re.match(rf"^({SPANISH_EXCLUSIONS})$", label, re.IGNORECASE))
 
 
-def mask_domains(text: str, use_exclusions: bool = True) -> str:
+def mask_domains(text: str, use_exclusions: bool = True, language: str = None) -> str:
     """
     Mask domains in text to protect them from text processing.
     
     Args:
         text: Input text that may contain domains
         use_exclusions: Whether to apply Spanish word exclusions (default True)
+        language: Language code (e.g., 'es', 'en') for language-specific exclusions
         
     Returns:
         Text with domains masked using __DOT__ and _DOT_ tokens
@@ -43,7 +44,13 @@ def mask_domains(text: str, use_exclusions: bool = True) -> str:
     Example:
         "Visit google.com and uno.de" -> "Visit google__DOT__com and uno.de" (with exclusions)
         "Visit google.com and uno.de" -> "Visit google__DOT__com and uno__DOT__de" (without exclusions)
+        "Necesita ser tratada.de hecho" -> "Necesita ser tratada.de hecho" (Spanish: .de excluded)
     """
+    # Exclude .de TLD for Spanish text since "de" is an extremely common Spanish preposition
+    single_tlds = SINGLE_TLDS
+    if language and language.lower() == 'es':
+        single_tlds = single_tlds.replace('de|', '').replace('|de', '')
+    
     def _mask_single(m):
         label = m.group(1)
         tld = m.group(2)
@@ -65,7 +72,7 @@ def mask_domains(text: str, use_exclusions: bool = True) -> str:
     masked = re.sub(rf"\b([a-z0-9\-]+)\.({COMPOUND_TLDS})\b", _mask_compound, text, flags=re.IGNORECASE)
     
     # Mask single TLDs: "domain.com" -> "domain__DOT__com"
-    masked = re.sub(rf"\b([a-z0-9\-]+)\.({SINGLE_TLDS})\b", _mask_single, masked, flags=re.IGNORECASE)
+    masked = re.sub(rf"\b([a-z0-9\-]+)\.({single_tlds})\b", _mask_single, masked, flags=re.IGNORECASE)
     
     return masked
 
@@ -92,20 +99,27 @@ def unmask_domains(text: str) -> str:
     return unmasked
 
 
-def fix_spaced_domains(text: str, use_exclusions: bool = True) -> str:
+def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str = None) -> str:
     """
     Fix domains that have been broken with spaces: "domain. com" -> "domain.com"
     
     Args:
         text: Text that may contain broken domains with spaces
         use_exclusions: Whether to apply Spanish word exclusions (default True)
+        language: Language code for language-specific exclusions
         
     Returns:
         Text with spaced domains fixed
         
     Example:
         "Visit google. com and uno. de" -> "Visit google.com and uno. de" (with exclusions)
+        "Tratada. de hecho" -> "Tratada. de hecho" (Spanish: .de excluded)
     """
+    # Exclude .de TLD for Spanish text since "de" is an extremely common Spanish preposition
+    single_tlds = SINGLE_TLDS
+    if language and language.lower() == 'es':
+        single_tlds = single_tlds.replace('de|', '').replace('|de', '')
+    
     def _fix_single_tld(m):
         label = m.group(1)
         tld = m.group(2)
@@ -132,7 +146,7 @@ def fix_spaced_domains(text: str, use_exclusions: bool = True) -> str:
                    _fix_compound_tld(lambda m: f"{m.group(1)}.{m.group(2).lower()}.uk"), fixed, flags=re.IGNORECASE)
     
     # Fix single TLDs: "domain. com" -> "domain.com" (after compound TLDs)
-    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+({SINGLE_TLDS})\b", _fix_single_tld, fixed, flags=re.IGNORECASE)
+    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+({single_tlds})\b", _fix_single_tld, fixed, flags=re.IGNORECASE)
     
     return fixed
 
@@ -150,7 +164,7 @@ def _get_domain_safe_split_pattern() -> str:
     return r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])"
 
 
-def apply_safe_text_processing(text: str, processing_func: Callable[[str], str], use_exclusions: bool = True) -> str:
+def apply_safe_text_processing(text: str, processing_func: Callable[[str], str], use_exclusions: bool = True, language: str = None) -> str:
     """
     Apply text processing function while protecting domains from modification.
     
@@ -158,6 +172,7 @@ def apply_safe_text_processing(text: str, processing_func: Callable[[str], str],
         text: Input text
         processing_func: Function that processes text (e.g., adds spaces, changes case)
         use_exclusions: Whether to apply Spanish word exclusions (default True)
+        language: Language code for language-specific exclusions
         
     Returns:
         Processed text with domains protected
@@ -167,12 +182,12 @@ def apply_safe_text_processing(text: str, processing_func: Callable[[str], str],
         apply_safe_text_processing("Visit google.com.Then go home", add_spaces)
         -> "Visit google.com. Then go home"
     """
-    masked = mask_domains(text, use_exclusions)
+    masked = mask_domains(text, use_exclusions, language)
     processed = processing_func(masked)
     return unmask_domains(processed)
 
 
-def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bool = True) -> Callable[[str], str]:
+def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bool = True, language: str = None) -> Callable[[str], str]:
     """
     Create a domain-aware regex function that masks domains before applying the regex.
     
@@ -180,6 +195,7 @@ def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bo
         pattern: Regex pattern to apply
         replacement: Replacement string
         use_exclusions: Whether to apply Spanish word exclusions (default True)
+        language: Language code for language-specific exclusions
         
     Returns:
         Function that applies the regex while protecting domains
@@ -193,7 +209,8 @@ def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bo
         return apply_safe_text_processing(
             text, 
             lambda s: re.sub(pattern, replacement, s, flags=re.IGNORECASE), 
-            use_exclusions
+            use_exclusions,
+            language
         )
     return _domain_aware_sub
 
