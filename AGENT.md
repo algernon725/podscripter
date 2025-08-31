@@ -76,6 +76,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 ### File Organization
 - Core logic in `punctuation_restorer.py`
 - Transcription orchestration in `podscripter.py`
+- Domain detection and masking utilities in `domain_utils.py`
 - Tests in `tests/` directory with descriptive names
 - Documentation in markdown files
 
@@ -130,6 +131,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Supported TLDs: Single (`com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru`), Compound (`co.uk|com.ar|com.mx|com.br|com.au|co.jp|co.in|gov.uk|org.uk|ac.uk`)
   - Domain assembly logic: handles split domains across sentence boundaries with triple merge (`Label.` + `Com.` + `Y...` → `label.com Y...`) and simple merge (`Label.` + `Com.` → `label.com.`)
   - Domain masking protects domains during space insertion and sentence splitting to prevent formatting issues
+  - Spanish false domain prevention: excludes common Spanish words (e.g., `uno.de` → `uno. de`) from being treated as domains through centralized exclusion lists
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
   - TXT writer ensures one sentence per paragraph; domains preserved and properly formatted with lowercase TLDs
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
@@ -153,6 +155,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
     - Includes embedded Spanish samples and a human-reference excerpt; computes SequenceMatcher ratio, token F1, and sentence-level alignment metrics (no external media required)
   - `test_spanish_domains_and_ellipses.py` (comprehensive domain handling including single/compound TLDs and ellipsis continuation; tests triple merge functionality)
+  - `test_spanish_false_domains.py` (tests prevention of Spanish words being treated as domains; e.g., `uno.de` → `uno. de`)
+  - `test_domain_utils.py` (comprehensive tests for centralized domain detection, masking, and exclusion utilities)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
  - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
   - Defaults: model `medium`, device `cpu`, compute type `auto`

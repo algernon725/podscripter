@@ -21,6 +21,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
   - CPU-friendly defaults with support for long audio
   - Generalizable punctuation/formatting improvements over one-off fixes
   - Comprehensive domain protection (single and compound TLDs) to preserve URLs/websites in transcriptions
+  - Spanish false domain prevention through centralized exclusion lists
 - **Non-goals**
   - End-to-end cloud service or hosted UI
   - Perfect linguistic analysis for all languages
@@ -119,6 +120,7 @@ flowchart TD
   - Language-specific formatting (ES/EN/FR/DE)
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
   - Domain assembly logic: handles split domains with triple merge and simple merge patterns, ensuring domains remain intact across sentence boundaries
+  - Spanish false domain prevention: centralized exclusion logic prevents Spanish words (e.g., `uno.de`, `este.es`) from being incorrectly treated as domains
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
@@ -190,4 +192,5 @@ flowchart TD
 
 - `podscripter.py`: orchestration, chunking, ASR, output
 - `punctuation_restorer.py`: punctuation, language formatting, capitalization
+- `domain_utils.py`: centralized domain detection, masking, and Spanish false domain prevention
 - `Dockerfile`: runtime and dependency setup
