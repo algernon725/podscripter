@@ -132,6 +132,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Domain assembly logic: handles split domains across sentence boundaries with triple merge (`Label.` + `Com.` + `Y...` → `label.com Y...`) and simple merge (`Label.` + `Com.` → `label.com.`)
   - Domain masking protects domains during space insertion and sentence splitting to prevent formatting issues
   - Spanish false domain prevention: excludes common Spanish words (e.g., `uno.de` → `uno. de`) from being treated as domains through centralized exclusion lists
+  - Spanish-only `.de` exclusion: when language is Spanish, the `.de` TLD is not treated as a domain to avoid false positives with the preposition "de" (e.g., `tratada.de` → `tratada. de`, `noche.de` → `noche. de`)
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
   - TXT writer ensures one sentence per paragraph; domains preserved and properly formatted with lowercase TLDs
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)

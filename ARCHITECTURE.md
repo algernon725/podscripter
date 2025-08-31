@@ -22,6 +22,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
   - Generalizable punctuation/formatting improvements over one-off fixes
   - Comprehensive domain protection (single and compound TLDs) to preserve URLs/websites in transcriptions
   - Spanish false domain prevention through centralized exclusion lists
+  - Spanish-only `.de` exclusion: `.de` TLD is ignored in Spanish to avoid false positives with the preposition "de" (e.g., `tratada.de` → `tratada. de`)
 - **Non-goals**
   - End-to-end cloud service or hosted UI
   - Perfect linguistic analysis for all languages
