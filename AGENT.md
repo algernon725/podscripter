@@ -131,8 +131,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Supported TLDs: Single (`com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru`), Compound (`co.uk|com.ar|com.mx|com.br|com.au|co.jp|co.in|gov.uk|org.uk|ac.uk`)
   - Domain assembly logic: handles split domains across sentence boundaries with triple merge (`Label.` + `Com.` + `Y...` → `label.com Y...`) and simple merge (`Label.` + `Com.` → `label.com.`)
   - Domain masking protects domains during space insertion and sentence splitting to prevent formatting issues
-  - Spanish false domain prevention: excludes common Spanish words (e.g., `uno.de` → `uno. de`) from being treated as domains through centralized exclusion lists
-  - Spanish-only `.de` exclusion: when language is Spanish, the `.de` TLD is not treated as a domain to avoid false positives with the preposition "de" (e.g., `tratada.de` → `tratada. de`, `noche.de` → `noche. de`)
+  - Spanish false domain prevention: excludes common Spanish words (e.g., `uno.de` → `uno. de`, `naturales.es` → `naturales. es`) from being treated as domains through centralized exclusion lists
+  - Spanish-only `.de` and `.es` exclusion: when language is Spanish, the `.de` and `.es` TLDs are not treated as domains to avoid false positives with common words "de" (preposition) and "es" (verb "is") (e.g., `tratada.de` → `tratada. de`, `noche.de` → `noche. de`, `naturales.es` → `naturales. es`, `no.es` → `no. es`)
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
   - TXT writer ensures one sentence per paragraph; domains preserved and properly formatted with lowercase TLDs
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
