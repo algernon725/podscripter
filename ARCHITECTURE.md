@@ -20,6 +20,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
   - Deterministic runs via containerization and caching
   - CPU-friendly defaults with support for long audio
   - Generalizable punctuation/formatting improvements over one-off fixes
+  - Comprehensive domain protection (single and compound TLDs) to preserve URLs/websites in transcriptions
 - **Non-goals**
   - End-to-end cloud service or hosted UI
   - Perfect linguistic analysis for all languages
@@ -116,6 +117,8 @@ flowchart TD
   - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)`
   - Sentence-Transformers semantic cues + curated regex rules
   - Language-specific formatting (ES/EN/FR/DE)
+  - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
+  - Domain assembly logic: handles split domains with triple merge and simple merge patterns, ensuring domains remain intact across sentence boundaries
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
@@ -164,7 +167,7 @@ flowchart TD
 ## Testing and quality gates
 
 - All tests run in Docker with caches mounted
-- Language-specific and cross-language tests for punctuation and splitting
+- Language-specific and cross-language tests for punctuation, splitting, and domain protection (including compound TLD support)
 - Ad-hoc `tests/test_transcription.py` for manual experiments
 - Focused unit tests included by default:
   - `tests/test_sentence_assembly_unit.py` protects Spanish ellipsis/domain handling and French connector merges

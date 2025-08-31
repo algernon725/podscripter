@@ -126,9 +126,12 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Soft sentence splitting: avoid breaking inside entities; merge `auxiliar + gerundio` and possessive splits ("tu español")
   - Optional spaCy capitalization: capitalize entities/PROPN; keep connectors (de, del, y, en, a, con, por, para, etc.) lowercase
   - Do not split on ellipses mid-clause; keep continuation after `...`/`…` within the same sentence
-  - Do not split inside domains like `label.tld`; preserve as a single token (e.g., `espanolistos.com`)
+  - Comprehensive domain protection: preserve single TLDs (`espanolistos.com`, `github.io`, etc.) and compound TLDs (`bbc.co.uk`, `amazon.com.br`, `cambridge.ac.uk`, etc.) as single tokens
+  - Supported TLDs: Single (`com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru`), Compound (`co.uk|com.ar|com.mx|com.br|com.au|co.jp|co.in|gov.uk|org.uk|ac.uk`)
+  - Domain assembly logic: handles split domains across sentence boundaries with triple merge (`Label.` + `Com.` + `Y...` → `label.com Y...`) and simple merge (`Label.` + `Com.` → `label.com.`)
+  - Domain masking protects domains during space insertion and sentence splitting to prevent formatting issues
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
-  - TXT writer ensures one sentence per paragraph; domains preserved across sentence boundaries (e.g., `Label.` + `Com ...` → `label.com ...`, with lowercase TLDs)
+  - TXT writer ensures one sentence per paragraph; domains preserved and properly formatted with lowercase TLDs
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
 - German: insert commas before common subordinating conjunctions (`dass|weil|ob|wenn`) when safe; expand question starters/modals; capitalize `Ich` after punctuation; capitalize `Herr/Frau + Name`; minimal noun capitalization after determiners; maintain a small whitelist of proper nouns
 - English/French/German: add greeting commas (`Hello, ...`, `Bonjour, ...`, `Hallo, ...`) and capitalize sentence starts
@@ -149,7 +152,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
     - Overall average F1 threshold: ≥ 0.70
   - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
     - Includes embedded Spanish samples and a human-reference excerpt; computes SequenceMatcher ratio, token F1, and sentence-level alignment metrics (no external media required)
-  - `test_spanish_domains_and_ellipses.py` (domain handling and ellipsis continuation)
+  - `test_spanish_domains_and_ellipses.py` (comprehensive domain handling including single/compound TLDs and ellipsis continuation; tests triple merge functionality)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
  - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
   - Defaults: model `medium`, device `cpu`, compute type `auto`
