@@ -30,7 +30,8 @@
 Minimal setup and a single run:
 
 ```bash
-# Build image (Apple Silicon). On Intel Macs or other architectures, remove `--platform linux/arm64`.
+# Build image (Apple Silicon).
+# On Intel Macs or other architectures, remove `--platform linux/arm64`.
 docker build --platform linux/arm64 -t podscripter .
 
 # Create cache folders (first time only)
