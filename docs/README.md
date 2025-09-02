@@ -1,5 +1,7 @@
 # podscripter
 
+![podscripter](docs/podscripter-logo.jpeg)
+
 ## Overview
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). 
@@ -28,7 +30,8 @@
 Minimal setup and a single run:
 
 ```bash
-# Build image (Apple Silicon). On Intel Macs or other architectures, remove `--platform linux/arm64`.
+# Build image (Apple Silicon).
+# On Intel Macs or other architectures, remove `--platform linux/arm64`.
 docker build --platform linux/arm64 -t podscripter .
 
 # Create cache folders (first time only)
