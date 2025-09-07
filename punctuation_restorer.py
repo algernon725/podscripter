@@ -722,8 +722,9 @@ def _es_intro_location_appositive_commas(text: str) -> str:
         if place2:
             out += f", {place2}"
         return out
+    # Allow an optional comma after the name (e.g., "Yo soy Andrea, de …")
     return re.sub(
-        r"(?i)\b(Y yo soy|Yo soy)\s+([^,\n]+?)\s+de\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\s*,?\s*([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)?",
+        r"(?i)\b(Y yo soy|Yo soy)\s+([^,\n]+?)\s*,?\s+de\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\s*,?\s*([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)?",
         _intro_loc_commas,
         text,
     )
