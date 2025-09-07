@@ -471,7 +471,26 @@ def _es_greeting_and_leadin_commas(text: str) -> str:
     - "Hola como estan. ¿Listos?" -> "Hola, ¿como estan?"
     - "Hola, a todos" -> "Hola a todos" (remove comma before prepositional phrase)
     - "Como siempre vamos a..." -> "Como siempre, vamos a..."
+    - "¡Hola a todos! ¡Bienvenidos a …!" -> "Hola a todos, ¡bienvenidos a …!"
     """
+    # 0) Combine adjacent greeting + welcome exclamations into a single sentence with a comma
+    #    Gate: only at paragraph start (start-of-text or after blank line) and when content is short
+    def _combine_greeting_welcome(m: re.Match) -> str:
+        prefix = m.group(1) or ''
+        greeting_tail = (m.group(2) or '').strip()
+        welcome = (m.group(3) or '').strip()
+        if len(greeting_tail.split()) > 6 or len(welcome.split()) > 10:
+            return m.group(0)
+        if welcome:
+            welcome = welcome[:1].lower() + welcome[1:]
+        return f"{prefix}Hola{(' ' + greeting_tail) if greeting_tail else ''}, ¡{welcome}!"
+
+    text = re.sub(
+        r"(?is)(^|\n{2,})¡\s*hola\s*([^!\n]*)!\s*¡\s*(bienvenid[oa]s[^!]*)!",
+        _combine_greeting_welcome,
+        text,
+    )
+
     # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
     text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
     # Also handle 'como' without accent
@@ -480,6 +499,25 @@ def _es_greeting_and_leadin_commas(text: str) -> str:
     text = re.sub(r"(^|[\n\.\?¡!]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
     # Ensure comma after "Como siempre," lead-in
     text = re.sub(r"(?i)\b(Como siempre)(?!,)\b", r"\1,", text)
+
+    # 1) Add comma after other common lead-ins when followed by a clause (accent-insensitive)
+    #    Gate: only at sentence-initial positions (start, newline, or after terminator+space)
+    leadins = [
+        r"como\s+siempre",
+        r"entonces",
+        r"bueno",
+        r"pues",
+        r"adem[aá]s",
+        r"as[ií]\s+que",
+    ]
+    text = re.sub(
+        rf"(?i)(^|(?<=\n)|(?<=[\.!?]\s))((?:{'|'.join(leadins)}))(?!,)\b",
+        lambda m: f"{m.group(1)}{m.group(2)},",
+        text,
+    )
+
+    # 2) Normalize greeting without comma before following question/exclamation (sentence-initial only)
+    text = re.sub(r"((^|(?<=\n)|(?<=[\.!?]\s))Hola[^.!?]*?)(\s+)([¿¡])", r"\1, \4", text, flags=re.IGNORECASE)
     return text
 
 
