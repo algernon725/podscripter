@@ -65,25 +65,15 @@ def score_similarity(generated: str, reference: str) -> dict:
 
 
 def test_spanish_transcription_scoring():
-    # Simulate podscripter assembly pipeline over ASR segments without audio dependency
-    sentences = []
-    carry = ""
-    import re
-    for seg in SPANISH_ASR_SEGMENTS:
-        processed = pr.restore_punctuation(seg, 'es')
-        if carry:
-            processed = (carry + ' ' + processed).strip()
-            carry = ""
-        seg_sentences, trailing = pr.assemble_sentences_from_processed(processed, 'es')
-        sentences.extend(seg_sentences)
-        if trailing:
-            trailing = re.sub(r'^[",\s]+', '', trailing)
-            carry = trailing
-    if carry:
-        if not carry.endswith(('.', '!', '?')):
-            carry += '.'
-        sentences.append(carry)
-
+    # Use the full podscripter pipeline to simulate real transcription
+    from podscripter import _assemble_sentences
+    
+    # Concatenate ASR segments like the real pipeline does
+    all_text = ' '.join(SPANISH_ASR_SEGMENTS)
+    
+    # Run through the full pipeline including sanitization
+    sentences = _assemble_sentences(all_text, 'es', quiet=True)
+    
     generated_text = "\n\n".join(sentences)
 
     reference_text = HUMAN_REFERENCE_TEXT

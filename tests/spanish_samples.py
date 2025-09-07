@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 # Minimal Spanish samples for unit testing (no external media files).
 
-# Simulated raw ASR segments (lowercased, unpunctuated, minimal diacritics)
+# Real ASR segments from Episodio174.mov transcription
 SPANISH_ASR_SEGMENTS = [
-    (
-        "hola a todos bienvenidos a espanolistos espanolistos es el podcast que te va a ayudar "
-        "a estar listo para hablar espanol espanolistos te prepara para hablar espanol en cualquier lugar "
-        "a cualquier hora y en cualquier situacion"
-    ),
-    (
-        "recuerdas todos esos momentos en los que no supiste que decir esos momentos en los que no pudiste "
-        "mantener una conversacion pues tranquilo espanolistos es la herramienta que estabas buscando para mejorar tu espanol "
-        "dile adios a todos esos momentos incomodos entonces empecemos estamos listos yo soy andrea de santander colombia "
-        "y yo soy nate de texas estados unidos"
-    ),
+    " ¡Hola a todos! Bienvenidos a Españolistos.",
+    " Españolistos es el podcast que te va a ayudar a estar listo para hablar español.",
+    " Españolistos te prepara para hablar español en cualquier lugar, a cualquier hora y en cualquier situación.",
+    " ¿Recuerdas todos esos momentos en los que no supiste qué decir?",
+    " ¿Esos momentos en los que no pudiste mantener una conversación?",
+    " Pues tranquilo. Españolistos es la herramienta que estabas buscando para mejorar tu español.",
+    " Dile adiós a todos esos momentos incómodos.",
+    " Entonces, empecemos. ¿Estamos listos?",
+    " Yo soy Andrea, de Santander, Colombia.",
+    " Y yo soy Nate, de Texas, Estados Unidos.",
+    " Hola para todos. ¿Cómo están?",
+    " Ojalá que estén muy, muy bien, que estén disfrutando su semana.",
+    " Como siempre, traemos otro episodio interesante.",
+    " Y estamos haciendo este episodio...",
 ]
 
 
