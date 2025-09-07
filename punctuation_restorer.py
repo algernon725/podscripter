@@ -1473,8 +1473,20 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         if current_word.lower() in ['de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
             return False
         
+    # Protect common Spanish question tail constructions: "qué" + infinitive (e.g., "qué decir")
+    prev_low = re.sub(r"[\.,;:!?]+$", "", current_word.lower())
+    if language == 'es' and prev_low in {'qué', 'que'}:
+        nw_clean = re.sub(r"[\.,;:!?]+$", "", (next_word or '').lower())
+        if nw_clean.endswith(('ar', 'er', 'ir')) or nw_clean in {'decir', 'hacer', 'ser', 'estar', 'poder'}:
+            return False
+
     # Check for capital letter after reasonable length (be much more conservative for Spanish ASR capitalization)
     next_next_word = words[current_index + 2] if current_index + 2 < len(words) else ""
+    # Guard: avoid breaking right after conjunction + pronoun (e.g., "Y yo", "Y él")
+    if language == 'es' and len(current_chunk) >= 2:
+        last_two = [w.lower() for w in current_chunk[-2:]]
+        if last_two[0] in {'y', 'e'} and last_two[1] in {'yo','tú','tu','él','ella','nosotros','nosotras','ellos','ellas','usted','ustedes'}:
+            return False
     if (next_word and next_word[0].isupper() and
         len(current_chunk) >= thresholds.get('min_chunk_capital_break', 28) and  # conservative
         not _is_continuation_word(current_word, language) and
@@ -1488,7 +1500,10 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         # Avoid breaking when the next word is a determiner/preposition starting a continuation
         if next_word.lower() in ['los', 'las', 'el', 'la', 'de', 'del']:
             return False
-        return True
+        # Require semantic corroboration for a capital break
+        if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):
+            return _check_semantic_break(words, current_index, model)
+        return False
     
     # Use semantic coherence to determine if chunks should be separated
     if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):  # conservative semantic split
