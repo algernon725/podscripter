@@ -1511,6 +1511,19 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         if next_word and next_word and next_word[0].islower():
             if next_word.lower() in ['y', 'o', 'pero', 'que', 'de', 'en', 'para', 'con', 'por', 'sin', 'sobre']:
                 return False
+        # Spanish-specific continuation guards (mirror capital-break protections)
+        if language == 'es':
+            # Avoid splitting right after conjunction + pronoun (e.g., "Y yo", "Y él")
+            if len(current_chunk) >= 2:
+                last_two = [w.lower() for w in current_chunk[-2:]]
+                if last_two[0] in {'y', 'e'} and last_two[1] in {'yo','tú','tu','él','ella','nosotros','nosotras','ellos','ellas','usted','ustedes'}:
+                    return False
+            # Avoid splitting when the next token is a finite verb beginning a continuation (e.g., "soy", "estoy", "era", "fui")
+            if next_word:
+                next_low2 = next_word.lower()
+                finite_verb_starts = {'soy','estoy','era','fui','seré','estaré','estuve','estaba','sería','estaría','eres','es','somos','son','fue'}
+                if next_low2 in finite_verb_starts:
+                    return False
         return _check_semantic_break(words, current_index, model)
     
     return False
