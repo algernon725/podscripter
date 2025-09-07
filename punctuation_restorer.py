@@ -1398,17 +1398,34 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     current_word = words[current_index]
     next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
     
-    # Strong indicators for sentence end
+    # Strong indicators as soft hints (never hard breaks)
     strong_end_indicators = _get_strong_end_indicators(language)
-    if any(indicator in current_word.lower() for indicator in strong_end_indicators):
-        return True
+    if current_word.lower() in strong_end_indicators:
+        # For Spanish, never end on clause-internal "no"/"sí"
+        if language == 'es' and current_word.lower() in {'no', 'sí'}:
+            return False
+        # Require capital-break gate and semantic corroboration
+        if not (next_word and next_word[:1].isupper() and
+                len(current_chunk) >= thresholds.get('min_chunk_capital_break', 28)):
+            return False
+        # Don't split if next token is a connector/determiner
+        next_low = next_word.lower() if next_word else ''
+        connectors = _get_language_config(language).connectors
+        if next_low in connectors or next_low in {'los', 'las', 'el', 'la', 'de', 'del'}:
+            return False
+        # Only split if semantic break agrees (and we have enough context length)
+        if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):
+            return _check_semantic_break(words, current_index, model)
+        return False
     
     # Spanish-specific sentence breaking patterns
     if language == 'es':
-        # Don't break questions in the middle - check if current chunk contains question words
-        question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
+        # Don't break questions in the middle - include strong starters as well
+        question_words_core = ES_QUESTION_WORDS_CORE
+        question_words_ext = ES_QUESTION_STARTERS_EXTRA
+        question_words_all = set(w.lower() for w in (question_words_core + question_words_ext))
         current_text = ' '.join(current_chunk).lower()
-        if any(word in current_text for word in question_words):
+        if any(word in current_text for word in question_words_all):
             # If we're in the middle of a question, don't break unless it's very long
             if len(current_chunk) < thresholds.get('min_chunk_inside_question', 25):
                 return False
