@@ -22,15 +22,20 @@ SPANISH_ASR_SEGMENTS = [
 
 # Minimal human-verified reference excerpt for scoring
 HUMAN_REFERENCE_TEXT = (
-    "Hola a todos, ¡bienvenidos a Españolistos!\n\n"
-    "Españolistos es el Podcast que te va a ayudar a estar listo para hablar español. "
-    "Españolistos te prepara para hablar español en cualquier lugar, a cualquier hora y en cualquier situación.\n\n"
+    "Hola a todos, ¡bienvenidos a Españolistos!\n"
+    "Españolistos es el podcast que te va a ayudar a estar listo para hablar español.\n"
+    "Españolistos te prepara para hablar español en cualquier lugar, a cualquier hora y en cualquier situación.\n"
     "¿Recuerdas todos esos momentos en los que no supiste qué decir?\n"
     "¿Esos momentos en los que no pudiste mantener una conversación?\n"
     "Pues tranquilo, Españolistos es la herramienta que estabas buscando para mejorar tu español.\n"
     "Dile adiós a todos esos momentos incómodos. Entonces, ¡empecemos!\n"
-    "¿Estamos listos?\n\n"
-    "Yo soy Andrea, de Santander, Colombia. Y yo soy Nate, de Texas, Estados Unidos."
+    "¿Estamos listos?\n"
+    "Yo soy Andrea, de Santander, Colombia. Y yo soy Nate, de Texas, Estados Unidos.\n"
+    "Hola para todos, ¿cómo están? \n"
+    "Ojalá que estén muy, muy bien.\n"
+    "Que estén disfrutando su semana.\n"
+    "Como siempre, traemos otro episodio interesante.\n"
+    "Y estamos haciendo este episodio."
 )
 
 
