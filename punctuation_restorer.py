@@ -309,9 +309,13 @@ def _finalize_text_common(text: str) -> str:
     masked = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
     # Unmask domains using centralized function
     out = unmask_domains(masked)
-    # Normalize comma spacing globally
+    # Normalize comma spacing globally with thousands-aware behavior
+    # 1) Remove spaces before commas everywhere
     out = re.sub(r"\s+,", ",", out)
-    out = re.sub(r",\s*", ", ", out)
+    # 2) Collapse spaces only inside thousands-grouped numbers
+    out = re.sub(r"(?<!\d)(\d{1,3})(?:,\s?\d{3})+(?!\d)", lambda m: re.sub(r',\s+', ',', m.group(0)), out)
+    # 3) Ensure a single space after commas except when followed by a digit (to preserve thousands and enumerations)
+    out = re.sub(r",(?!\d)\s*", ", ", out)
     return out.strip()
 
 
@@ -1224,9 +1228,13 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
             result = _apply_spacy_capitalization(result, language)
         # (Removed) final collapse of emphatic repeats
-        # Normalize comma spacing: no space before, single space after
+        # Normalize comma spacing with thousands-aware behavior
+        # 1) Remove spaces before commas
         result = re.sub(r'\s+,', ',', result)
-        result = re.sub(r',\s*', ', ', result)
+        # 2) Collapse spaces only inside thousands-grouped numbers
+        result = re.sub(r'(?<!\d)(\d{1,3})(?:,\s?\d{3})+(?!\d)', lambda m: re.sub(r',\s+', ',', m.group(0)), result)
+        # 3) Ensure a single space after commas except when followed by a digit
+        result = re.sub(r',(?!\d)\s*', ', ', result)
         # Ensure a single space after terminal punctuation when followed by a non-space and not part of an ellipsis
         # CRITICAL: Mask domains before space insertion to prevent breaking them
         result_masked_for_spacing = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
@@ -2016,7 +2024,8 @@ def _format_non_spanish_text(text: str, language: str) -> str:
     # Cleanup spacing
     out = ' '.join(sentences)
     out = re.sub(r'\s+([,!.?])', r'\1', out)
-    out = re.sub(r'([,])(?=\S)', r'\1 ', out)
+    # Ensure a space after commas only when not followed by a digit (to preserve thousands groups)
+    out = re.sub(r',(?=\S)(?!\d)', ', ', out)
     out = re.sub(r'\s+', ' ', out).strip()
     return out
 

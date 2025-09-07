@@ -448,9 +448,10 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate
             out = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", out)
-            # Normalize comma spacing
+            # Normalize comma spacing (thousands-aware)
             out = re.sub(r"\s+,", ",", out)
-            out = re.sub(r",\s*", ", ", out)
+            out = re.sub(r"(?<!\d)(\d{1,3})(?:,\s?\d{3})+(?!\d)", lambda m: re.sub(r',\s+', ',', m.group(0)), out)
+            out = re.sub(r",(?!\d)\s*", ", ", out)
             # Replace stray intra-word periods between lowercase letters: "vendedores.ambulantes" -> "vendedores ambulantes"
             out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
             # Tighten percent formatting: keep number and % together
