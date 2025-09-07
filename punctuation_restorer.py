@@ -1429,6 +1429,13 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
             # If we're in the middle of a question, don't break unless it's very long
             if len(current_chunk) < thresholds.get('min_chunk_inside_question', 25):
                 return False
+        # Also protect when the NEXT token starts a question clause (e.g., "Qué", "Cómo", or "por qué")
+        next_low = next_word.lower() if next_word else ''
+        next2_low = next_next_word.lower() if 'next_next_word' in locals() and next_next_word else ''
+        if next_low in {'qué', 'como', 'cómo', 'dónde', 'cuando', 'cuándo', 'quién', 'cual', 'cuál'}:
+            return False
+        if next_low == 'por' and next2_low in {'qué'}:
+            return False
         
         # Don't break in the middle of common Spanish phrases
         # Check if we're in the middle of a phrase that should stay together
