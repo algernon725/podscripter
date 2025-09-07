@@ -657,8 +657,8 @@ def _es_pair_inverted_questions(text: str) -> str:
         p = parts[i + 1] if i + 1 < len(parts) else ''
         if not s:
             continue
-        # Full-sentence question: add opening '¿' if missing
-        if p == '?' and not s.startswith('¿'):
+        # Full-sentence question: add opening '¿' if missing and no existing embedded '¿'
+        if p == '?' and '¿' not in s and not s.startswith('¿'):
             # If it erroneously starts with '¡', convert to '¿'
             if s.startswith('¡'):
                 s = s[1:].lstrip()
@@ -1619,8 +1619,11 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
     Returns:
         bool: True if sentence is a question
     """
-    # If explicit question punctuation exists, accept early (general, language-agnostic)
-    if ('?' in sentence) or ('¿' in sentence):
+    # Early-accept only for explicit full-sentence cues
+    # Accept if sentence starts with '¿' (proper inverted question), otherwise do not
+    # blanket-accept just because '?' appears (may be embedded)
+    s_trim = sentence.lstrip()
+    if s_trim.startswith('¿'):
         return True
 
     # First check for obvious question indicators (do not auto-accept)
