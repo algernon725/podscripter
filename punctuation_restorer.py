@@ -178,8 +178,8 @@ def _get_language_thresholds(language: str) -> dict:
     if language == 'es':
         return {
             # Slightly lower thresholds to improve recall of genuine questions in Spanish
-            'semantic_question_threshold_with_indicator': 0.66,
-            'semantic_question_threshold_default': 0.76,
+            'semantic_question_threshold_with_indicator': 0.64,
+            'semantic_question_threshold_default': 0.74,
             'min_total_words_no_split': 30,
             'min_chunk_before_split': 20,
             'min_chunk_inside_question': 25,
@@ -1580,6 +1580,10 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
     Returns:
         bool: True if sentence is a question
     """
+    # If explicit question punctuation exists, accept early (general, language-agnostic)
+    if ('?' in sentence) or ('¿' in sentence):
+        return True
+
     # First check for obvious question indicators (do not auto-accept)
     starts_with_indicator = False
     if language == 'es':
@@ -1588,6 +1592,12 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
             bool(re.match(r"^(qué|dónde|cuándo|cómo|quién|cuál|cuáles|por qué)\b", s)) or
             bool(re.match(r"^(puedes|puede|podrías|podría|quieres|quiere|tienes|tiene|hay|es|está|están|vas|va)\b", s))
         )
+        # Broaden indicator signal using generic indicator detector
+        try:
+            if has_question_indicators(sentence, language):
+                starts_with_indicator = True
+        except Exception:
+            pass
     
     # For Spanish, be extra careful with introductions and statements
     if language == 'es':
