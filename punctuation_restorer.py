@@ -2182,6 +2182,49 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     result = ''.join(out)
 
     if language == 'es':
+        # Entity-driven appositive commas: PERSON (,)? de GPE (,) GPE
+        # Insert missing comma after PERSON when followed by "de <GPE/...>"
+        # and missing comma between two consecutive GPE/LOC entities.
+        try:
+            edits: list[tuple[int, str]] = []
+            for sent in doc.sents:
+                # Work within sentence text slice
+                for ent in doc.ents:
+                    if ent.label_ != 'PERSON':
+                        continue
+                    if not (sent.start_char <= ent.start_char and ent.end_char <= sent.end_char):
+                        continue
+                    # Find next non-space char after PERSON
+                    tail = text[ent.end_char:sent.end_char]
+                    tail_lstrip = tail.lstrip()
+                    if not tail_lstrip:
+                        continue
+                    # If already has a comma immediately after spaces, skip first comma insertion
+                    has_comma = tail_lstrip.startswith(',')
+                    # After optional comma and spaces, check for 'de'
+                    after = tail_lstrip[1:].lstrip() if has_comma else tail_lstrip
+                    if not after.lower().startswith('de'):
+                        continue
+                    # Insert comma after PERSON if missing
+                    if not has_comma:
+                        edits.append((ent.end_char, ','))
+                    # Now check for two consecutive location entities: GPE/LOC (,)? GPE/LOC
+                    # Find first entity that starts after this PERSON within the sentence
+                    following_ents = [e for e in doc.ents if e.start_char >= ent.end_char and e.start_char < sent.end_char and e.label_ in {"GPE","LOC"}]
+                    if len(following_ents) >= 2:
+                        first_loc = following_ents[0]
+                        between = text[first_loc.end_char:following_ents[1].start_char]
+                        # If there is no comma between two locations, insert one
+                        if ',' not in between:
+                            edits.append((first_loc.end_char, ','))
+            # Apply edits in reverse order so positions remain valid
+            if edits:
+                for pos, ins in sorted(edits, key=lambda x: x[0], reverse=True):
+                    # Insert before any spaces at position (keep comma tight to previous token)
+                    result = result[:pos] + ins + result[pos:]
+        except Exception:
+            pass
+
         # Capitalize names after introduction cues (general, not whitelists)
         def cap_word(w: str) -> str:
             return w[:1].upper() + w[1:] if w else w
