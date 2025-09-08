@@ -494,6 +494,15 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             if not cleaned.endswith(('.', '!', '?')):
                 cleaned += '.'
             sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
+    # Merge appositive location breaks across segments (Spanish): 
+    # "..., de <Proper>. <Proper> ..." -> "..., de <Proper>, <Proper> ..."
+    if sentences and (lang_for_punctuation or '').lower() == 'es':
+        try:
+            from punctuation_restorer import _es_merge_appositive_location_breaks as es_merge_appos
+            sentences = es_merge_appos(sentences)
+        except Exception:
+            pass
+
     # Merge repeated emphatic single-word sentences per language
     lang_lower = (lang_for_punctuation or '').lower()
     if sentences:

@@ -459,11 +459,40 @@ def assemble_sentences_from_processed(processed: str, language: str) -> tuple[li
     Returns (sentences, trailing_fragment).
     """
     sentences, trailing = _split_processed_segment(processed, language)
-    if (language or '').lower() == 'fr' and sentences:
+    lang = (language or '').lower()
+    if lang == 'fr' and sentences:
         sentences = _fr_merge_short_connector_breaks(sentences)
+    if lang == 'es' and sentences:
+        sentences = _es_merge_appositive_location_breaks(sentences)
     return sentences, trailing
 
 # --- Spanish helper utilities (pure refactors of existing logic) ---
+def _es_merge_appositive_location_breaks(sentences: list[str]) -> list[str]:
+    """Merge splits across appositive location chains: ", de <Proper>. <Proper> …" -> ", de <Proper>, <Proper> …".
+
+    This operates at assembly time to fix boundary artifacts that slipped past the splitter.
+    """
+    merged: list[str] = []
+    i = 0
+    while i < len(sentences):
+        if i + 1 < len(sentences):
+            prev = (sentences[i] or '').strip()
+            curr = (sentences[i + 1] or '').strip()
+            # prev ends with ", de Proper[,.]?" optionally with a trailing period
+            m_prev = re.search(r"^(.*?,\s*de\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\.?$", prev)
+            m_curr = re.match(r"^([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)([\s\S]*)$", curr)
+            if m_prev and m_curr:
+                base = m_prev.group(1)
+                # Ensure a comma before appositive continuation
+                if not base.endswith(','):
+                    base = base + ','
+                cont = m_curr.group(1) + (m_curr.group(2) or '')
+                merged.append(f"{base} {cont}".strip())
+                i += 2
+                continue
+        merged.append(sentences[i])
+        i += 1
+    return merged
 def _es_greeting_and_leadin_commas(text: str) -> str:
     """Normalize greeting comma usage and common lead-ins for Spanish.
 
@@ -1491,6 +1520,23 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         len(current_chunk) >= thresholds.get('min_chunk_capital_break', 28) and  # conservative
         not _is_continuation_word(current_word, language) and
         not _is_transitional_word(current_word, language)):
+        # ES: avoid breaking after copular/aux verbs when followed by a proper name (e.g., "soy Nate,")
+        if language == 'es':
+            cur_low = current_word.lower().strip('.,;:!?')
+            next_has_comma = next_word.endswith(',') if next_word else False
+            if cur_low in {'soy','eres','es','somos','son','estoy','está','están','era','eras','éramos','eran','fui','fue','estuve','estaba'}:
+                # If next token is a capitalized name and (has comma or next-next is 'de'), keep together
+                if next_word[0].isupper():
+                    if next_has_comma or (next_next_word and next_next_word.lower() == 'de'):
+                        return False
+            # Avoid splitting inside appositive location chains: 
+            # pattern: ", de <Proper> (,)? <Proper>" (e.g., ", de Texas, Estados Unidos")
+            # Look back for recent 'de' and require keeping following proper tokens together
+            tail = [w for w in current_chunk[-4:]]
+            if 'de' in [t.lower().strip('.,;:!?') for t in tail]:
+                if next_word and next_word[:1].isupper():
+                    if next_next_word and next_next_word[:1].isupper():
+                        return False
         # Avoid breaking when followed by two capitalized tokens (likely multi-word proper noun: "Estados Unidos")
         if next_next_word and next_next_word[0].isupper():
             return False
@@ -1511,6 +1557,12 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         if next_word and next_word and next_word[0].islower():
             if next_word.lower() in ['y', 'o', 'pero', 'que', 'de', 'en', 'para', 'con', 'por', 'sin', 'sobre']:
                 return False
+        # Do not split immediately after a comma (likely appositive continuation)
+        if current_word.endswith(','):
+            return False
+        # Avoid splitting when followed by two capitalized tokens (likely proper noun: "Estados Unidos")
+        if next_word and next_word[:1].isupper() and next_next_word and next_next_word[:1].isupper():
+            return False
         # Spanish-specific continuation guards (mirror capital-break protections)
         if language == 'es':
             # Avoid splitting right after conjunction + pronoun (e.g., "Y yo", "Y él")
@@ -1523,6 +1575,17 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
                 next_low2 = next_word.lower()
                 finite_verb_starts = {'soy','estoy','era','fui','seré','estaré','estuve','estaba','sería','estaría','eres','es','somos','son','fue'}
                 if next_low2 in finite_verb_starts:
+                    return False
+            # Avoid splitting after copular verb when followed by a proper name and comma ("soy Nate,")
+            cur_low2 = current_word.lower().strip('.,;:!?')
+            next_has_comma2 = next_word.endswith(',') if next_word else False
+            if cur_low2 in {'soy','eres','es','somos','son','estoy','está','están','era','eras','éramos','eran','fui','fue','estuve','estaba'}:
+                if next_word and next_word[0].isupper() and (next_has_comma2 or (next_next_word and next_next_word.lower() == 'de')):
+                    return False
+            # Avoid splitting inside appositive location chains after 'de'
+            tail2 = [w for w in current_chunk[-4:]]
+            if 'de' in [t.lower().strip('.,;:!?') for t in tail2]:
+                if next_word and next_word[:1].isupper() and next_next_word and next_next_word[:1].isupper():
                     return False
         return _check_semantic_break(words, current_index, model)
     
@@ -2775,6 +2838,31 @@ def _spanish_cleanup_postprocess(text: str) -> str:
     # Final mixed-punctuation cleanup after exclamation pairing
     text = re.sub(r'!\s*\.', '!', text)
     text = re.sub(r'!\s*\?', '!', text)
+
+    # Merge location appositives split across sentences: 
+    # "..., de Texas." + "Estados Unidos." -> "..., de Texas, Estados Unidos."
+    try:
+        parts6 = _split_sentences_preserving_delims(text)
+        i = 0
+        while i + 3 < len(parts6):
+            s1 = (parts6[i] or '').strip()
+            p1 = parts6[i+1]
+            s2 = (parts6[i+2] or '').strip()
+            p2 = parts6[i+3]
+            if p1 == '.' and re.search(r"(?i),?\s*de\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+\s*$", s1):
+                if s2 and s2[0].isupper():
+                    # Insert comma if missing before appositive continuation
+                    if not s1.endswith(','):
+                        s1 = s1 + ','
+                    merged = f"{s1} {s2}"
+                    parts6[i] = merged
+                    parts6[i+1] = p2
+                    del parts6[i+2:i+4]
+                    continue
+            i += 2
+        text = ''.join(parts6)
+    except Exception:
+        pass
 
     # Capitalize sentence starts (handles leading punctuation/quotes)
     text = _es_capitalize_sentence_starts(text)
