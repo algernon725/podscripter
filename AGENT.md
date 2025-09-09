@@ -121,7 +121,12 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Spanish:
   - Preserve embedded questions mid-sentence: keep and properly pair `¿ … ?` inside larger sentences; do not strip mid-sentence `¿`
   - Coordinated yes/no questions: detect verb-initial starts with later `o <verbo>` (e.g., "¿Quieren … o prefieren …?")
-  - Greeting/lead-in formatting: add comma after greeting phrases ("Hola …,") and set-phrases ("Como siempre,")
+  - Greeting/lead-in formatting (guarded):
+    - Add comma after greeting phrases ("Hola …,") and set-phrases ("Como siempre,")
+    - Do not add a comma after `Hola` when followed by prepositional phrases like `a`/`para` (e.g., "Hola para todos")
+    - When a greeting is followed by an inverted mark (`¿`/`¡`), insert the comma only if there isn't one already immediately before the mark (prevents duplicate commas)
+    - If a sentence starts with a greeting and contains an embedded Spanish question later, do not inject a leading `¿` at the very start; keep only the embedded `¿ … ?`
+    - The "remove comma after Hola" rule also applies when the greeting is preceded by `¿` or `¡`
   - Diacritic-insensitive detection for gating where appropriate (e.g., `como` ~ `cómo`)
   - Appositive introductions: format as "Yo soy <Nombre>, de <Ciudad>, <País>"
   - Soft sentence splitting: avoid breaking inside entities; merge `auxiliar + gerundio` and possessive splits ("tu español")
@@ -154,6 +159,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
     - Intro average F1 threshold: ≥ 0.80
     - Overall average F1 threshold: ≥ 0.70
   - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
+    - Includes greeting guards to prevent duplicate commas and ensure natural "Hola para/a ..." behavior
     - Includes embedded Spanish samples and a human-reference excerpt; computes SequenceMatcher ratio, token F1, and sentence-level alignment metrics (no external media required)
   - `test_spanish_domains_and_ellipses.py` (comprehensive domain handling including single/compound TLDs and ellipsis continuation; tests triple merge functionality)
   - `test_spanish_false_domains.py` (tests prevention of Spanish words being treated as domains; e.g., `uno.de` → `uno. de`)

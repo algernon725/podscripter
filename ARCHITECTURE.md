@@ -122,6 +122,10 @@ flowchart TD
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
   - Domain assembly logic: handles split domains with triple merge and simple merge patterns, ensuring domains remain intact across sentence boundaries
   - Spanish false domain prevention: centralized exclusion logic prevents Spanish words (e.g., `uno.de`, `este.es`, `naturales.es`) from being incorrectly treated as domains
+  - Spanish greeting and inverted-question guards:
+    - Guard comma insertion after greetings: avoid comma after `Hola` when followed by `a`/`para` (e.g., "Hola para todos")
+    - When a greeting precedes an inverted mark (`¿`/`¡`), add a comma only if absent to prevent duplicate commas
+    - If a sentence begins with a greeting and contains an embedded Spanish question, do not add a leading `¿` at the start; keep only the embedded `¿ … ?`
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
