@@ -520,12 +520,17 @@ def _es_greeting_and_leadin_commas(text: str) -> str:
         text,
     )
 
+    # Remove leading inverted question before 'Hola' when an embedded question follows later in the sentence
+    # e.g., "¿Hola para todos, ¿Cómo están?" -> "Hola para todos, ¿Cómo están?"
+    text = re.sub(r"(^|[\n\.!?]\s*)¿\s*(Hola\b[^¿\n]*?),\s*(¿)", r"\1\2, \3", text, flags=re.IGNORECASE)
+
     # Greeting punctuation: if a greeting sentence ends with a period and followed by a question, turn period into comma
     text = re.sub(r"(\bHola[^.!?]*?)\.\s+(¿)", r"\1, \2", text, flags=re.IGNORECASE)
     # Also handle 'como' without accent
     text = re.sub(r"(\bHola[^.!?]*?)\.\s+(como\s+estan)\b", r"\1, ¿\2?", text, flags=re.IGNORECASE)
     # Remove comma right after "Hola" when followed by a prepositional phrase (more natural Spanish)
-    text = re.sub(r"(^|[\n\.\?¡!]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
+    # Also match when preceded by an inverted question/exclamation
+    text = re.sub(r"(^|[\n\.\?¡!¿]\s*)Hola,\s+(a|para)\b", r"\1Hola \2", text, flags=re.IGNORECASE)
     # Ensure comma after "Como siempre," lead-in
     text = re.sub(r"(?i)\b(Como siempre)(?!,)\b", r"\1,", text)
 
@@ -546,7 +551,8 @@ def _es_greeting_and_leadin_commas(text: str) -> str:
     )
 
     # 2) Normalize greeting without comma before following question/exclamation (sentence-initial only)
-    text = re.sub(r"((^|(?<=\n)|(?<=[\.!?]\s))Hola[^.!?]*?)(\s+)([¿¡])", r"\1, \4", text, flags=re.IGNORECASE)
+    #    Guard: do not add another comma if one already precedes the inverted mark
+    text = re.sub(r"((^|(?<=\n)|(?<=[\.!?]\s))Hola[^.!?]*?)(?<![,，])\s+([¿¡])", r"\1, \3", text, flags=re.IGNORECASE)
     return text
 
 
@@ -686,8 +692,12 @@ def _es_pair_inverted_questions(text: str) -> str:
         p = parts[i + 1] if i + 1 < len(parts) else ''
         if not s:
             continue
+        # Gate: if the sentence starts with a greeting lead-in (Hola, Buenos días, etc.) and contains an embedded '¿',
+        # do not force-add a leading '¿' at the very start; preserve embedded question only.
+        greeting_start = bool(re.match(r'^(hola|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|bienvenidos)\b', s, flags=re.IGNORECASE))
+        has_embedded_q = '¿' in s
         # Full-sentence question: add opening '¿' if missing and no existing embedded '¿'
-        if p == '?' and '¿' not in s and not s.startswith('¿'):
+        if p == '?' and '¿' not in s and not s.startswith('¿') and not greeting_start:
             # If it erroneously starts with '¡', convert to '¿'
             if s.startswith('¡'):
                 s = s[1:].lstrip()
@@ -1101,8 +1111,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result_masked_for_separation = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result_masked_for_separation)
         result = re.sub(r"__DOT__", ".", result_masked_for_separation)
         
-        # Insert comma after common Spanish greeting starters
-        result = re.sub(r'(^|[\n\.\!?]\s*)(Hola)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
+        # Insert comma after common Spanish greeting starters, but avoid when followed by prepositional phrase
+        result = re.sub(r'(^|[\n\.\!?¿¡]\s*)(Hola)\s+(?!a\b|para\b)', r"\1\2, ", result, flags=re.IGNORECASE)
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenos días)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas tardes)\s+', r"\1\2, ", result, flags=re.IGNORECASE)
         result = re.sub(r'(^|[\n\.\!?]\s*)(Buenas noches)\s+', r"\1\2, ", result, flags=re.IGNORECASE)

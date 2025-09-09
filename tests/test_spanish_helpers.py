@@ -143,6 +143,10 @@ def test_es_greeting_and_leadin_commas():
     assert pr._es_greeting_and_leadin_commas("Hola como estan. ¿Listos?") == "Hola como estan, ¿Listos?"
     assert pr._es_greeting_and_leadin_commas("Hola, a todos") == "Hola a todos"
     assert pr._es_greeting_and_leadin_commas("Como siempre vamos a revisar") == "Como siempre, vamos a revisar"
+    # New: do not introduce double comma when greeting already ends with comma
+    assert pr._es_greeting_and_leadin_commas("Hola para todos, ¿Cómo están?") == "Hola para todos, ¿Cómo están?"
+    # New: add comma before inverted mark when missing
+    assert pr._es_greeting_and_leadin_commas("Hola para todos ¿Cómo están?") == "Hola para todos, ¿Cómo están?"
 
 
 def test_es_wrap_imperative_exclamations():
