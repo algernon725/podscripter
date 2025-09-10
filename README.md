@@ -127,10 +127,10 @@ From inside the Docker Container, run:
 
 ```bash
 python podscripter.py <media_file> --output_dir <output_dir> \
-  [--language <code>|auto] [--output_format {txt|srt}] [--single] \
-  [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] [--beam-size <int>] \
-  [--no-vad] [--vad-speech-pad-ms <int>] \
-  [--quiet|--verbose]
+[--language <code>|auto] [--output_format {txt|srt}] [--single] \
+[--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
+[--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
+[--quiet|--verbose]
 ```
 
 **Example:**
