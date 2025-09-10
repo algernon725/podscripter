@@ -102,10 +102,10 @@ Build the container image that will run the transcription tool:
 Run the container and mount the folders you just created:
   ```bash
   docker run --platform linux/arm64 -it \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
-  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
-  -v $(pwd)/audio-files:/app/audio-files \
-  podscripter
+    -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
+    -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+    -v $(pwd)/audio-files:/app/audio-files \
+    podscripter
   ```
 This opens an interactive terminal inside the container. You'll run all transcription commands from here.
 >💡 If you’re on an Intel Mac or other architecture, remove `--platform linux/arm64`
@@ -127,10 +127,10 @@ From inside the Docker Container, run:
 
 ```bash
 python podscripter.py <media_file> --output_dir <output_dir> \
-[--language <code>|auto] [--output_format {txt|srt}] [--single] \
-[--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
-[--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
-[--quiet|--verbose]
+  [--language <code>|auto] [--output_format {txt|srt}] [--single] \
+  [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
+  [--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
+  [--quiet|--verbose]
 ```
 
 **Example:**
