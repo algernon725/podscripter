@@ -43,7 +43,8 @@
   - Single-call transcription (recommended when resources allow): process full file in one call so Whisper maintains context. Enabled via `--single` flag in `podscripter.py`.
   - Overlapped-chunk transcription (fallback): default path with 480s chunks and 3s overlap.
 - Common settings:
-  - `vad_filter=True` for both modes; default `speech_pad_ms=200` (constant). No VAD CLI flags in the main program.
+  - `vad_filter=True` for both modes by default; `speech_pad_ms=200`.
+  - CLI exposes VAD controls: `--no-vad` to disable VAD, and `--vad-speech-pad-ms <int>` to adjust padding when VAD is enabled.
   - `condition_on_previous_text=True` to keep context continuity
   - For chunked mode, pass `initial_prompt` using the last ~200 characters of accumulated text
   - Deduplicate overlap during merge using global timestamps (skip segments that finish before the prior chunk’s end)
@@ -62,6 +63,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `--model {tiny,base,small,medium,large,large-v2,large-v3}` (default `medium`; precedence: CLI > `WHISPER_MODEL` env > default)
   - `--translate` (Whisper `task=translate`; punctuation uses English rules)
   - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default `auto`)
+  - `--no-vad` (disable VAD filtering; default is enabled)
+  - `--vad-speech-pad-ms <int>` (padding in ms when VAD is enabled; default 200)
   - `--quiet`/`--verbose` (default `--verbose`)
 ```
 

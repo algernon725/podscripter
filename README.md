@@ -49,7 +49,7 @@ docker run --rm --platform linux/arm64 \
 
 Notes:
 - Compute type defaults to `auto` (no CLI needed).
-- No VAD flags in the main CLI; VAD is enabled by default using internal constants.
+- VAD is enabled by default. You can disable it with `--no-vad` or adjust padding with `--vad-speech-pad-ms <int>`.
 
 ---
 
@@ -129,6 +129,7 @@ From inside the Docker Container, run:
 python podscripter.py <media_file> --output_dir <output_dir> \
   [--language <code>|auto] [--output_format {txt|srt}] [--single] \
   [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
+  [--no-vad] [--vad-speech-pad-ms <int>] \
   [--quiet|--verbose]
 ```
 
@@ -192,6 +193,8 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | `--output_format`    | Output format: `txt` or `srt` (default `txt`) |
 | `--single`           | Bypass manual chunking and process the full file in one call |
 | `--compute-type`     | Compute type for faster-whisper: `auto`, `int8`, `int8_float16`, `int8_float32`, `float16`, `float32` (default `auto`) |
+| `--no-vad`           | Disable VAD filtering (default: VAD enabled) |
+| `--vad-speech-pad-ms`| Padding in milliseconds when VAD is enabled (default `200`) |
 | `--quiet`/`--verbose`| Toggle log verbosity (default `--verbose`) |
 
 
