@@ -63,6 +63,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `--model {tiny,base,small,medium,large,large-v2,large-v3}` (default `medium`; precedence: CLI > `WHISPER_MODEL` env > default)
   - `--translate` (Whisper `task=translate`; punctuation uses English rules)
   - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default `auto`)
+  - `--beam-size <int>` (beam size for decoding; default 3)
   - `--no-vad` (disable VAD filtering; default is enabled)
   - `--vad-speech-pad-ms <int>` (padding in ms when VAD is enabled; default 200)
   - `--quiet`/`--verbose` (default `--verbose`)

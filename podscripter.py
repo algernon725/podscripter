@@ -812,6 +812,7 @@ def main():
     parser.add_argument("--single", action="store_true", help="Transcribe the entire file in a single call (no manual chunking)")
     parser.add_argument("--translate", action="store_true", help="Translate output to English (sets Whisper task=translate)")
     parser.add_argument("--compute-type", dest="compute_type", default=DEFAULT_COMPUTE_TYPE, choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"], help="faster-whisper compute type")
+    parser.add_argument("--beam-size", dest="beam_size", type=int, default=DEFAULT_BEAM_SIZE, help="Beam size for decoding (default: 3)")
     # VAD controls
     parser.add_argument("--no-vad", dest="vad_filter", action="store_false", help="Disable VAD filtering (default: enabled)")
     parser.add_argument("--vad-speech-pad-ms", dest="vad_speech_pad_ms", type=int, default=DEFAULT_VAD_SPEECH_PAD_MS, help="Padding (ms) around detected speech when VAD is enabled")
@@ -857,6 +858,7 @@ def main():
             translate_to_english=args.translate,
             model_name=effective_model_name,
             compute_type=args.compute_type,
+            beam_size=args.beam_size,
             quiet=quiet,
             vad_filter=args.vad_filter,
             vad_speech_pad_ms=args.vad_speech_pad_ms,
