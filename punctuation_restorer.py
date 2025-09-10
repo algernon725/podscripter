@@ -312,6 +312,8 @@ def _finalize_text_common(text: str) -> str:
     # Normalize comma spacing globally with thousands-aware behavior
     # 1) Remove spaces before commas everywhere
     out = re.sub(r"\s+,", ",", out)
+    # 1a) Deduplicate accidental double commas (allowing optional spaces between), e.g., ", ," -> ", "
+    out = re.sub(r",\s*,+", ", ", out)
     # 2) Collapse spaces only inside thousands-grouped numbers
     out = re.sub(r"(?<!\d)(\d{1,3})(?:,\s?\d{3})+(?!\d)", lambda m: re.sub(r',\s+', ',', m.group(0)), out)
     # 3) Ensure a single space after commas except when followed by a digit (to preserve thousands and enumerations)

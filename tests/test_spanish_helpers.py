@@ -165,6 +165,13 @@ def test_es_mid_sentence_exclamation_closure():
     assert out2.endswith("¡vamos!") or out2 == "Bueno, ¡vamos!"
 
 
+def test_duplicate_commas_are_deduped_in_finalize():
+    s = "Hola, , descubrí este podcast hace tres años."
+    # finalize is language-agnostic, so call it directly
+    out = pr._finalize_text_common(s)
+    assert out == "Hola, descubrí este podcast hace tres años.", out
+
+
 if __name__ == "__main__":
     # Run tests directly
     for name, fn in sorted(globals().items()):
