@@ -293,9 +293,14 @@ def _write_txt(sentences, output_file, language: str | None = None):
             prepositions = location_prepositions.get(lang_code, r'de|from|aus|von|in|du|des')
             
             # Protect location appositives by temporarily masking them
-            # Pattern: comma + preposition + proper noun + period + proper noun
+            # Pattern 1: comma + preposition + proper noun + period + proper noun
             location_pattern = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
             s_protected = re.sub(location_pattern, r'\1__LOCATION_DOT__\2', s_masked, flags=re.IGNORECASE)
+            
+            # Pattern 2: Direct comma-separated locations like "Austin, Texas. Y"
+            direct_location_pattern = r'(\b[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*,\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑa-záéíóúñ])'
+            s_protected = re.sub(direct_location_pattern, r'\1__LOCATION_DOT__\2', s_protected, flags=re.IGNORECASE)
+            
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
             # Restore the protected periods
             parts = [p.replace('__LOCATION_DOT__', '. ') for p in parts]
