@@ -484,14 +484,20 @@ def _es_merge_appositive_location_breaks(sentences: list[str]) -> list[str]:
             m_prev = re.search(r"^(.*?,\s*de\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\.?$", prev)
             m_curr = re.match(r"^([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)([\s\S]*)$", curr)
             if m_prev and m_curr:
-                base = m_prev.group(1)
-                # Ensure a comma before appositive continuation
-                if not base.endswith(','):
-                    base = base + ','
-                cont = m_curr.group(1) + (m_curr.group(2) or '')
-                merged.append(f"{base} {cont}".strip())
-                i += 2
-                continue
+                # CRITICAL: Only merge if the second sentence is just a location name with minimal trailing content
+                # Don't merge if it contains additional sentences (indicated by sentence terminators like ., !, ?)
+                trailing_content = (m_curr.group(2) or '').strip()
+                
+                # Allow merging only if trailing content is empty or just a period
+                if not trailing_content or trailing_content == '.':
+                    base = m_prev.group(1)
+                    # Ensure a comma before appositive continuation
+                    if not base.endswith(','):
+                        base = base + ','
+                    cont = m_curr.group(1) + (m_curr.group(2) or '')
+                    merged.append(f"{base} {cont}".strip())
+                    i += 2
+                    continue
         merged.append(sentences[i])
         i += 1
     return merged

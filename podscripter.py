@@ -272,7 +272,19 @@ def _write_txt(sentences, output_file, language: str | None = None):
             # Final safeguard: if a string still contains multiple sentences, split them
             # But protect domains during the split to prevent breaking label.tld (single and compound)
             s_masked = mask_domains(s, use_exclusions=True, language=language)
-            parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
+            
+            # For Spanish: don't split on periods that are part of location descriptions
+            # Pattern: ", de <Location>. <Location>" should not be split
+            if language and language.lower() == 'es':
+                # Protect Spanish location appositives by temporarily masking them
+                # Find and mask patterns like ", de Texas. Estados Unidos"
+                location_pattern = r'(,\s*de\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
+                s_protected = re.sub(location_pattern, r'\1__LOCATION_DOT__\2', s_masked)
+                parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
+                # Restore the protected periods
+                parts = [p.replace('__LOCATION_DOT__', '. ') for p in parts]
+            else:
+                parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
             for p in parts:
                 p = (p or "").strip()
                 if p:
