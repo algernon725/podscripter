@@ -273,18 +273,32 @@ def _write_txt(sentences, output_file, language: str | None = None):
             # But protect domains during the split to prevent breaking label.tld (single and compound)
             s_masked = mask_domains(s, use_exclusions=True, language=language)
             
-            # For Spanish: don't split on periods that are part of location descriptions
-            # Pattern: ", de <Location>. <Location>" should not be split
-            if language and language.lower() == 'es':
-                # Protect Spanish location appositives by temporarily masking them
-                # Find and mask patterns like ", de Texas. Estados Unidos"
-                location_pattern = r'(,\s*de\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
-                s_protected = re.sub(location_pattern, r'\1__LOCATION_DOT__\2', s_masked)
-                parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
-                # Restore the protected periods
-                parts = [p.replace('__LOCATION_DOT__', '. ') for p in parts]
-            else:
-                parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_masked)
+            # For all languages: don't split on periods that are part of location descriptions
+            # Pattern: ", <preposition> <Location>. <Location>" should not be split
+            # This applies to multiple languages:
+            # - Spanish: ", de Texas. Estados Unidos"
+            # - English: ", from Texas. United States"  
+            # - French: ", de Texas. États-Unis"
+            # - German: ", aus Texas. Vereinigte Staaten"
+            
+            # Define common location prepositions by language
+            location_prepositions = {
+                'es': r'de',
+                'en': r'from|in',
+                'fr': r'de|du|des',
+                'de': r'aus|von|in'
+            }
+            
+            lang_code = language.lower() if language else 'en'
+            prepositions = location_prepositions.get(lang_code, r'de|from|aus|von|in|du|des')
+            
+            # Protect location appositives by temporarily masking them
+            # Pattern: comma + preposition + proper noun + period + proper noun
+            location_pattern = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
+            s_protected = re.sub(location_pattern, r'\1__LOCATION_DOT__\2', s_masked, flags=re.IGNORECASE)
+            parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
+            # Restore the protected periods
+            parts = [p.replace('__LOCATION_DOT__', '. ') for p in parts]
             for p in parts:
                 p = (p or "").strip()
                 if p:
