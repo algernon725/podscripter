@@ -290,8 +290,9 @@ def _normalize_mixed_terminal_punctuation(text: str) -> str:
 def _fix_location_appositive_punctuation(text: str, language: str) -> str:
     """Fix incorrect periods in location appositives across languages.
     
-    Converts patterns like ", de Texas. Estados Unidos" to ", de Texas, Estados Unidos"
-    for all supported languages using appropriate prepositions.
+    Handles two patterns:
+    1. Preposition-based: ", de Texas. Estados Unidos" -> ", de Texas, Estados Unidos"
+    2. Direct comma-separated: "Austin, Texas. Y allá" -> "Austin, Texas y allá"
     
     Args:
         text: Text that may contain incorrect location appositive punctuation
@@ -300,9 +301,10 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
     Returns:
         Text with corrected location appositive punctuation
         
-    Example:
+    Examples:
         "I'm John, from Texas. United States." -> "I'm John, from Texas, United States."
         "Soy Juan, de Texas. Estados Unidos." -> "Soy Juan, de Texas, Estados Unidos."
+        "Living in Austin, Texas. And working there." -> "Living in Austin, Texas and working there."
     """
     if not text or not language:
         return text
@@ -318,12 +320,55 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
     lang_code = language.lower()
     prepositions = location_prepositions.get(lang_code, r'de|from|aus|von|in|du|des')
     
-    # Pattern: comma + preposition + location + period + location
+    # Pattern 1: comma + preposition + location + period + location
     # Convert the period to a comma for proper appositive punctuation
-    pattern = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
-    replacement = r'\1, \2'
+    # But exclude cases that start new sentences with subjects like "Y yo soy", "And I'm", etc.
+    pattern1 = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
     
-    result = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    # Check if the following text starts a new sentence with a subject
+    def _safe_location_merge_preposition(match):
+        prefix = match.group(1)
+        following = match.group(2)
+        
+        # Don't merge if following text looks like start of new sentence with subject
+        # Common patterns: "Y yo", "And I", "Et je", "Und ich", etc.
+        new_sentence_patterns = [
+            r'^(Y|And|Et|Und)\s+(yo|I|je|ich)',  # "Y yo", "And I", "Et je", "Und ich"
+            r'^(Y|And|Et|Und)\s+\w+\s+(soy|am|suis|bin)',  # "Y alguien soy", "And someone am"
+        ]
+        
+        for pattern in new_sentence_patterns:
+            if re.match(pattern, following, re.IGNORECASE):
+                return match.group(0)  # Return unchanged - don't merge
+        
+        return f"{prefix}, {following}"
+    
+    result = re.sub(pattern1, _safe_location_merge_preposition, text, flags=re.IGNORECASE)
+    
+    # Pattern 2: Direct comma-separated locations (City, State/Country pattern)
+    # Handle cases like "Austin, Texas. Y" -> "Austin, Texas y" but avoid merging new sentences
+    def _safe_location_merge_direct(match):
+        location_part = match.group(1)
+        following_word = match.group(2)
+        
+        # Don't merge if following text starts a new sentence with subject
+        new_sentence_patterns = [
+            r'^(Y|And|Et|Und)\s+(yo|I|je|ich)',  # "Y yo", "And I", "Et je", "Und ich"  
+            r'^(Y|And|Et|Und)\s+\w+\s+(soy|am|suis|bin)',  # "Y alguien soy", "And someone am"
+        ]
+        
+        # Check the full following context (might be more than one word)
+        rest_of_text = text[match.end():]
+        full_following = following_word + " " + rest_of_text.split('.')[0][:50]  # Check first 50 chars
+        
+        for pattern in new_sentence_patterns:
+            if re.match(pattern, full_following, re.IGNORECASE):
+                return match.group(0)  # Return unchanged - don't merge
+        
+        return f"{location_part} {following_word.lower()}"
+    
+    pattern2 = r'(\b[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*,\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑa-záéíóúñ][\wÁÉÍÓÚÑ-]*)'
+    result = re.sub(pattern2, _safe_location_merge_direct, result, flags=re.IGNORECASE)
     
     return result
 
