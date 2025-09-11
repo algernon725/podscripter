@@ -287,6 +287,47 @@ def _normalize_mixed_terminal_punctuation(text: str) -> str:
     return out
 
 
+def _fix_location_appositive_punctuation(text: str, language: str) -> str:
+    """Fix incorrect periods in location appositives across languages.
+    
+    Converts patterns like ", de Texas. Estados Unidos" to ", de Texas, Estados Unidos"
+    for all supported languages using appropriate prepositions.
+    
+    Args:
+        text: Text that may contain incorrect location appositive punctuation
+        language: Language code (es, en, fr, de)
+        
+    Returns:
+        Text with corrected location appositive punctuation
+        
+    Example:
+        "I'm John, from Texas. United States." -> "I'm John, from Texas, United States."
+        "Soy Juan, de Texas. Estados Unidos." -> "Soy Juan, de Texas, Estados Unidos."
+    """
+    if not text or not language:
+        return text
+        
+    # Define location prepositions by language (same as in TXT writer)
+    location_prepositions = {
+        'es': r'de',
+        'en': r'from|in',
+        'fr': r'de|du|des',
+        'de': r'aus|von|in'
+    }
+    
+    lang_code = language.lower()
+    prepositions = location_prepositions.get(lang_code, r'de|from|aus|von|in|du|des')
+    
+    # Pattern: comma + preposition + location + period + location
+    # Convert the period to a comma for proper appositive punctuation
+    pattern = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
+    replacement = r'\1, \2'
+    
+    result = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    
+    return result
+
+
 # Final universal cleanup applied at the end of the pipeline
 def _finalize_text_common(text: str) -> str:
     """Apply safe, language-agnostic cleanup at the very end.
@@ -1344,6 +1385,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
             result = _apply_spacy_capitalization(result, language)
 
+    # Fix location appositive punctuation across languages
+    result = _fix_location_appositive_punctuation(result, language)
+    
     # Final universal cleanup
     return _finalize_text_common(result)
 
