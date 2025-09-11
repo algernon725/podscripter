@@ -144,9 +144,15 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Spanish-only `.de` and `.es` exclusion: when language is Spanish, the `.de` and `.es` TLDs are not treated as domains to avoid false positives with common words "de" (preposition) and "es" (verb "is") (e.g., `tratada.de` → `tratada. de`, `noche.de` → `noche. de`, `naturales.es` → `naturales. es`, `no.es` → `no. es`)
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
   - TXT writer ensures one sentence per paragraph; domains preserved and properly formatted with lowercase TLDs
+  - TXT writer multilingual location protection: during final sentence splitting, protects appositive location patterns like ", <preposition> <Location>. <Location>" to avoid breaking location descriptions. Applies across EN/ES/FR/DE using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; DE: aus/von/in). Examples: ", de Texas. Estados Unidos", ", from Texas. United States", ", de Paris. France", ", aus Berlin. Deutschland".
 - French: apply clitic hyphenation for inversion (e.g., `allez-vous`, `est-ce que`, `qu'est-ce que`, `y a-t-il`, `va-t-il`)
 - German: insert commas before common subordinating conjunctions (`dass|weil|ob|wenn`) when safe; expand question starters/modals; capitalize `Ich` after punctuation; capitalize `Herr/Frau + Name`; minimal noun capitalization after determiners; maintain a small whitelist of proper nouns
 - English/French/German: add greeting commas (`Hello, ...`, `Bonjour, ...`, `Hallo, ...`) and capitalize sentence starts
+
+#### Spanish appositive merge guard (safety)
+- Only merge appositive location breaks when the second sentence is just a location continuation with minimal trailing content.
+- Pattern handled: `"..., de <Proper>. <Proper> ..." -> "..., de <Proper>, <Proper> ..."`.
+- Guard prevents accidental merging when the next sentence contains additional clauses (e.g., "Hola para todos ...").
 
 ### 2. Testing Requirements
 - All tests must run inside Docker container
