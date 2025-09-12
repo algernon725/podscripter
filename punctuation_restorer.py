@@ -1269,11 +1269,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                     sentences[i] = sentence
         result = ''.join(sentences)
         
-        # Final fix for specific short phrases that might be missed
-        result = re.sub(r'\b(también sí)\s*$', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(sí)\s*$', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(no)\s*$', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(pues tranquilo)\s*$', r'\1.', result, flags=re.IGNORECASE)
+        # Removed redundant short phrase patterns - already handled by line 1255
         
         # Additional comprehensive fix for any remaining sentences without punctuation
         # Split by sentences and ensure each one ends with punctuation
@@ -1298,10 +1294,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Replace trailing commas with proper punctuation
         result = re.sub(r',\s*$', '.', result)  # End of text
         result = re.sub(r',\s*([.!?])', r'\1', result)  # Before other punctuation
-        # CRITICAL: Mask domains before comma-to-period conversion to prevent breaking them
-        result_masked_for_comma = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
-        result_masked_for_comma = re.sub(r',\s*([A-Z])', r'. \1', result_masked_for_comma)  # Before capital letters (new sentence)
-        result = re.sub(r"__DOT__", ".", result_masked_for_comma)
+        # Removed overly aggressive comma-to-period pattern that was breaking Spanish grammar
+        # The pattern r',\s*([A-Z])', r'. \1' incorrectly assumed comma + capital = new sentence
+        # This broke natural Spanish flow like "Sí, Andrea" → "Sí. Andrea" and grammar like 
+        # "María, José y Ana" → "María. José y Ana". Spanish commonly uses commas before 
+        # proper names in lists, greetings, and conversational transitions.
         
         # Removed overly broad regex that was breaking mid-sentence Spanish flow
         # The pattern r'\b(también sí|sí|no|claro|exacto|perfecto|vale|bien)\s*,' was incorrectly
@@ -1352,16 +1349,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         if result and not result.endswith(('.', '!', '?')):
             result += '.'
         
-        # Final comprehensive fix for any remaining issues
-        # Handle the specific case of "También sí" and similar short phrases
-        result = re.sub(r'\b(también sí)\s*$', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(sí)\s*$', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(no)\s*$', r'\1.', result, flags=re.IGNORECASE)
-        
-        # Also handle these phrases when they appear at the end of a sentence
-        result = re.sub(r'\b(también sí)\s*([.!?])', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(sí)\s*([.!?])', r'\1.', result, flags=re.IGNORECASE)
-        result = re.sub(r'\b(no)\s*([.!?])', r'\1.', result, flags=re.IGNORECASE)
+        # Removed redundant short phrase patterns - already handled comprehensively by line 1255
         
         # FINAL STEP: Add inverted question marks for all questions
         # This runs after all punctuation has been added
