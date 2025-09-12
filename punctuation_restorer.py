@@ -2336,6 +2336,7 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
     """Detect English phrases within text using spaCy language detection or heuristics.
     
     Returns a set of token indices that are likely English words.
+    Prioritizes NER entities (locations, people, organizations) to avoid misclassification.
     """
     english_token_idxs = set()
     
@@ -2348,7 +2349,57 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
         # Process with target language pipeline first
         doc = target_nlp(text)
         
-        # Method 1: Use spacy-language-detection if available
+        # STEP 1: Identify protected entities (locations, people, orgs) that should NOT be treated as English
+        protected_entities = set()
+        protected_types = {"PERSON", "ORG", "GPE", "LOC", "NORP"}  # Include demonyms (NORP)
+        for ent in doc.ents:
+            if ent.label_ in protected_types:
+                for token in ent:
+                    protected_entities.add(token.i)
+            elif ent.label_ == "MISC":
+                # For MISC entities, don't protect any tokens - let the English detection handle them
+                # This prevents spaCy's confused mixed-language groupings from interfering
+                pass
+        
+        # STEP 1b: Add heuristic protection for common location patterns that spaCy might miss in mixed content
+        # Look for words in location-indicating contexts (case-insensitive to catch lowercase instances)
+        location_context_patterns = [
+            r'\bde\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "de colombia", "de santander" 
+            r'\ben\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "en colombia"
+            r'\ba\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',   # "a colombia"
+            r'\bto\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "to colombia" (English)
+            r'\bin\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)', # "in colombia" (English)
+            r'\bgoing\s+to\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "going to colombia"
+            r'\bvivo\s+en\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "vivo en colombia"
+        ]
+        
+        for pattern in location_context_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                location_word = match.group(1)
+                # Find the token index for this location word
+                for token in doc:
+                    if (token.text.lower() == location_word.lower() and 
+                        token.idx >= match.start(1) and token.idx < match.end(1)):
+                        protected_entities.add(token.i)
+                        break
+        
+        # STEP 1c: Use cross-linguistic analysis - if a word appears to be PROPN in English pipeline but not in Spanish context,
+        # it might be a location that Spanish spaCy missed due to mixed content
+        if english_nlp and target_language == 'es':
+            try:
+                # Process same text with English pipeline to see if it catches locations
+                en_doc = english_nlp(text)
+                for en_ent in en_doc.ents:
+                    if en_ent.label_ in {"GPE", "LOC"}:
+                        # Find corresponding tokens in Spanish doc
+                        for token in doc:
+                            if (token.text.lower() == en_ent.text.lower() and 
+                                token.idx >= en_ent.start_char and token.idx < en_ent.end_char):
+                                protected_entities.add(token.i)
+            except Exception:
+                pass
+        
+        # STEP 2: Use spacy-language-detection if available
         if SPACY_LANG_DETECTION_AVAILABLE and target_language == 'es':
             try:
                 # Add language detector to a temporary pipeline
@@ -2362,17 +2413,22 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
                 # Check sentences for English content
                 for sent in lang_doc.sents:
                     if hasattr(sent._, 'language') and sent._.language.get('language') == 'en':
-                        # Mark all tokens in this sentence as English
+                        # Mark tokens as English, but exclude protected entities
                         for token in sent:
-                            english_token_idxs.add(token.i)
+                            if token.i not in protected_entities:
+                                english_token_idxs.add(token.i)
             except Exception:
                 # Fall through to heuristic method
                 pass
         
-        # Method 2: Fallback heuristics for English detection
+        # STEP 3: Fallback heuristics for English detection (with entity protection)
         if not english_token_idxs:
             # Look for English patterns using linguistic features
             for token in doc:
+                # Skip if this token is part of a protected entity
+                if token.i in protected_entities:
+                    continue
+                    
                 is_likely_english = False
                 
                 # Check for common English function words that don't exist in Spanish
@@ -2408,7 +2464,7 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
                 if is_likely_english:
                     english_token_idxs.add(token.i)
             
-            # Extend detection to nearby tokens in likely English phrases
+            # STEP 4: Extend detection to nearby tokens in likely English phrases
             # If we find English words, extend to adjacent non-Spanish tokens
             extended_idxs = set(english_token_idxs)
             for idx in english_token_idxs:
@@ -2417,10 +2473,15 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
                     neighbor_idx = idx + offset
                     if 0 <= neighbor_idx < len(doc):
                         neighbor = doc[neighbor_idx]
-                        if (not neighbor.is_punct and not neighbor.is_space and
-                            neighbor.text.lower() not in {'de', 'la', 'el', 'en', 'y', 'que', 'a', 'con', 'por', 'para', 'es', 'son', 'soy'} and
-                            len(neighbor.text) > 1):
-                            # If it's not clearly Spanish, include it
+                        # Skip if neighbor is a protected entity
+                        if neighbor_idx in protected_entities:
+                            continue
+                        # Skip if clearly Spanish or punctuation
+                        if (neighbor.is_punct or neighbor.is_space or
+                            neighbor.text.lower() in {'de', 'la', 'el', 'en', 'y', 'que', 'a', 'con', 'por', 'para', 'es', 'son', 'soy'}):
+                            continue
+                        # Include if length > 1 and not clearly Spanish
+                        if len(neighbor.text) > 1:
                             extended_idxs.add(neighbor_idx)
             
             english_token_idxs = extended_idxs
@@ -2494,6 +2555,30 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
             if low in connectors:
                 return False
             return True
+        
+        # Additional heuristic: capitalize words that look like location names based on context
+        # even if spaCy didn't detect them as entities (common in mixed-language content)
+        if (language == 'es' and tok.is_alpha and len(tok.text) > 3 and 
+            not low in connectors and tok.i > 0):
+            prev_token = doc[tok.i - 1]
+            # Patterns like "de Colombia", "en Santander", "vivo en Colombia"
+            if (prev_token.text.lower() in {'de', 'en', 'a'} and 
+                len(prev_token.text) <= 2):
+                return True
+            # English patterns: "in Colombia", "to Colombia", "going to Colombia"  
+            if (prev_token.text.lower() in {'in', 'to'} and 
+                len(prev_token.text) <= 2):
+                return True
+            # Two tokens back: "vivo en Colombia", "going to Colombia"
+            if (tok.i > 1):
+                prev2_token = doc[tok.i - 2]
+                if (prev2_token.text.lower() in {'vivo', 'trabajo', 'nací', 'estudié'} and
+                    prev_token.text.lower() == 'en'):
+                    return True
+                if (prev2_token.text.lower() in {'going', 'traveling', 'moving'} and
+                    prev_token.text.lower() == 'to'):
+                    return True
+        
         return False
 
     out = []
