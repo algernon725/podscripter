@@ -12,7 +12,6 @@ docker build --platform linux/arm64 -t podscripter .
 
 ```bash
 docker run --rm --platform linux/arm64 \
-  -e NLP_CAPITALIZATION=1 \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \

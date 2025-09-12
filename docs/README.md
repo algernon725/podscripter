@@ -18,7 +18,7 @@
 - **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
 - **Primary Language Support**: English (en), Spanish (es), French (fr), German (de). Other languages are experimental.
-- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with an optional spaCy-based capitalization pass.
+- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with automatic spaCy-based capitalization.
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
 - **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
 - **Hugging Face Integration**: Leverages Hugging Face models and caches for local, offline workflows.
@@ -210,21 +210,15 @@ PodScripter supports automatic language detection and manual language selection 
 
 **Note**: Whisper can transcribe many additional languages, but only the four listed above have project-level optimization and tests. Other languages are considered experimental.
 
-## Optional NLP Capitalization (spaCy)
+## Automatic NLP Capitalization (spaCy)
 
-Punctuation restoration uses Sentence-Transformers. You can optionally enable an NLP capitalization pass (spaCy) that capitalizes named entities and proper nouns for English, Spanish, French, and German.
+Punctuation restoration uses Sentence-Transformers with automatic spaCy-based capitalization that capitalizes named entities and proper nouns for English, Spanish, French, and German.
 
-- Enabled by default inside the container (Dockerfile sets `NLP_CAPITALIZATION=1`).
-- Disable per run:
-  ```bash
-  docker run ... -e NLP_CAPITALIZATION=0 ...
-  ```
-- Re-enable per run (if disabled in your custom image):
-  ```bash
-  docker run ... -e NLP_CAPITALIZATION=1 ...
-  ```
+- Always enabled - spaCy models are included in the Docker image.
+- Automatically capitalizes names, places, and organizations while preserving language-specific connectors like "de", "del", "y", etc.
+- For unsupported languages, falls back to the English model.
 
-This pass is CPU-only and cached via spaCy “sm” models baked into the image.
+This feature is CPU-only and uses cached spaCy "sm" models baked into the image.
 
 ## Development
 

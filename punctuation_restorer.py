@@ -111,21 +111,16 @@ except ImportError:
     logger.warning("SentenceTransformers not available. Advanced punctuation restoration may be limited.")
 
 
-# Optional spaCy import for NLP-based capitalization
+# SpaCy import for NLP-based capitalization (mandatory)
+import spacy
+
+# Try to import language detection for mixed-language content
 try:
-    import spacy
-    SPACY_AVAILABLE = True
-    
-    # Try to import language detection for mixed-language content
-    try:
-        from spacy_language_detection import LanguageDetector
-        SPACY_LANG_DETECTION_AVAILABLE = True
-    except ImportError:
-        SPACY_LANG_DETECTION_AVAILABLE = False
-        logger.info("spacy-language-detection not available. Will use fallback heuristics for mixed-language content.")
-except Exception:
-    SPACY_AVAILABLE = False
+    from spacy_language_detection import LanguageDetector
+    SPACY_LANG_DETECTION_AVAILABLE = True
+except ImportError:
     SPACY_LANG_DETECTION_AVAILABLE = False
+    logger.info("spacy-language-detection not available. Will use fallback heuristics for mixed-language content.")
 
 
 _SENTENCE_TRANSFORMER_SINGLETON = None
@@ -1405,9 +1400,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Apply targeted Spanish cleanup after semantic gating
         result = _spanish_cleanup_postprocess(result)
 
-        # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
-        if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
-            result = _apply_spacy_capitalization(result, language)
+        # SpaCy capitalization pass (always applied)
+        result = _apply_spacy_capitalization(result, language)
         # (Removed) final collapse of emphatic repeats
         # Normalize comma spacing with thousands-aware behavior
         # 1) Remove spaces before commas
@@ -1435,9 +1429,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Apply light, language-aware formatting for non-Spanish languages
         result = _format_non_spanish_text(result, language)
 
-        # Optional spaCy capitalization pass (env NLP_CAPITALIZATION=1)
-        if os.environ.get('NLP_CAPITALIZATION', '0') == '1':
-            result = _apply_spacy_capitalization(result, language)
+        # SpaCy capitalization pass (always applied)
+        result = _apply_spacy_capitalization(result, language)
 
     # Fix location appositive punctuation across languages
     result = _fix_location_appositive_punctuation(result, language)
@@ -2317,8 +2310,6 @@ def _format_non_spanish_text(text: str, language: str) -> str:
 _SPACY_PIPELINES = {}
 
 def _get_spacy_pipeline(language: str):
-    if not SPACY_AVAILABLE:
-        return None
     if language in _SPACY_PIPELINES:
         return _SPACY_PIPELINES[language]
     model_map = {
@@ -2329,13 +2320,16 @@ def _get_spacy_pipeline(language: str):
     }
     name = model_map.get(language)
     if not name:
-        return None
+        # Fallback to English for unsupported languages
+        name = 'en_core_web_sm'
+        logger.warning(f"Language '{language}' not supported for spaCy. Using English model as fallback.")
     try:
         nlp = spacy.load(name, disable=["lemmatizer"])  # speed
         _SPACY_PIPELINES[language] = nlp
         return nlp
-    except Exception:
-        return None
+    except Exception as e:
+        # If we can't load the model, this is a critical error since SpaCy is now mandatory
+        raise RuntimeError(f"Failed to load spaCy model '{name}': {e}")
 
 
 def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
@@ -2345,15 +2339,10 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
     """
     english_token_idxs = set()
     
-    if not SPACY_AVAILABLE:
-        return english_token_idxs
         
-    # Get both the target language pipeline and English pipeline if available
+    # Get both the target language pipeline and English pipeline
     target_nlp = _get_spacy_pipeline(target_language)
     english_nlp = _get_spacy_pipeline('en')
-    
-    if target_nlp is None:
-        return english_token_idxs
         
     try:
         # Process with target language pipeline first
@@ -2453,7 +2442,7 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     - Fix overcapitalized English words while preserving proper sentence starts
     """
     nlp = _get_spacy_pipeline(language)
-    if nlp is None or not text.strip():
+    if not text.strip():
         return text
 
     try:

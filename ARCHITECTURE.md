@@ -91,7 +91,7 @@ flowchart TD
 2. If not `--single`, split media into ~480s chunks with ~3s overlap.
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
-5. Restore punctuation and assemble sentences using helper utilities (ellipsis/domain-aware; optional spaCy capitalization).
+5. Restore punctuation and assemble sentences using helper utilities (ellipsis/domain-aware; automatic spaCy capitalization).
 6. Write TXT or SRT.
 
 ## Components and responsibilities
@@ -132,13 +132,12 @@ flowchart TD
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
-  - Optional spaCy capitalization when enabled
+  - Automatic spaCy capitalization (always enabled)
   - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
 ## Configuration
 
 - **Environment variables**
-  - `NLP_CAPITALIZATION` (default `1` in Dockerfile): enable spaCy capitalization
   - `HF_HOME`: Hugging Face cache root
   - `WHISPER_CACHE_DIR`: Whisper model cache directory
   - Optionally set `HF_HUB_OFFLINE=1` when caches are warm

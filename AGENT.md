@@ -35,7 +35,7 @@
 - Use `HF_HOME` environment variable (avoid deprecated `TRANSFORMERS_CACHE`)
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
 - Use a singleton model loader to avoid repeated model instantiation within a process
-- For spaCy capitalization mode, models are baked into the image; enable/disable via `NLP_CAPITALIZATION` (see Docker Best Practices)
+- SpaCy capitalization is always enabled, with models baked into the image (see Docker Best Practices)
 - Sentence-Transformers loader: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` to avoid the "Creating a new one with mean pooling" message while still using caches. Also sets `HF_HOME` and may set `HF_HUB_OFFLINE=1` when a local model directory is used.
 
 ### 2a. Transcription Orchestration (Whisper usage)
@@ -134,7 +134,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Diacritic-insensitive detection for gating where appropriate (e.g., `como` ~ `cómo`)
   - Appositive introductions: format as "Yo soy <Nombre>, de <Ciudad>, <País>"
   - Soft sentence splitting: avoid breaking inside entities; merge `auxiliar + gerundio` and possessive splits ("tu español")
-  - Optional spaCy capitalization: capitalize entities/PROPN; keep connectors (de, del, y, en, a, con, por, para, etc.) lowercase
+  - Automatic spaCy capitalization: capitalize entities/PROPN; keep connectors (de, del, y, en, a, con, por, para, etc.) lowercase
   - Do not split on ellipses mid-clause; keep continuation after `...`/`…` within the same sentence
   - Comprehensive domain protection: preserve single TLDs (`espanolistos.com`, `github.io`, etc.) and compound TLDs (`bbc.co.uk`, `amazon.com.br`, `cambridge.ac.uk`, etc.) as single tokens
   - Supported TLDs: Single (`com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru`), Compound (`co.uk|com.ar|com.mx|com.br|com.au|co.jp|co.in|gov.uk|org.uk|ac.uk`)
@@ -192,7 +192,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Mount volumes for model caching: `-v $(pwd)/models/whisper:/app/models`
 - Include all necessary environment variables in Dockerfile
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
-- NLP capitalization mode: Dockerfile sets `ENV NLP_CAPITALIZATION=1` (on by default). Override per run with `-e NLP_CAPITALIZATION=0` to disable.
+- SpaCy capitalization is always enabled for all runs.
 - For performance on long files (> 1 hour): prefer single-call mode if resources allow; otherwise use overlapped chunking with 3s overlap and deduplication on merge.
  - Use a `.dockerignore` to exclude large local media (e.g., `audio-files/`) from the build context to speed up Docker builds
 
@@ -352,7 +352,7 @@ Before submitting any changes, ensure:
 
 - Capitalization (spaCy mode)
   - Uses `LanguageConfig` connectors/possessives for Spanish to avoid mid-sentence mis-capitalization (e.g., `tu español`)
-  - Keep `NLP_CAPITALIZATION` opt-in/out via env (`1` default in Dockerfile)
+  - SpaCy capitalization is always enabled
 
 - Tuning guidance
   - Prefer editing constants and thresholds over changing logic
