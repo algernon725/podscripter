@@ -1303,8 +1303,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result_masked_for_comma = re.sub(r',\s*([A-Z])', r'. \1', result_masked_for_comma)  # Before capital letters (new sentence)
         result = re.sub(r"__DOT__", ".", result_masked_for_comma)
         
-        # Specific fix for short phrases ending in comma
-        result = re.sub(r'\b(también sí|sí|no|claro|exacto|perfecto|vale|bien)\s*,', r'\1.', result, flags=re.IGNORECASE)
+        # Removed overly broad regex that was breaking mid-sentence Spanish flow
+        # The pattern r'\b(también sí|sí|no|claro|exacto|perfecto|vale|bien)\s*,' was incorrectly
+        # converting natural transitions like "Sí, bueno" to "Sí. bueno" causing sentence splits
         
         # Bug 4: Fix question marks followed by inverted question marks in the middle
         # Remove the problematic pattern "?¿" in the middle of sentences
