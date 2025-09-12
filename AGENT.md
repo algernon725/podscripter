@@ -353,6 +353,9 @@ Before submitting any changes, ensure:
 - Capitalization (spaCy mode)
   - Uses `LanguageConfig` connectors/possessives for Spanish to avoid mid-sentence mis-capitalization (e.g., `tu español`)
   - SpaCy capitalization is always enabled
+  - Mixed-language content handling: detects English phrases in Spanish transcriptions to prevent overcapitalization while preserving location names
+  - Multi-layered entity protection: combines spaCy NER, cross-linguistic analysis, and context-based patterns to identify and protect location names
+  - Context-aware location capitalization: recognizes location-indicating patterns like "de Colombia", "en Santander", "going to Colombia" for proper capitalization even when spaCy NER fails in mixed content
 
 - Tuning guidance
   - Prefer editing constants and thresholds over changing logic

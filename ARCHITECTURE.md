@@ -132,7 +132,12 @@ flowchart TD
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
-  - Automatic spaCy capitalization (always enabled)
+  - Automatic spaCy capitalization (always enabled) with mixed-language support:
+    - English phrase detection in Spanish transcriptions using spaCy language detection or linguistic heuristics
+    - Multi-layered location protection: spaCy NER + cross-linguistic analysis + context patterns
+    - Prevents English phrase overcapitalization (e.g., "I am Going To Test" → "I am going to test")
+    - Preserves location capitalization (e.g., "de santander, colombia" → "de Santander, Colombia")
+    - Context-based location recognition using preposition patterns across languages
   - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
 ## Configuration
