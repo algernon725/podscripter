@@ -2354,6 +2354,20 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
         protected_types = {"PERSON", "ORG", "GPE", "LOC", "NORP"}  # Include demonyms (NORP)
         for ent in doc.ents:
             if ent.label_ in protected_types:
+                # Filter out obviously incorrect entity classifications for Spanish
+                if language == 'es' and len(ent.text) == 1:
+                    continue  # Single characters are rarely valid entities
+                
+                # Don't protect common Spanish words that spaCy incorrectly classifies as entities
+                if language == 'es':
+                    ent_text_lower = ent.text.lower()
+                    # Skip entities that are obviously Spanish verbs/nouns being misclassified
+                    if (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', ent_text_lower) or  # infinitive + reflexive
+                        re.match(r'^[a-z]+(me|te|se|nos|os)$', ent_text_lower) or  # reflexive verbs
+                        # Common Spanish noun patterns that shouldn't be entities
+                        re.match(r'^[a-z]+(a|o|as|os)$', ent_text_lower) and len(ent_text_lower) > 3):  # likely common nouns
+                        continue
+                
                 for token in ent:
                     protected_entities.add(token.i)
             elif ent.label_ == "MISC":
@@ -2496,7 +2510,7 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     """Capitalize named entities and proper nouns using spaCy, conservatively.
 
     - Capitalize tokens in entities PERSON/ORG/GPE/LOC
-    - Capitalize tokens with POS=PROPN
+    - Capitalize tokens with POS=PROPN  
     - Preserve particles: de, del, la, las, los, y, o, da, di, do, du, van, von, du, des, le
     - Skip URLs/emails/handles
     - Detect and properly handle English phrases in mixed-language content
@@ -2511,12 +2525,29 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     except Exception:
         return text
 
+    # For Spanish, be very conservative with spaCy's entity detection since it's unreliable with mixed content
     ent_token_idxs = set()
-    ent_types = {"PERSON", "ORG", "GPE", "LOC"}
-    for ent in doc.ents:
-        if ent.label_ in ent_types:
-            for t in ent:
-                ent_token_idxs.add(t.i)
+    if language == 'es':
+        # Only trust clear, unambiguous entities from spaCy
+        for ent in doc.ents:
+            if ent.label_ in {"ORG"}:  # Organizations are usually reliable
+                for t in ent:
+                    ent_token_idxs.add(t.i)
+            elif ent.label_ in {"GPE", "LOC"} and len(ent.text) > 1:
+                # Only trust location entities that don't look like Spanish common words
+                ent_lower = ent.text.lower()
+                if not (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', ent_lower) or
+                        re.match(r'^[a-z]+(me|te|se|nos|os)$', ent_lower) or
+                        re.match(r'^[a-z]+(a|o|as|os)$', ent_lower) and len(ent_lower) > 3):
+                    for t in ent:
+                        ent_token_idxs.add(t.i)
+    else:
+        # For other languages, trust spaCy more
+        ent_types = {"PERSON", "ORG", "GPE", "LOC"}
+        for ent in doc.ents:
+            if ent.label_ in ent_types:
+                for t in ent:
+                    ent_token_idxs.add(t.i)
 
     # Never capitalize these connectors (common Spanish function words)
     cfg = _get_language_config(language)
@@ -2554,6 +2585,19 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
         if tok.pos_ == 'PROPN':
             if low in connectors:
                 return False
+            # For Spanish: be very conservative with PROPN since spaCy often misclassifies common words  
+            if language == 'es':
+                # Don't capitalize obvious Spanish morphological patterns
+                if (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', low) or  # verbs + reflexives
+                    re.match(r'^[a-z]+(me|te|se|nos|os)$', low)):  # pure reflexives
+                    return False
+                # Only capitalize if already uppercase (preserving existing capitalization)
+                if not tok.text[0].isupper():
+                    return False
+            else:
+                # For other languages, be more permissive
+                if tok.text[0].isupper():
+                    return True
             return True
         
         # Additional heuristic: capitalize words that look like location names based on context
