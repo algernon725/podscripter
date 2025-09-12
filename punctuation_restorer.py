@@ -115,8 +115,17 @@ except ImportError:
 try:
     import spacy
     SPACY_AVAILABLE = True
+    
+    # Try to import language detection for mixed-language content
+    try:
+        from spacy_language_detection import LanguageDetector
+        SPACY_LANG_DETECTION_AVAILABLE = True
+    except ImportError:
+        SPACY_LANG_DETECTION_AVAILABLE = False
+        logger.info("spacy-language-detection not available. Will use fallback heuristics for mixed-language content.")
 except Exception:
     SPACY_AVAILABLE = False
+    SPACY_LANG_DETECTION_AVAILABLE = False
 
 
 _SENTENCE_TRANSFORMER_SINGLETON = None
@@ -2329,6 +2338,110 @@ def _get_spacy_pipeline(language: str):
         return None
 
 
+def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
+    """Detect English phrases within text using spaCy language detection or heuristics.
+    
+    Returns a set of token indices that are likely English words.
+    """
+    english_token_idxs = set()
+    
+    if not SPACY_AVAILABLE:
+        return english_token_idxs
+        
+    # Get both the target language pipeline and English pipeline if available
+    target_nlp = _get_spacy_pipeline(target_language)
+    english_nlp = _get_spacy_pipeline('en')
+    
+    if target_nlp is None:
+        return english_token_idxs
+        
+    try:
+        # Process with target language pipeline first
+        doc = target_nlp(text)
+        
+        # Method 1: Use spacy-language-detection if available
+        if SPACY_LANG_DETECTION_AVAILABLE and target_language == 'es':
+            try:
+                # Add language detector to a temporary pipeline
+                temp_nlp = spacy.load('es_core_news_sm')
+                language_detector = LanguageDetector()
+                temp_nlp.add_pipe(language_detector, name='language_detector', last=True)
+                
+                # Process text with language detection
+                lang_doc = temp_nlp(text)
+                
+                # Check sentences for English content
+                for sent in lang_doc.sents:
+                    if hasattr(sent._, 'language') and sent._.language.get('language') == 'en':
+                        # Mark all tokens in this sentence as English
+                        for token in sent:
+                            english_token_idxs.add(token.i)
+            except Exception:
+                # Fall through to heuristic method
+                pass
+        
+        # Method 2: Fallback heuristics for English detection
+        if not english_token_idxs:
+            # Look for English patterns using linguistic features
+            for token in doc:
+                is_likely_english = False
+                
+                # Check for common English function words that don't exist in Spanish
+                english_only_words = {
+                    'i', 'am', 'going', 'to', 'the', 'a', 'an', 'this', 'that', 'these', 'those',
+                    'you', 'we', 'they', 'he', 'she', 'it', 'me', 'him', 'her', 'us', 'them',
+                    'my', 'your', 'his', 'her', 'its', 'our', 'their',
+                    'do', 'does', 'did', 'don\'t', 'doesn\'t', 'didn\'t',
+                    'have', 'has', 'had', 'haven\'t', 'hasn\'t', 'hadn\'t',
+                    'will', 'would', 'won\'t', 'wouldn\'t', 'can', 'could', 'can\'t', 'couldn\'t',
+                    'should', 'shouldn\'t', 'may', 'might', 'must', 'mustn\'t',
+                    'is', 'are', 'was', 'were', 'isn\'t', 'aren\'t', 'wasn\'t', 'weren\'t',
+                    'be', 'being', 'been', 'get', 'got', 'getting',
+                    'think', 'thought', 'know', 'knew', 'see', 'saw', 'look', 'looked',
+                    'good', 'bad', 'better', 'best', 'worse', 'worst',
+                    'in', 'on', 'at', 'by', 'for', 'with', 'without', 'about', 'from',
+                    'and', 'or', 'but', 'so', 'if', 'when', 'where', 'why', 'how', 'what', 'who',
+                    'very', 'really', 'quite', 'just', 'only', 'also', 'too', 'still', 'already',
+                    'test', 'skirt', 'shirt', 'dress', 'pants', 'clothes'
+                }
+                
+                if token.text.lower() in english_only_words:
+                    is_likely_english = True
+                
+                # Check for English morphological patterns
+                elif re.match(r'^[a-z]+(ing|ed|ly|er|est)$', token.text.lower()):
+                    is_likely_english = True
+                
+                # Check for English contractions
+                elif re.match(r"^[a-z]+'[a-z]+$", token.text.lower()):
+                    is_likely_english = True
+                
+                if is_likely_english:
+                    english_token_idxs.add(token.i)
+            
+            # Extend detection to nearby tokens in likely English phrases
+            # If we find English words, extend to adjacent non-Spanish tokens
+            extended_idxs = set(english_token_idxs)
+            for idx in english_token_idxs:
+                # Check previous and next tokens
+                for offset in [-2, -1, 1, 2]:
+                    neighbor_idx = idx + offset
+                    if 0 <= neighbor_idx < len(doc):
+                        neighbor = doc[neighbor_idx]
+                        if (not neighbor.is_punct and not neighbor.is_space and
+                            neighbor.text.lower() not in {'de', 'la', 'el', 'en', 'y', 'que', 'a', 'con', 'por', 'para', 'es', 'son', 'soy'} and
+                            len(neighbor.text) > 1):
+                            # If it's not clearly Spanish, include it
+                            extended_idxs.add(neighbor_idx)
+            
+            english_token_idxs = extended_idxs
+                
+    except Exception as e:
+        logger.debug(f"Error in English phrase detection: {e}")
+        
+    return english_token_idxs
+
+
 def _apply_spacy_capitalization(text: str, language: str) -> str:
     """Capitalize named entities and proper nouns using spaCy, conservatively.
 
@@ -2336,6 +2449,8 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     - Capitalize tokens with POS=PROPN
     - Preserve particles: de, del, la, las, los, y, o, da, di, do, du, van, von, du, des, le
     - Skip URLs/emails/handles
+    - Detect and properly handle English phrases in mixed-language content
+    - Fix overcapitalized English words while preserving proper sentence starts
     """
     nlp = _get_spacy_pipeline(language)
     if nlp is None or not text.strip():
@@ -2356,9 +2471,17 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     # Never capitalize these connectors (common Spanish function words)
     cfg = _get_language_config(language)
     connectors = cfg.connectors
+    
+    # Detect English phrases for mixed-language content
+    english_phrase_idxs = set()
+    if language == 'es':
+        english_phrase_idxs = _detect_english_phrases_with_spacy(text, language)
 
     def should_capitalize(tok) -> bool:
         txt = tok.text
+        # Skip tokens in detected English phrases (but allow proper nouns/entities)
+        if tok.i in english_phrase_idxs and tok.i not in ent_token_idxs:
+            return False
         # Skip URLs/email/handles or tokens that themselves look like domain fragments
         if any(ch in txt for ch in ['@', '/', '://']) or re.search(r"\w+\.\w+", txt):
             return False
@@ -2387,7 +2510,20 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     out = []
     for tok in doc:
         t = tok.text
-        if should_capitalize(tok):
+        
+        # Fix overcapitalized English words in detected phrases
+        if tok.i in english_phrase_idxs and t and t[0].isupper() and len(t) > 1:
+            # Lowercase English words in phrases, except sentence-initial "I"
+            if t.lower() == 'i':
+                # Keep "I" capitalized as it's always capitalized in English
+                pass
+            else:
+                # Check if this is at the start of a sentence
+                is_sentence_start = (tok.i == 0 or 
+                                   (tok.i > 0 and doc[tok.i - 1].text in {'.', '!', '?', '¿', '¡'}))
+                if not is_sentence_start:
+                    t = t[0].lower() + t[1:]
+        elif should_capitalize(tok):
             if t:
                 t = t[0].upper() + t[1:]
             # Spanish-specific de-capitalization for possessive + noun artifacts: "tu Español" -> "tu español"
