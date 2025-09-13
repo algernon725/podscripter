@@ -71,7 +71,7 @@ from dataclasses import dataclass
 import os
 import numpy as np
 import warnings
-from domain_utils import mask_domains, unmask_domains, apply_safe_text_processing, create_domain_aware_regex
+from domain_utils import mask_domains, unmask_domains, apply_safe_text_processing, create_domain_aware_regex, SINGLE_TLDS, SINGLE_MASK
 
 # Suppress PyTorch FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
@@ -438,7 +438,24 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
     Returns (sentences, trailing_fragment_without_terminal_punct).
     The trailing fragment should be carried into the next segment by the caller if desired.
     """
-    parts = re.split(r'(…|[.!?]+)', processed)
+    # CRITICAL: Mask domains before splitting to prevent breaking them
+    # First handle full domain names with subdomains (www.domain.tld, subdomain.domain.tld)
+    # This must be done BEFORE standard masking to avoid conflicts
+    subdomain_pattern = rf"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)([a-z0-9\-]+)\.({SINGLE_TLDS})\b"
+    
+    def _mask_subdomain(m):
+        subdomain = m.group(1)  # e.g., "www."
+        domain = m.group(2)     # e.g., "espanolistos"  
+        tld = m.group(3)        # e.g., "com"
+        # Replace dots with mask tokens: "www.domain.tld" -> "www__DOT__domain__DOT__tld"
+        return f"{subdomain.replace('.', SINGLE_MASK)}{domain}{SINGLE_MASK}{tld}"
+    
+    processed_masked = re.sub(subdomain_pattern, _mask_subdomain, processed, flags=re.IGNORECASE)
+    
+    # Then mask remaining standard domains (domain.tld without subdomains)
+    processed_masked = mask_domains(processed_masked, use_exclusions=True, language=language)
+    
+    parts = re.split(r'(…|[.!?]+)', processed_masked)
     sentences: list[str] = []
     buffer = ""
     idx = 0
@@ -471,23 +488,7 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
                 idx += 2
                 continue
 
-        # Domain glue: label + '.' + TLD (2-24 letters)
-        if punct == '.':
-            next_chunk = parts[idx + 2] if idx + 2 < len(parts) else ""
-            prev_label_match = re.search(r"([A-Za-z0-9-]+)$", chunk)
-            # Allow leading whitespace before TLD and preserve it
-            leading_ws_len = len(next_chunk) - len(next_chunk.lstrip())
-            leading_ws = next_chunk[:leading_ws_len]
-            next_chunk_lstripped = next_chunk[leading_ws_len:]
-            next_tld_match = re.match(r"^([A-Za-z]{2,24})(\b|\W)(.*)$", next_chunk_lstripped)
-            if prev_label_match and next_tld_match:
-                tld = next_tld_match.group(1).lower()
-                boundary = next_tld_match.group(2) or ""
-                remainder = next_tld_match.group(3)
-                buffer += '.' + tld
-                parts[idx + 2] = leading_ws + boundary + remainder
-                idx += 2
-                continue
+        # Note: Domain protection is now handled by masking at the start of this function
 
         # Default: flush on terminal punctuation
         if punct:
@@ -507,6 +508,11 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
         idx += 2
 
     trailing = buffer.strip()
+    
+    # Unmask domains in sentences and trailing fragment
+    sentences = [unmask_domains(s) for s in sentences]
+    trailing = unmask_domains(trailing) if trailing else trailing
+    
     return sentences, trailing
 
 
@@ -1122,15 +1128,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Apply Spanish-specific formatting
     if language == 'es':
-        # Domain-preserving sentence split and formatting
-        # CRITICAL: Mask domains before calling assemble_sentences_from_processed to prevent re-splitting
-        tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-        result_masked = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
-        sentences_list, trailing_fragment = assemble_sentences_from_processed(result_masked, 'es')
-        # Unmask domains in the resulting sentences
-        sentences_list = [re.sub(r"__DOT__", ".", s) for s in sentences_list]
-        if trailing_fragment:
-            trailing_fragment = re.sub(r"__DOT__", ".", trailing_fragment)
+        # Domain-preserving sentence split and formatting is now handled by centralized masking
+        sentences_list, trailing_fragment = assemble_sentences_from_processed(result, 'es')
         if trailing_fragment:
             cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
             if cleaned and not cleaned.endswith(('.', '!', '?')):
