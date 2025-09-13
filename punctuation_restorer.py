@@ -2591,12 +2591,41 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
         
         # Additional heuristic: capitalize words that look like location names based on context
         # even if spaCy didn't detect them as entities (common in mixed-language content)
+        # Be more restrictive and only capitalize when we have strong indicators it's a location
         if (language == 'es' and tok.is_alpha and len(tok.text) > 3 and 
             not low in connectors and tok.i > 0):
+            
             prev_token = doc[tok.i - 1]
-            # Patterns like "de Colombia", "en Santander", "vivo en Colombia"
-            if (prev_token.text.lower() in {'de', 'en', 'a'} and 
-                len(prev_token.text) <= 2):
+            
+            # Only capitalize after specific contextual cues that strongly suggest locations
+            location_context = False
+            
+            # Pattern 1: After specific verbs + prepositions that indicate location
+            if (tok.i > 1):
+                prev2_token = doc[tok.i - 2]
+                verb_location_patterns = {
+                    ('vivo', 'en'), ('trabajo', 'en'), ('nací', 'en'), ('estudié', 'en'),
+                    ('voy', 'a'), ('fui', 'a'), ('viajé', 'a'), ('mudé', 'a'),
+                    ('vengo', 'de'), ('soy', 'de'), ('llegué', 'de')
+                }
+                if (prev2_token.text.lower(), prev_token.text.lower()) in verb_location_patterns:
+                    location_context = True
+            
+            # Pattern 2: After "en" when the word looks like a proper noun (starts with capital or uncommon ending)
+            if (prev_token.text.lower() == 'en' and 
+                (tok.text[0].isupper() or  # Already capitalized in input
+                 low.endswith(('nia', 'dad', 'burg', 'land', 'shire', 'ford', 'ton')))):  # Place-like endings
+                location_context = True
+            
+            # Pattern 3: After "de" only if the word has characteristics of a place name
+            if (prev_token.text.lower() == 'de' and 
+                (tok.text[0].isupper() or  # Already capitalized in input
+                 len(low) >= 6)):  # Longer words more likely to be places
+                # Additional check: not common Spanish word patterns
+                if not (low.endswith(('ar', 'er', 'ir', 'ando', 'iendo', 'ada', 'ida', 'oso', 'osa'))):
+                    location_context = True
+            
+            if location_context:
                 return True
             # English patterns: "in Colombia", "to Colombia", "going to Colombia"  
             if (prev_token.text.lower() in {'in', 'to'} and 
