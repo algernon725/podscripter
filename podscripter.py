@@ -468,6 +468,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             if (language or '').lower() != 'es' or not s:
                 return s
             
+            
             # Use centralized domain masking with Spanish exclusions
             out = mask_domains(s, use_exclusions=True, language=language)
             
@@ -494,6 +495,7 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             def _should_lowercase_mid_sentence_word(word: str, context_before: str, context_after: str) -> bool:
                 """Determine if a capitalized word should be lowercased based on linguistic patterns."""
                 word_lower = word.lower()
+                
                 
                 # Never lowercase single letters (could be initials) unless specific patterns
                 if len(word) == 1:
@@ -530,7 +532,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                         'cuando', 'donde', 'como', 'porque', 'para que', 'si', 'que',
                         'ahora', 'después', 'antes', 'luego', 'finalmente', 'primero',
                         'segundo', 'tercero', 'último', 'otro', 'otra', 'algunos', 'algunas',
-                        'además', 'incluso', 'sobre todo', 'en realidad', 'de hecho'
+                        'además', 'incluso', 'sobre todo', 'en realidad', 'de hecho',
+                        'episodio', 'capítulo', 'temporada', 'parte', 'sección', 'tema', 'momento', 'tiempo'
                     },
                     # Spanish verb forms (unlikely to be proper nouns)
                     re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', word_lower),  # infinitives
