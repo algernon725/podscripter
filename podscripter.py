@@ -721,48 +721,85 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         sentences = merged
     
     # Additional comprehensive domain merge for any remaining splits
-    # This handles cases like "espanolistos." + "Com." or "label." + "Com." + "Y ..."
+    # This handles cases like "www." + "domain.com" or "label." + "Com." + "Y ..."
+    # Run multiple passes until no more merges are possible
     if sentences:
-        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-        merged: list[str] = []
-        i = 0
-        while i < len(sentences):
-            cur = (sentences[i] or '').strip()
-            # Try triple merge first: "label." + "Com." + "Y ..." -> "label.com y ..."
-            if i + 2 < len(sentences):
-                mid = (sentences[i + 1] or '').strip()
-                nxt = (sentences[i + 2] or '').strip()
-                # Check if current ends with domain label, middle is bare TLD, next is continuation
-                # Look for domain label followed by period anywhere in the sentence
-                m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
-                m2 = re.match(rf"^({tlds})\.?$", mid, flags=re.IGNORECASE)
-                if m1 and m2 and nxt:
-                    label = m1.group(1)
-                    tld = m2.group(1).lower()
-                    # Merge all three parts into one sentence
-                    if "Debes ir a" in cur:
-                        merged_sentence = f"Debes ir a {label}.{tld} {nxt.lstrip()}"
-                    else:
-                        merged_sentence = f"{cur[:-1]}.{tld} {nxt.lstrip()}"
-                    merged.append(merged_sentence.strip())
-                    i += 3
-                    continue
-            # Try simple merge: "label." + "Com." -> "label.com."
-            if i + 1 < len(sentences):
-                nxt = (sentences[i + 1] or '').strip()
-                # Look for domain label followed by period anywhere in the sentence
-                m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
-                m2 = re.match(rf"^({tlds})\.?$", nxt, flags=re.IGNORECASE)
-                if m1 and m2:
-                    label = m1.group(1)
-                    tld = m2.group(1).lower()
-                    merged_sentence = f"{cur[:-1]}.{tld}."
-                    merged.append(merged_sentence)
-                    i += 2
-                    continue
-            merged.append(cur)
-            i += 1
-        sentences = merged
+        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
+        max_passes = 5  # Prevent infinite loops
+        pass_count = 0
+        
+        while pass_count < max_passes:
+            merged: list[str] = []
+            i = 0
+            merge_happened = False
+            
+            while i < len(sentences):
+                cur = (sentences[i] or '').strip()
+                
+                # Handle subdomain cases: "www." + "domain.com" -> "www.domain.com"
+                if i + 1 < len(sentences):
+                    nxt = (sentences[i + 1] or '').strip()
+                    # Check for subdomain prefix + domain.tld pattern
+                    subdomain_match = re.search(r"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)\s*$", cur, re.IGNORECASE)
+                    domain_match = re.match(rf"^([a-z0-9\-]+)\.({tlds})\b", nxt, re.IGNORECASE)
+                    if subdomain_match and domain_match:
+                        subdomain = subdomain_match.group(1)
+                        domain = domain_match.group(1)
+                        tld = domain_match.group(2).lower()
+                        rest = nxt[domain_match.end():].strip()
+                        # Reconstruct the full domain
+                        full_domain = f"{subdomain}{domain}.{tld}"
+                        merged_sentence = cur[:-len(subdomain)].strip() + f" {full_domain}"
+                        if rest:
+                            merged_sentence += f" {rest}"
+                        merged.append(merged_sentence.strip())
+                        merge_happened = True
+                        i += 2
+                        continue
+                
+                # Try triple merge: "label." + "Com." + "Y ..." -> "label.com y ..."
+                if i + 2 < len(sentences):
+                    mid = (sentences[i + 1] or '').strip()
+                    nxt = (sentences[i + 2] or '').strip()
+                    # Check if current ends with domain label, middle is bare TLD, next is continuation
+                    # Look for domain label followed by period anywhere in the sentence
+                    m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
+                    m2 = re.match(rf"^({tlds})\.?$", mid, flags=re.IGNORECASE)
+                    if m1 and m2 and nxt:
+                        label = m1.group(1)
+                        tld = m2.group(1).lower()
+                        # Merge all three parts into one sentence
+                        if "Debes ir a" in cur or "asegúrate de ir a" in cur:
+                            merged_sentence = f"{cur[:-1]}.{tld} {nxt.lstrip()}"
+                        else:
+                            merged_sentence = f"{cur[:-1]}.{tld} {nxt.lstrip()}"
+                        merged.append(merged_sentence.strip())
+                        merge_happened = True
+                        i += 3
+                        continue
+                # Try simple merge: "label." + "Com." -> "label.com."
+                if i + 1 < len(sentences):
+                    nxt = (sentences[i + 1] or '').strip()
+                    # Look for domain label followed by period anywhere in the sentence
+                    m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
+                    m2 = re.match(rf"^({tlds})\.?$", nxt, flags=re.IGNORECASE)
+                    if m1 and m2:
+                        label = m1.group(1)
+                        tld = m2.group(1).lower()
+                        merged_sentence = f"{cur[:-1]}.{tld}."
+                        merged.append(merged_sentence)
+                        merge_happened = True
+                        i += 2
+                        continue
+                merged.append(cur)
+                i += 1
+            
+            sentences = merged
+            pass_count += 1
+            
+            # If no merges happened in this pass, we're done
+            if not merge_happened:
+                break
     
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety

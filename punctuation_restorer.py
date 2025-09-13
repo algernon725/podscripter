@@ -1167,7 +1167,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Add inverted question marks for questions (comprehensive approach)
         # First, identify all sentences that end with question marks
         # CRITICAL: Mask domains before splitting to prevent breaking them
-        result_masked_for_split = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_split = mask_domains(result, use_exclusions=True, language=language)
         sentences = _split_sentences_preserving_delims(result_masked_for_split)
         # Unmask domains in the split sentences
         sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
@@ -1204,9 +1204,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Ensure proper sentence separation
         # CRITICAL: Mask domains before space insertion to prevent breaking them
-        result_masked_for_separation = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_separation = mask_domains(result, use_exclusions=True, language=language)
         result_masked_for_separation = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', result_masked_for_separation)
-        result = re.sub(r"__DOT__", ".", result_masked_for_separation)
+        result = unmask_domains(result_masked_for_separation)
         
         # Insert comma after common Spanish greeting starters, but avoid when followed by prepositional phrase
         result = re.sub(r'(^|[\n\.\!?¿¡]\s*)(Hola)\s+(?!a\b|para\b)', r"\1\2, ", result, flags=re.IGNORECASE)
@@ -1226,7 +1226,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Bug 1: Fix missing punctuation at the end of sentences
         # Ensure all sentences end with proper punctuation
         # CRITICAL: Mask domains before splitting to prevent breaking them
-        result_masked_for_punct = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_punct = mask_domains(result, use_exclusions=True, language=language)
         sentences = _split_sentences_preserving_delims(result_masked_for_punct)
         # Unmask domains in the split sentences
         sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
@@ -1256,7 +1256,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Fix any remaining sentences without punctuation at the end
         # This catches any sentences that might have been missed
         # CRITICAL: Mask domains before splitting to prevent breaking them  
-        result_masked_for_final = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_final = mask_domains(result, use_exclusions=True, language=language)
         sentences = _split_sentences_preserving_delims(result_masked_for_final)
         # Unmask domains in the split sentences
         sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
@@ -1273,7 +1273,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Additional comprehensive fix for any remaining sentences without punctuation
         # Split by sentences and ensure each one ends with punctuation
         # CRITICAL: Mask domains before splitting to prevent breaking them
-        result_masked_for_comprehensive = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_comprehensive = mask_domains(result, use_exclusions=True, language=language)
         sentences = re.split(r'([.!?]+)', result_masked_for_comprehensive)
         # Unmask domains in the split sentences
         sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
@@ -1311,7 +1311,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Additional cleanup for Spanish-specific patterns
         # Fix sentences that start with ¿ but don't end with ?
         # CRITICAL: Mask domains before splitting to prevent breaking them
-        result_masked_for_patterns = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_patterns = mask_domains(result, use_exclusions=True, language=language)
         sentences = re.split(r'([.!?]+)', result_masked_for_patterns)
         # Unmask domains in the split sentences
         sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
@@ -1354,7 +1354,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # This runs after all punctuation has been added
         # Use semantic gating to decide whether to keep/add inverted question marks
         # CRITICAL: Mask domains before splitting to prevent breaking them
-        result_masked_for_semantic = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_semantic = mask_domains(result, use_exclusions=True, language=language)
         sentences = re.split(r'([.!?]+)', result_masked_for_semantic)
         # Unmask domains in the split sentences
         sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
@@ -1400,9 +1400,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result = re.sub(r',(?!\d)\s*', ', ', result)
         # Ensure a single space after terminal punctuation when followed by a non-space and not part of an ellipsis
         # CRITICAL: Mask domains before space insertion to prevent breaking them
-        result_masked_for_spacing = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", result, flags=re.IGNORECASE)
+        result_masked_for_spacing = mask_domains(result, use_exclusions=True, language=language)
         result_masked_for_spacing = re.sub(r'(?<!\.)\.([^\s.])', r'. \1', result_masked_for_spacing)
-        result = re.sub(r"__DOT__", ".", result_masked_for_spacing)
+        result = unmask_domains(result_masked_for_spacing)
         result = re.sub(r'\?\s*(?=\S)', r'? ', result)
         result = re.sub(r'!\s*(?=\S)', r'! ', result)
         # Capitalize the first letter after sentence terminators when appropriate (Spanish sentences start capitalized)
@@ -2343,11 +2343,11 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
         for ent in doc.ents:
             if ent.label_ in protected_types:
                 # Filter out obviously incorrect entity classifications for Spanish
-                if language == 'es' and len(ent.text) == 1:
+                if target_language == 'es' and len(ent.text) == 1:
                     continue  # Single characters are rarely valid entities
                 
                 # Don't protect common Spanish words that spaCy incorrectly classifies as entities
-                if language == 'es':
+                if target_language == 'es':
                     ent_text_lower = ent.text.lower()
                     # Skip entities that are obviously Spanish verbs/nouns being misclassified
                     if (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', ent_text_lower) or  # infinitive + reflexive
@@ -3115,8 +3115,7 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         r"hay|es|son"
     )
     # CRITICAL: Mask domains before splitting to prevent breaking them
-    tld_alt = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-    text_masked_for_coord = re.sub(rf"\b([a-z0-9\-]{{3,}})\.({tld_alt})\b", r"\1__DOT__\2", text, flags=re.IGNORECASE)
+    text_masked_for_coord = mask_domains(text, use_exclusions=True, language='es')
     parts_coord = re.split(r'([.!?]+)', text_masked_for_coord)
     # Unmask domains in the split parts
     parts_coord = [re.sub(r"__DOT__", ".", part) for part in parts_coord]
