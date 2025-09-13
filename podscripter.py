@@ -488,6 +488,91 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             # Tighten percent formatting: keep number and % together
             out = re.sub(r"(\d)\s+%", r"\1%", out)
             
+            # Fix capitalization for words that were capitalized at segment boundaries
+            # but are now mid-sentence after punctuation restoration (e.g., "independencia, Ojalá" -> "independencia, ojalá")
+            # Use algorithmic approach to determine when capitalized words should be lowercased
+            def _should_lowercase_mid_sentence_word(word: str, context_before: str, context_after: str) -> bool:
+                """Determine if a capitalized word should be lowercased based on linguistic patterns."""
+                word_lower = word.lower()
+                
+                # Never lowercase single letters (could be initials) unless specific patterns
+                if len(word) == 1:
+                    # Special case for "A veces" pattern
+                    return word_lower == 'a' and context_after.strip().startswith('veces')
+                
+                # Strong indicators this is a proper noun (should stay capitalized)
+                proper_noun_indicators = [
+                    # Followed by "de" (suggesting location: "Madrid de...")
+                    context_after.strip().startswith('de '),
+                    # Preceded by "en" or "a" (suggesting location: "en Madrid", "a París")
+                    context_before.strip().endswith(' en') or context_before.strip().endswith(' a'),
+                    # Two consecutive capitalized words (proper noun phrase)
+                    re.match(r'^\s*[A-Z][a-z]+', context_after),
+                    # Looks like a common proper name pattern and isn't in common words list
+                    (re.match(r'^[A-Z][a-z]{3,}$', word) and 
+                     word_lower not in {
+                         'ojalá', 'entonces', 'pero', 'también', 'además', 'ahora', 'después', 
+                         'antes', 'luego', 'finalmente', 'mientras', 'cuando', 'donde', 'aunque', 
+                         'porque', 'algunos', 'algunas', 'otro', 'otra'
+                     }),
+                ]
+                
+                if any(proper_noun_indicators):
+                    return False
+                
+                # Strong indicators this is a common word (should be lowercased)
+                common_word_indicators = [
+                    # Known Spanish adverbs/conjunctions that are commonly capitalized incorrectly
+                    word_lower in {
+                        'ojalá', 'entonces', 'pero', 'también', 'además', 'sin embargo',
+                        'por ejemplo', 'es decir', 'por tanto', 'aunque', 'mientras',
+                        'cuando', 'donde', 'como', 'porque', 'para que', 'si', 'que',
+                        'ahora', 'después', 'antes', 'luego', 'finalmente', 'primero',
+                        'segundo', 'tercero', 'último', 'otro', 'otra', 'algunos', 'algunas',
+                        'además', 'incluso', 'sobre todo', 'en realidad', 'de hecho'
+                    },
+                    # Spanish verb forms (unlikely to be proper nouns)
+                    re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', word_lower),  # infinitives
+                    re.match(r'^[a-z]+(ando|iendo)$', word_lower),  # gerunds
+                    re.match(r'^[a-z]+(ado|ido)$', word_lower),  # past participles
+                    re.match(r'^[a-z]+(aba|ía|ará|ería)s?$', word_lower),  # conjugated forms
+                    # Spanish adjective/noun patterns
+                    word_lower.endswith(('mente', 'ción', 'sión', 'dad', 'tad', 'eza', 'anza')),
+                    # Starts with lowercase article/preposition pattern (wrong split)
+                    word_lower.startswith(('de', 'el', 'la', 'los', 'las', 'un', 'una')),
+                ]
+                
+                if any(common_word_indicators):
+                    return True
+                
+                # Additional check for common short words that could be ambiguous
+                ambiguous_short_words = {'veces', 'forma', 'parte', 'manera', 'tiempo', 'caso', 'lugar', 'momento'}
+                if word_lower in ambiguous_short_words:
+                    return True
+                
+                # Default: if uncertain and it's a short word (≤6 chars), lowercase it
+                # This catches common words while preserving longer proper nouns
+                return len(word) <= 6
+            
+            def _replace_mid_sentence_caps(match):
+                punctuation = match.group(1)  # comma or semicolon
+                space = match.group(2)        # space(s)
+                word = match.group(3)         # capitalized word
+                
+                # Get context for decision making
+                start_pos = match.start()
+                end_pos = match.end()
+                context_before = out[:start_pos + len(punctuation)]
+                context_after = out[end_pos:]
+                
+                if _should_lowercase_mid_sentence_word(word, context_before, context_after):
+                    return punctuation + space + word[0].lower() + word[1:]
+                else:
+                    return match.group(0)  # no change
+            
+            # Apply the pattern: comma/semicolon + space + capitalized word
+            out = re.sub(r'([,;])(\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]*)', _replace_mid_sentence_caps, out)
+            
             # Unmask domains using centralized function
             out = unmask_domains(out)
             return out
