@@ -2617,13 +2617,10 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
                  low.endswith(('nia', 'dad', 'burg', 'land', 'shire', 'ford', 'ton')))):  # Place-like endings
                 location_context = True
             
-            # Pattern 3: After "de" only if the word has characteristics of a place name
-            if (prev_token.text.lower() == 'de' and 
-                (tok.text[0].isupper() or  # Already capitalized in input
-                 len(low) >= 6)):  # Longer words more likely to be places
-                # Additional check: not common Spanish word patterns
-                if not (low.endswith(('ar', 'er', 'ir', 'ando', 'iendo', 'ada', 'ida', 'oso', 'osa'))):
-                    location_context = True
+            # Pattern 3: After "de" only if the word was already capitalized (indicating proper noun)
+            if (prev_token.text.lower() == 'de' and tok.text[0].isupper()):
+                # Only capitalize if it was already a proper noun in the input
+                location_context = True
             
             if location_context:
                 return True
