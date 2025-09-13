@@ -513,7 +513,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
                      word_lower not in {
                          'ojalá', 'entonces', 'pero', 'también', 'además', 'ahora', 'después', 
                          'antes', 'luego', 'finalmente', 'mientras', 'cuando', 'donde', 'aunque', 
-                         'porque', 'algunos', 'algunas', 'otro', 'otra'
+                         'porque', 'algunos', 'algunas', 'otro', 'otra', 'episodio', 'capítulo',
+                         'temporada', 'parte', 'sección', 'tema', 'momento', 'tiempo'
                      }),
                 ]
                 

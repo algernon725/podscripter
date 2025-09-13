@@ -1196,7 +1196,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Clean up double/mixed punctuation in one place
         result = _normalize_mixed_terminal_punctuation(result)
         
-        # Special handling for greetings and lead-ins
+        # SpaCy capitalization pass (moved before comma insertion to avoid feedback loop)
+        # This ensures spaCy sees the original text without artificial capitalization from comma insertion
+        result = _apply_spacy_capitalization(result, language)
+        
+        # Special handling for greetings and lead-ins (now after spaCy capitalization)
         result = _es_greeting_and_leadin_commas(result)
         
         # Remove the comma addition for location patterns - Spanish grammar doesn't require it
@@ -1388,8 +1392,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Apply targeted Spanish cleanup after semantic gating
         result = _spanish_cleanup_postprocess(result)
 
-        # SpaCy capitalization pass (always applied)
-        result = _apply_spacy_capitalization(result, language)
         # (Removed) final collapse of emphatic repeats
         # Normalize comma spacing with thousands-aware behavior
         # 1) Remove spaces before commas
