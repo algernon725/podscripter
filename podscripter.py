@@ -805,6 +805,15 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety
         pass
+    
+    # Final pass: Apply capitalization correction to all sentences
+    # This catches any capitalization issues that arise from segment merging
+    if sentences and (lang_for_punctuation or '').lower() == 'es':
+        final_sentences = []
+        for sentence in sentences:
+            final_sentences.append(_sanitize_sentence_output(sentence, (lang_for_punctuation or '').lower()))
+        sentences = final_sentences
+    
     return sentences
 def _transcribe_with_sentences(
     media_file: str,
