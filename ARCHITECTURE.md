@@ -9,7 +9,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
 - **Primary dependencies**:
   - Faster-Whisper (ASR)
   - Sentence-Transformers (semantic cues for punctuation)
-  - spaCy (optional capitalization)
+  - spaCy (mandatory; automatic capitalization; models baked into Docker)
   - pydub (chunking)
 - **Runtime**: Docker container; model caches bound via volumes
 
@@ -134,10 +134,13 @@ flowchart TD
   - Cross-segment carry of trailing fragments for French and Spanish
   - Automatic spaCy capitalization (always enabled) with mixed-language support:
     - English phrase detection in Spanish transcriptions using spaCy language detection or linguistic heuristics
-    - Multi-layered location protection: spaCy NER + cross-linguistic analysis + context patterns
-    - Prevents English phrase overcapitalization (e.g., "I am Going To Test" → "I am going to test")
-    - Preserves location capitalization (e.g., "de santander, colombia" → "de Santander, Colombia")
-    - Context-based location recognition using preposition patterns across languages
+    - Multi-layered location handling: spaCy NER + cross-linguistic analysis + conservative contextual patterns
+    - Prevents English phrase over‑capitalization (e.g., "I am Going To Test" → "I am going to test")
+    - Preserves location capitalization when already present in the input (e.g., "de Santander, Colombia")
+    - Conservative location capitalization to avoid false positives:
+      - Capitalize after strong cues (e.g., `vivo en`, `trabajo en`, `soy de`, `vengo de`)
+      - After `de`, capitalize only when the next token was already capitalized in the input
+      - After `en`, capitalize when the next token was already capitalized; avoid common nouns
   - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
 ## Configuration

@@ -8,7 +8,7 @@
 - **Whisper**: OpenAI's speech-to-text model for transcription
 - **Sentence-Transformers**: For semantic understanding and punctuation restoration
 - **Hugging Face Hub (caches)**: Used by `sentence-transformers`; managed via `HF_HOME` and optional offline mode
-- **spaCy (optional)**: Lightweight NLP capitalization and entity awareness (models: `en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`)
+- **spaCy (mandatory)**: Lightweight NLP capitalization and entity awareness; models are baked into the Docker image (`en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`)
 - **Docker**: Containerization for reproducible environments
 - **Python 3.10+**: Primary development language
 
@@ -352,10 +352,14 @@ Before submitting any changes, ensure:
 
 - Capitalization (spaCy mode)
   - Uses `LanguageConfig` connectors/possessives for Spanish to avoid mid-sentence mis-capitalization (e.g., `tu español`)
-  - SpaCy capitalization is always enabled
-  - Mixed-language content handling: detects English phrases in Spanish transcriptions to prevent overcapitalization while preserving location names
-  - Multi-layered entity protection: combines spaCy NER, cross-linguistic analysis, and context-based patterns to identify and protect location names
-  - Context-aware location capitalization: recognizes location-indicating patterns like "de Colombia", "en Santander", "going to Colombia" for proper capitalization even when spaCy NER fails in mixed content
+  - SpaCy capitalization is always enabled (models included in the Docker image)
+  - Mixed-language content handling: detects English phrases in Spanish transcriptions to prevent over‑capitalization while preserving true proper nouns
+  - Multi-layered entity protection: combines spaCy NER, cross‑linguistic analysis, and contextual patterns
+  - Conservative location capitalization to avoid false positives:
+    - Only capitalize after strong cues (e.g., `vivo en`, `trabajo en`, `soy de`, `vengo de`)
+    - After `de`, capitalize only when the next word was already capitalized in the input (treat as proper noun)
+    - After `en`, capitalize when the next word was already capitalized; avoid capitalizing common nouns
+    - Avoids over‑capitalizing common words like `semana`, `ellos`, `julio` unless they are proper nouns in context
 
 - Tuning guidance
   - Prefer editing constants and thresholds over changing logic
