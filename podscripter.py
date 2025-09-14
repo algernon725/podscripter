@@ -320,6 +320,21 @@ def _write_srt(segments, output_file):
             start = format_timestamp(seg['start']); end = format_timestamp(seg['end']); text = seg['text'].strip()
             f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
 
+def _write_raw(segments, output_file, detected_language: str | None = None, task: str = "transcribe"):
+    """Write raw transcription data for debugging purposes."""
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(f"Language: {detected_language or 'unknown'}\n")
+        f.write(f"Task: {task}\n")
+        f.write(f"Number of segments: {len(segments)}\n")
+        f.write("=" * 50 + "\n\n")
+        
+        for i, segment in enumerate(segments, 1):
+            start = segment.get('start', 0.0)
+            end = segment.get('end', 0.0)
+            text = segment.get('text', '').strip()
+            f.write(f"Segment {i}: {start:.2f}s - {end:.2f}s\n")
+            f.write(f"Text: {text}\n\n")
+
 def _validate_paths(media_file: str, output_dir: str) -> tuple[Path, Path]:
     media_path = Path(media_file)
     if not media_path.exists() or not media_path.is_file():
@@ -984,6 +999,7 @@ def main():
     # VAD controls
     parser.add_argument("--no-vad", dest="vad_filter", action="store_false", help="Disable VAD filtering (default: enabled)")
     parser.add_argument("--vad-speech-pad-ms", dest="vad_speech_pad_ms", type=int, default=DEFAULT_VAD_SPEECH_PAD_MS, help="Padding (ms) around detected speech when VAD is enabled")
+    parser.add_argument("--dump-raw", dest="dump_raw", action="store_true", help="Also write raw Whisper output for debugging (filename_raw.txt)")
     vg = parser.add_mutually_exclusive_group(); vg.add_argument("--quiet", action="store_true", help="Reduce log output"); vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)"); parser.set_defaults(verbose=True)
     # Defaults for VAD
     parser.set_defaults(vad_filter=DEFAULT_VAD_FILTER)
@@ -1035,6 +1051,18 @@ def main():
         if not quiet and result.get("detected_language"):
             logger.info(f"Detected language: {result['detected_language']}")
         logger.info(f"Wrote: {result['output_path']}")
+        
+        # Write raw output if requested
+        if args.dump_raw:
+            base_name = Path(args.media_file).stem
+            raw_output_file = Path(args.output_dir) / f"{base_name}_raw.txt"
+            task = "translate" if args.translate else "transcribe"
+            try:
+                _write_raw(result['segments'], str(raw_output_file), result.get('detected_language'), task)
+                logger.info(f"Raw output written to: {raw_output_file}")
+            except Exception as e:
+                logger.error(f"Failed to write raw output: {e}")
+        
         if not quiet:
             elapsed = time.time() - start_time; minutes = int(elapsed // 60); seconds = int(elapsed % 60)
             logger.info(f"Script completed in {minutes} minutes and {seconds} seconds.")
