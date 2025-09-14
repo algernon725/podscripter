@@ -49,6 +49,7 @@
   - Deduplicate overlap during merge using global timestamps (skip segments that finish before the prior chunk’s end)
   - Keep `beam_size` modest (1–3) for long files; `compute_type` default is `auto` on CPU
   - `PROMPT_TAIL_CHARS=200` controls how much trailing text is used for `initial_prompt`
+  - Optional raw dump for debugging: `--dump-raw` writes a raw Whisper dump (`<basename>_raw.txt`) alongside the chosen output format
 
 ### 3. Modular Processing Pipeline
 ```
@@ -65,6 +66,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `--beam-size <int>` (beam size for decoding; default 3)
   - `--no-vad` (disable VAD filtering; default is enabled)
   - `--vad-speech-pad-ms <int>` (padding in ms when VAD is enabled; default 200)
+  - `--dump-raw` (also write raw Whisper output for debugging to `<basename>_raw.txt` in `--output_dir`)
   - `--quiet`/`--verbose` (default `--verbose`)
 ```
 
