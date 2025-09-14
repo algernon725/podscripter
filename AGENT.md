@@ -25,7 +25,6 @@
 - Always mount caches when running containers:
   - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
   - `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers`
-  - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
   - `-v $(pwd)/audio-files:/app/audio-files`
 
 ### 2. Model Caching Strategy
@@ -135,11 +134,12 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - Appositive introductions: format as "Yo soy <Nombre>, de <Ciudad>, <País>"
   - Soft sentence splitting: avoid breaking inside entities; merge `auxiliar + gerundio` and possessive splits ("tu español")
   - Automatic spaCy capitalization: capitalize entities/PROPN; keep connectors (de, del, y, en, a, con, por, para, etc.) lowercase
+  - Pipeline order correction (Spanish): run spaCy capitalization before greeting/lead‑in comma insertion to avoid capitalization feedback loops and misclassification
   - Do not split on ellipses mid-clause; keep continuation after `...`/`…` within the same sentence
   - Comprehensive domain protection: preserve single TLDs (`espanolistos.com`, `github.io`, etc.) and compound TLDs (`bbc.co.uk`, `amazon.com.br`, `cambridge.ac.uk`, etc.) as single tokens
   - Supported TLDs: Single (`com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru`), Compound (`co.uk|com.ar|com.mx|com.br|com.au|co.jp|co.in|gov.uk|org.uk|ac.uk`)
-  - Domain assembly logic: handles split domains across sentence boundaries with triple merge (`Label.` + `Com.` + `Y...` → `label.com Y...`) and simple merge (`Label.` + `Com.` → `label.com.`)
-  - Domain masking protects domains during space insertion and sentence splitting to prevent formatting issues
+  - Domain assembly logic: use a general multi-pass merge loop to restore split domains across sentence boundaries and intermediate transformations
+  - Domain masking protects domains during space insertion, capitalization, and sentence splitting to prevent formatting issues; Spanish processing wraps all transformations with masking/unmasking so `www.example.com` and compound TLDs remain intact
   - Spanish false domain prevention: excludes common Spanish words (e.g., `uno.de` → `uno. de`, `naturales.es` → `naturales. es`) from being treated as domains through centralized exclusion lists
   - Spanish-only `.de` and `.es` exclusion: when language is Spanish, the `.de` and `.es` TLDs are not treated as domains to avoid false positives with common words "de" (preposition) and "es" (verb "is") (e.g., `tratada.de` → `tratada. de`, `noche.de` → `noche. de`, `naturales.es` → `naturales. es`, `no.es` → `no. es`)
   - Normalize mismatched inverted punctuation: leading `¡` with trailing `?` becomes a proper question `¿...?`
