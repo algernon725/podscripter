@@ -473,9 +473,11 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = mask_domains(s, use_exclusions=True, language=language)
             
             # Fix missing space after ., ?, ! (avoid ellipses, decimals, and already-masked domains)
-            # Use a simpler approach - domains are masked so we can be more direct
-            out = re.sub(r"\.([A-ZÁÉÍÓÚÑ¿¡])", r". \1", out)  # Add space before capital letters
-            out = re.sub(r"\.([a-záéíóúñ])", r". \1", out)    # Add space before lowercase letters (new sentences)
+            # Avoid breaking domains by not adding spaces after periods in domain-like patterns
+            # Don't add space after periods that are part of domain patterns (www., ftp., etc.)
+            out = re.sub(r"(?<!www)(?<!ftp)(?<!mail)(?<!blog)(?<!shop)(?<!app)(?<!api)(?<!cdn)(?<!static)(?<!news)(?<!support)(?<!help)(?<!docs)(?<!admin)(?<!secure)(?<!login)(?<!mobile)(?<!store)(?<!sub)(?<!dev)(?<!test)(?<!staging)(?<!prod)(?<!beta)(?<!alpha)\.([A-ZÁÉÍÓÚÑ¿¡])", r". \1", out)  # Add space before capital letters
+            # Only add space after periods that are likely sentence terminators (not domain patterns)
+            out = re.sub(r"(?<!www)(?<!ftp)(?<!mail)(?<!blog)(?<!shop)(?<!app)(?<!api)(?<!cdn)(?<!static)(?<!news)(?<!support)(?<!help)(?<!docs)(?<!admin)(?<!secure)(?<!login)(?<!mobile)(?<!store)(?<!sub)(?<!dev)(?<!test)(?<!staging)(?<!prod)(?<!beta)(?<!alpha)\.([a-záéíóúñ])", r". \1", out)
             out = re.sub(r"\?\s*(\S)", r"? \1", out)
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate
