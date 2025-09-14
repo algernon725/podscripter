@@ -120,8 +120,10 @@ flowchart TD
   - Sentence-Transformers semantic cues + curated regex rules
   - Language-specific formatting (ES/EN/FR/DE)
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
-  - Domain assembly logic: handles split domains with triple merge and simple merge patterns, ensuring domains remain intact across sentence boundaries
+  - Domain assembly logic: uses a general multi-pass merge loop to recover split domains across sentence boundaries and intermediate transformations
   - Spanish false domain prevention: centralized exclusion logic prevents Spanish words (e.g., `uno.de`, `este.es`, `naturales.es`) from being incorrectly treated as domains
+  - Spanish processing wraps all transformations with domain masking/unmasking so that URLs (including subdomains like `www.example.com`) remain intact through punctuation and capitalization stages
+  - Pipeline order correction (Spanish): automatic spaCy capitalization now runs before greeting/comma insertion to avoid capitalization feedback loops and over-capitalization of common words
   - Location appositive normalization (EN/ES/FR/DE): punctuation-restoration converts ", <preposition> <Location>. <Location>" to ", <preposition> <Location>, <Location>" using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; DE: aus/von/in). Also normalizes direct comma-separated forms like "City, Region. and/pero/y …" to keep the location intact and continue the clause. Includes a new-sentence guard to avoid merging when the following fragment starts a new sentence with a subject (e.g., "Y yo …", "And I …", "Et je …", "Und ich …").
   - TXT writer multilingual location protection: during final TXT splitting, protects appositive location patterns like ", <preposition> <Location>. <Location>" to avoid breaking location descriptions. Applies across EN/ES/FR/DE using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; DE: aus/von/in); restores protected periods after splitting.
   - Spanish greeting and inverted-question guards:
