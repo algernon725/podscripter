@@ -744,7 +744,10 @@ def _es_capitalize_sentence_starts(text: str) -> str:
             while idx < n and s[idx].isspace():
                 idx += 1
         if idx < n and s[idx].islower():
-            parts[i] = s[:idx] + s[idx].upper() + s[idx+1:]
+            # Don't capitalize if this looks like the start of a domain name
+            remaining_text = s[idx:]
+            if not re.match(r'^[a-z0-9\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', remaining_text):
+                parts[i] = s[:idx] + s[idx].upper() + s[idx+1:]
     return ''.join(parts)
 
 def _es_normalize_tag_questions(text: str) -> str:
@@ -1128,8 +1131,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Apply Spanish-specific formatting
     if language == 'es':
+        # COMPREHENSIVE DOMAIN PROTECTION: Mask domains before ALL Spanish processing
+        result_with_protected_domains = mask_domains(result, use_exclusions=True, language=language)
         # Domain-preserving sentence split and formatting is now handled by centralized masking
-        sentences_list, trailing_fragment = assemble_sentences_from_processed(result, 'es')
+        sentences_list, trailing_fragment = assemble_sentences_from_processed(result_with_protected_domains, 'es')
         if trailing_fragment:
             cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
             if cleaned and not cleaned.endswith(('.', '!', '?')):
@@ -1142,9 +1147,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             sentence = (s or '').strip()
             if not sentence:
                 continue
-            # Capitalize first letter
+            # Capitalize first letter (but not for domains)
             if sentence and sentence[0].isalpha():
-                sentence = sentence[0].upper() + sentence[1:]
+                # Don't capitalize if this looks like a domain name
+                if not re.match(r'^[a-z0-9\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', sentence.lower()):
+                    sentence = sentence[0].upper() + sentence[1:]
 
             # Ensure sentence ends with single terminal punctuation
             if not sentence.endswith(('.', '!', '?')):
@@ -1198,7 +1205,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # SpaCy capitalization pass (moved before comma insertion to avoid feedback loop)
         # This ensures spaCy sees the original text without artificial capitalization from comma insertion
-        result = _apply_spacy_capitalization(result, language)
+        # Mask domains before spaCy to prevent it from capitalizing domain names as proper nouns
+        result_masked_for_spacy = mask_domains(result, use_exclusions=True, language=language)
+        result_capitalized = _apply_spacy_capitalization(result_masked_for_spacy, language)
+        result = unmask_domains(result_capitalized)
         
         # Special handling for greetings and lead-ins (now after spaCy capitalization)
         result = _es_greeting_and_leadin_commas(result)
@@ -1415,12 +1425,37 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result = re.sub(r'([.!?])\s+([a-záéíóúñ])', _cap_after_terminator, result)
         # Final domain TLD lowercasing safeguard (after all formatting/capitalization)
         result = re.sub(r"\b([a-z0-9\-]+)\.([A-Za-z]{2,24})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
+        
+        # COMPREHENSIVE DOMAIN PROTECTION: Unmask domains at the very end of Spanish processing
+        result = unmask_domains(result)
+        
+        # Final domain capitalization fix: correct any incorrectly capitalized domains
+        # This handles cases where domains got capitalized during processing despite masking
+        
+        # Fix spaced domains: "www. Espanolistos.com" -> "www.espanolistos.com"
+        result = re.sub(r'\b(www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.\s+([A-Z][a-z0-9\-]*\.[a-z]{2,24})\b', 
+                       lambda m: f"{m.group(1).lower()}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
+        
+        # Fix connected domains: "www.Espanolistos.com" -> "www.espanolistos.com"
+        result = re.sub(r'\b(www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.([A-Z][a-z0-9\-]*\.[a-z]{2,24})\b', 
+                       lambda m: f"{m.group(1).lower()}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
+        
+        # Fix standalone domain names: "Espanolistos.com" -> "espanolistos.com"
+        result = re.sub(r'\b([A-Z][a-z0-9\-]*\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx))\b', 
+                       lambda m: m.group(1).lower(), result)
+        
+        # Additional fix for the specific "Espanolistos" case and similar patterns
+        result = re.sub(r'\bwww\.([A-Z][a-z]+)\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', 
+                       lambda m: f"www.{m.group(1).lower()}.{m.group(2)}", result)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
         result = _format_non_spanish_text(result, language)
 
         # SpaCy capitalization pass (always applied)
-        result = _apply_spacy_capitalization(result, language)
+        # Mask domains before spaCy to prevent it from capitalizing domain names as proper nouns
+        result_masked_for_spacy = mask_domains(result, use_exclusions=True, language=language)
+        result_capitalized = _apply_spacy_capitalization(result_masked_for_spacy, language)
+        result = unmask_domains(result_capitalized)
 
     # Fix location appositive punctuation across languages
     result = _fix_location_appositive_punctuation(result, language)
@@ -3241,7 +3276,10 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         pass
 
     # Capitalize sentence starts (handles leading punctuation/quotes)
-    text = _es_capitalize_sentence_starts(text)
+    # Mask domains before capitalization to prevent splitting on domain periods
+    text_masked_for_caps = mask_domains(text, use_exclusions=True, language='es')
+    text_capitalized = _es_capitalize_sentence_starts(text_masked_for_caps)
+    text = unmask_domains(text_capitalized)
 
     # Do NOT capitalize after an ellipsis within a continuing clause.
     # Example: "De tener bancarrota... rota." should keep "rota" lowercase.
