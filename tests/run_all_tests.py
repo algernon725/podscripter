@@ -73,6 +73,7 @@ def main():
         'test_chunk_merge_helpers.py',
         'test_srt_normalization.py',
         'test_domain_utils.py',
+        'test_spanish_capitalization_domain_regression.py',
     })
 
     multilingual_files = sorted(x for x in all_files if x.startswith('test_multilingual_'))
