@@ -70,10 +70,12 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str = None) -
     
     # CRITICAL: Apply compound TLD masking FIRST to avoid conflicts with single TLDs
     # Mask compound TLDs: "domain.co.uk" -> "domain__DOT__co_DOT_uk"
-    masked = re.sub(rf"\b([a-z0-9\-]+)\.({COMPOUND_TLDS})\b", _mask_compound, text, flags=re.IGNORECASE)
+    # Updated pattern to include accented characters (Unicode \u00C0-\u017F covers Latin-1 Supplement and Latin Extended-A)
+    masked = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.({COMPOUND_TLDS})\b", _mask_compound, text, flags=re.IGNORECASE)
     
-    # Mask single TLDs: "domain.com" -> "domain__DOT__com"
-    masked = re.sub(rf"\b([a-z0-9\-]+)\.({single_tlds})\b", _mask_single, masked, flags=re.IGNORECASE)
+    # Mask single TLDs: "domain.com" -> "domain__DOT__com"  
+    # Updated pattern to include accented characters for domains like sinónimosonline.com
+    masked = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.({single_tlds})\b", _mask_single, masked, flags=re.IGNORECASE)
     
     return masked
 
@@ -138,17 +140,19 @@ def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str = N
         return _compound_replacer
     
     # Fix compound TLDs FIRST (before single TLDs to avoid conflicts)
-    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+(co)\.\s+(uk)\b", 
+    # Updated patterns to include accented characters for domains like sinónimosonline.com
+    fixed = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.\s+(co)\.\s+(uk)\b", 
                    _fix_compound_tld(lambda m: f"{m.group(1)}.co.uk"), text, flags=re.IGNORECASE)
-    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+(com)\.\s+(ar|mx|br|au)\b", 
+    fixed = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.\s+(com)\.\s+(ar|mx|br|au)\b", 
                    _fix_compound_tld(lambda m: f"{m.group(1)}.com.{m.group(3).lower()}"), fixed, flags=re.IGNORECASE)
-    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+(co)\.\s+(jp|in)\b", 
+    fixed = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.\s+(co)\.\s+(jp|in)\b", 
                    _fix_compound_tld(lambda m: f"{m.group(1)}.co.{m.group(3).lower()}"), fixed, flags=re.IGNORECASE)
-    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+(gov|org|ac)\.\s+(uk)\b", 
+    fixed = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.\s+(gov|org|ac)\.\s+(uk)\b", 
                    _fix_compound_tld(lambda m: f"{m.group(1)}.{m.group(2).lower()}.uk"), fixed, flags=re.IGNORECASE)
     
     # Fix single TLDs: "domain. com" -> "domain.com" (after compound TLDs)
-    fixed = re.sub(rf"\b([a-z0-9\-]+)\.\s+({single_tlds})\b", _fix_single_tld, fixed, flags=re.IGNORECASE)
+    # Updated pattern to include accented characters for domains like sinónimosonline.com
+    fixed = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.\s+({single_tlds})\b", _fix_single_tld, fixed, flags=re.IGNORECASE)
     
     return fixed
 

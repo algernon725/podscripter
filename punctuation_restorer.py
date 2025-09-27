@@ -441,7 +441,8 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
     # CRITICAL: Mask domains before splitting to prevent breaking them
     # First handle full domain names with subdomains (www.domain.tld, subdomain.domain.tld)
     # This must be done BEFORE standard masking to avoid conflicts
-    subdomain_pattern = rf"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)([a-z0-9\-]+)\.({SINGLE_TLDS})\b"
+    # Updated pattern to include accented characters for domains like sinónimosonline.com
+    subdomain_pattern = rf"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)([a-zA-Z0-9\u00C0-\u017F\-]+)\.({SINGLE_TLDS})\b"
     
     def _mask_subdomain(m):
         subdomain = m.group(1)  # e.g., "www."
@@ -746,7 +747,8 @@ def _es_capitalize_sentence_starts(text: str) -> str:
         if idx < n and s[idx].islower():
             # Don't capitalize if this looks like the start of a domain name
             remaining_text = s[idx:]
-            if not re.match(r'^[a-z0-9\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', remaining_text):
+            # Updated pattern to include accented characters for domains like sinónimosonline.com
+            if not re.match(r'^[a-zA-Z0-9\u00C0-\u017F\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', remaining_text):
                 parts[i] = s[:idx] + s[idx].upper() + s[idx+1:]
     return ''.join(parts)
 
@@ -1150,7 +1152,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             # Capitalize first letter (but not for domains)
             if sentence and sentence[0].isalpha():
                 # Don't capitalize if this looks like a domain name
-                if not re.match(r'^[a-z0-9\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', sentence.lower()):
+                # Updated pattern to include accented characters for domains like sinónimosonline.com
+                if not re.match(r'^[a-zA-Z0-9\u00C0-\u017F\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', sentence.lower()):
                     sentence = sentence[0].upper() + sentence[1:]
 
             # Ensure sentence ends with single terminal punctuation
@@ -1424,7 +1427,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             return f"{punct} {ch.upper()}"
         result = re.sub(r'([.!?])\s+([a-záéíóúñ])', _cap_after_terminator, result)
         # Final domain TLD lowercasing safeguard (after all formatting/capitalization)
-        result = re.sub(r"\b([a-z0-9\-]+)\.([A-Za-z]{2,24})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
+        # Updated pattern to include accented characters for domains like sinónimosonline.com
+        result = re.sub(r"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.([A-Za-z]{2,24})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
         
         # COMPREHENSIVE DOMAIN PROTECTION: Unmask domains at the very end of Spanish processing
         result = unmask_domains(result)
@@ -1433,15 +1437,18 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # This handles cases where domains got capitalized during processing despite masking
         
         # Fix spaced domains: "www. Espanolistos.com" -> "www.espanolistos.com"
-        result = re.sub(r'\b(www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.\s+([A-Z][a-z0-9\-]*\.[a-z]{2,24})\b', 
+        # Updated pattern to include accented characters for domains like sinónimosonline.com
+        result = re.sub(r'\b(www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.\s+([A-Z][a-zA-Z0-9\u00C0-\u017F\-]*\.[a-z]{2,24})\b', 
                        lambda m: f"{m.group(1).lower()}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
         
         # Fix connected domains: "www.Espanolistos.com" -> "www.espanolistos.com"
-        result = re.sub(r'\b(www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.([A-Z][a-z0-9\-]*\.[a-z]{2,24})\b', 
+        # Updated pattern to include accented characters for domains like sinónimosonline.com
+        result = re.sub(r'\b(www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.([A-Z][a-zA-Z0-9\u00C0-\u017F\-]*\.[a-z]{2,24})\b', 
                        lambda m: f"{m.group(1).lower()}.{m.group(2).lower()}", result, flags=re.IGNORECASE)
         
         # Fix standalone domain names: "Espanolistos.com" -> "espanolistos.com"
-        result = re.sub(r'\b([A-Z][a-z0-9\-]*\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx))\b', 
+        # Updated pattern to include accented characters for domains like sinónimosonline.com
+        result = re.sub(r'\b([A-Z][a-zA-Z0-9\u00C0-\u017F\-]*\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx))\b', 
                        lambda m: m.group(1).lower(), result)
         
         # Additional fix for the specific "Espanolistos" case and similar patterns
@@ -3005,14 +3012,16 @@ def _spanish_cleanup_postprocess(text: str) -> str:
         return text
 
     # Normalize domains: join tokens like "espanolistos . com" -> "espanolistos.com"
-    text = re.sub(r"\b([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", text, flags=re.IGNORECASE)
+    # Updated patterns to include accented characters for domains like sinónimosonline.com
+    text = re.sub(r"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", text, flags=re.IGNORECASE)
     # Also handle 'www . domain . tld'
-    text = re.sub(r"\b(www)\s*[.\-]\s*([a-z0-9\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2)}.{m.group(3).lower()}", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(www)\s*[.\-]\s*([a-zA-Z0-9\u00C0-\u017F\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2)}.{m.group(3).lower()}", text, flags=re.IGNORECASE)
 
     # Ensure TLDs are lowercase within domains: label.TLD -> label.tld
     def _lowercase_tld(m):
         return f"{m.group(1)}.{m.group(2).lower()}"
-    text = re.sub(r"\b([a-z0-9\-]+)\.([A-Za-z]{2,24})\b", _lowercase_tld, text, flags=re.IGNORECASE)
+    # Updated pattern to include accented characters for domains like sinónimosonline.com
+    text = re.sub(r"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.([A-Za-z]{2,24})\b", _lowercase_tld, text, flags=re.IGNORECASE)
 
     # Don't touch inside domains thereafter (best-effort by skipping tokens with ".tld")
 
