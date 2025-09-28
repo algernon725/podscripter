@@ -43,7 +43,7 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str = None) -
         
     Example:
         "Visit google.com and uno.de" -> "Visit google__DOT__com and uno.de" (with exclusions)
-        "Visit google.com and uno.de" -> "Visit google__DOT__com and uno__DOT__de" (without exclusions)
+        "Visit www.google.com" -> "Visit www__DOT__google__DOT__com"
         "Necesita ser tratada.de hecho" -> "Necesita ser tratada.de hecho" (Spanish: .de/.es excluded)
     """
     # Exclude .de and .es TLDs for Spanish text since "de" and "es" are extremely common Spanish words
@@ -68,12 +68,41 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str = None) -
         masked_tld = compound_tld.replace('.', COMPOUND_MASK)
         return f"{label}{SINGLE_MASK}{masked_tld}"
     
-    # CRITICAL: Apply compound TLD masking FIRST to avoid conflicts with single TLDs
+    def _mask_subdomain(m):
+        subdomain = m.group(1)  # e.g., "www."
+        domain = m.group(2)     # e.g., "google"  
+        tld = m.group(3)        # e.g., "com"
+        if use_exclusions and _is_spanish_word(domain):
+            return m.group(0)  # Return unchanged if the domain part is a Spanish word
+        # Replace dots with mask tokens: "www.domain.tld" -> "www__DOT__domain__DOT__tld"
+        return f"{subdomain.replace('.', SINGLE_MASK)}{domain}{SINGLE_MASK}{tld}"
+    
+    def _mask_subdomain_compound(m):
+        subdomain = m.group(1)     # e.g., "www."
+        domain = m.group(2)        # e.g., "bbc"
+        compound_tld = m.group(3)  # e.g., "co.uk"
+        if use_exclusions and _is_spanish_word(domain):
+            return m.group(0)  # Return unchanged if the domain part is a Spanish word
+        # Replace dots: "www.domain.co.uk" -> "www__DOT__domain__DOT__co_DOT_uk"
+        masked_tld = compound_tld.replace('.', COMPOUND_MASK)
+        return f"{subdomain.replace('.', SINGLE_MASK)}{domain}{SINGLE_MASK}{masked_tld}"
+    
+    # CRITICAL: Apply subdomain patterns FIRST to avoid conflicts with basic domain patterns
+    
+    # Mask subdomain compound TLDs: "www.domain.co.uk" -> "www__DOT__domain__DOT__co_DOT_uk"
+    subdomain_compound_pattern = rf"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)([a-zA-Z0-9\u00C0-\u017F\-]+)\.({COMPOUND_TLDS})\b"
+    masked = re.sub(subdomain_compound_pattern, _mask_subdomain_compound, text, flags=re.IGNORECASE)
+    
+    # Mask subdomain single TLDs: "www.domain.com" -> "www__DOT__domain__DOT__com"
+    subdomain_single_pattern = rf"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)([a-zA-Z0-9\u00C0-\u017F\-]+)\.({single_tlds})\b"
+    masked = re.sub(subdomain_single_pattern, _mask_subdomain, masked, flags=re.IGNORECASE)
+    
+    # Then apply compound TLD masking for remaining domains (non-subdomain)
     # Mask compound TLDs: "domain.co.uk" -> "domain__DOT__co_DOT_uk"
     # Updated pattern to include accented characters (Unicode \u00C0-\u017F covers Latin-1 Supplement and Latin Extended-A)
-    masked = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.({COMPOUND_TLDS})\b", _mask_compound, text, flags=re.IGNORECASE)
+    masked = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.({COMPOUND_TLDS})\b", _mask_compound, masked, flags=re.IGNORECASE)
     
-    # Mask single TLDs: "domain.com" -> "domain__DOT__com"  
+    # Finally mask single TLDs: "domain.com" -> "domain__DOT__com"  
     # Updated pattern to include accented characters for domains like sinónimosonline.com
     masked = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\.({single_tlds})\b", _mask_single, masked, flags=re.IGNORECASE)
     

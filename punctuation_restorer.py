@@ -439,22 +439,8 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
     The trailing fragment should be carried into the next segment by the caller if desired.
     """
     # CRITICAL: Mask domains before splitting to prevent breaking them
-    # First handle full domain names with subdomains (www.domain.tld, subdomain.domain.tld)
-    # This must be done BEFORE standard masking to avoid conflicts
-    # Updated pattern to include accented characters for domains like sinónimosonline.com
-    subdomain_pattern = rf"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)([a-zA-Z0-9\u00C0-\u017F\-]+)\.({SINGLE_TLDS})\b"
-    
-    def _mask_subdomain(m):
-        subdomain = m.group(1)  # e.g., "www."
-        domain = m.group(2)     # e.g., "espanolistos"  
-        tld = m.group(3)        # e.g., "com"
-        # Replace dots with mask tokens: "www.domain.tld" -> "www__DOT__domain__DOT__tld"
-        return f"{subdomain.replace('.', SINGLE_MASK)}{domain}{SINGLE_MASK}{tld}"
-    
-    processed_masked = re.sub(subdomain_pattern, _mask_subdomain, processed, flags=re.IGNORECASE)
-    
-    # Then mask remaining standard domains (domain.tld without subdomains)
-    processed_masked = mask_domains(processed_masked, use_exclusions=True, language=language)
+    # Use centralized domain masking that handles both simple and subdomain patterns
+    processed_masked = mask_domains(processed, use_exclusions=True, language=language)
     
     parts = re.split(r'(…|[.!?]+)', processed_masked)
     sentences: list[str] = []
