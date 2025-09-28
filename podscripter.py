@@ -402,7 +402,10 @@ def _accumulate_segments(model_segments, chunk_start: float, last_end: float, ep
         g_start = chunk_start + float(seg.start); g_end = chunk_start + float(seg.end)
         global_segs.append((g_start, g_end, seg.text))
     deduped, new_last = _dedupe_segments(global_segs, last_end, epsilon)
-    text = " ".join(d["text"] for d in deduped)
+    # Join segments and normalize spaces to prevent double spaces from trailing/leading whitespace
+    text = " ".join(d["text"].strip() for d in deduped)
+    # Clean up any remaining multiple spaces that might occur
+    text = re.sub(r'\s+', ' ', text).strip()
     return deduped, text, new_last
 
 def _load_model(model_name: str, device: str, compute_type: str) -> WhisperModel:
