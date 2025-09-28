@@ -607,7 +607,9 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
     # Carry trailing fragments across segments for languages that commonly split clauses across lines
     carry_fragment = "" if (lang_for_punctuation or '').lower() in ('fr', 'es') else None
     for segment in text_segments:
-        processed_segment = restore_punctuation(segment, lang_for_punctuation)
+        # Use segment-aware punctuation to avoid adding periods to incomplete phrases
+        from punctuation_restorer import restore_punctuation_segment
+        processed_segment = restore_punctuation_segment(segment, lang_for_punctuation)
         if carry_fragment is not None and carry_fragment:
             processed_segment = (carry_fragment + ' ' + processed_segment).strip()
             carry_fragment = ""
@@ -622,14 +624,16 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             else:
                 cleaned = re.sub(r'^[",\s]+', '', trailing)
                 if cleaned:
-                    if not cleaned.endswith(('.', '!', '?')):
-                        cleaned += '.'
+                    # Use centralized punctuation logic for trailing fragments
+                    from punctuation_restorer import _should_add_terminal_punctuation, PunctuationContext
+                    cleaned = _should_add_terminal_punctuation(cleaned, lang_for_punctuation, PunctuationContext.TRAILING)
                     sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
     if carry_fragment:
         cleaned = re.sub(r'^[",\s]+', '', carry_fragment)
         if cleaned:
-            if not cleaned.endswith(('.', '!', '?')):
-                cleaned += '.'
+            # Use centralized punctuation logic for carried fragments
+            from punctuation_restorer import _should_add_terminal_punctuation, PunctuationContext
+            cleaned = _should_add_terminal_punctuation(cleaned, lang_for_punctuation, PunctuationContext.TRAILING)
             sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
     # Merge appositive location breaks across segments (Spanish): 
     # "..., de <Proper>. <Proper> ..." -> "..., de <Proper>, <Proper> ..."

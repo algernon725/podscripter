@@ -482,8 +482,8 @@ def _split_processed_segment(processed: str, language: str) -> tuple[list[str], 
             buffer += punct
             cleaned = re.sub(r'^[",\s]+', '', buffer)
             if cleaned:
-                if not cleaned.endswith(('.', '!', '?')):
-                    cleaned += '.'
+                # Use centralized punctuation logic
+                cleaned = _should_add_terminal_punctuation(cleaned, language, PunctuationContext.FRAGMENT)
                 sentences.append(cleaned)
             buffer = ""
             idx += 2
@@ -1086,9 +1086,7 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
     else:
         # Simple fallback: just clean up whitespace and add basic punctuation
         text = re.sub(r'\s+', ' ', text.strip())
-        if text and not text.endswith(('.', '!', '?')):
-            text += '.'
-        return text
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
 
 def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
@@ -1108,9 +1106,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     if model is None:
         # Fallback path if sentence-transformers is unavailable
         text = re.sub(r'\s+', ' ', text.strip())
-        if text and not text.endswith(('.', '!', '?')):
-            text += '.'
-        return text
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
     # 1) Semantic split into sentences (token-based loop with _should_end_sentence_here)
     sentences = _semantic_split_into_sentences(text, language, model)
@@ -1125,8 +1121,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         sentences_list, trailing_fragment = assemble_sentences_from_processed(result_with_protected_domains, 'es')
         if trailing_fragment:
             cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
-            if cleaned and not cleaned.endswith(('.', '!', '?')):
-                cleaned += '.'
+            cleaned = _should_add_terminal_punctuation(cleaned, language, PunctuationContext.TRAILING)
             if cleaned:
                 sentences_list.append(cleaned)
 
@@ -1149,7 +1144,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                 if any(word in sentence_lower for word in question_words):
                     sentence += '?'
                 else:
-                    sentence += '.'
+                    # Use centralized punctuation logic for Spanish
+                    sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SPANISH_SPECIFIC)
             else:
                 sentence = sentence.rstrip('.!?') + sentence[-1]
 
@@ -1248,7 +1244,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                     if starts_with_question or sentence.startswith('¿'):
                         sentence += '?'
                     else:
-                        sentence += '.'
+                        # Use centralized punctuation logic
+                        sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END)
                     sentences[i] = sentence
         result = ''.join(sentences)
         
@@ -1266,9 +1263,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         for i in range(0, len(sentences), 2):
             if i < len(sentences):
                 sentence = sentences[i].strip()
-                if sentence and not sentence.endswith(('.', '!', '?')):
-                    sentence += '.'
-                    sentences[i] = sentence
+                # Use centralized punctuation logic
+                sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END)
+                sentences[i] = sentence
         result = ''.join(sentences)
         
         # Removed redundant short phrase patterns - already handled by line 1255
@@ -1284,11 +1281,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             if i < len(sentences):
                 sentence = sentences[i].strip()
                 if sentence and not sentence.endswith(('.', '!', '?')):
-                    # Special handling for short phrases
-                    if sentence.lower() in ['también sí', 'sí', 'no', 'claro', 'exacto', 'perfecto', 'vale', 'bien', 'pues tranquilo']:
-                        sentence += '.'
-                    else:
-                        sentence += '.'
+                    # Use centralized punctuation logic
+                    sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END)
                     sentences[i] = sentence
         result = ''.join(sentences)
         
@@ -1322,10 +1316,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             if i < len(sentences):
                 sentence = sentences[i].strip()
                 if sentence.startswith('¿') and not sentence.endswith('?'):
-                    # Remove the ¿ and add proper punctuation
+                    # Remove the ¿ and add proper punctuation using centralized logic
                     sentence = sentence[1:]  # Remove ¿
-                    if not sentence.endswith(('.', '!', '?')):
-                        sentence += '.'
+                    sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END)
                     sentences[i] = sentence
         result = ''.join(sentences)
         
@@ -1347,9 +1340,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Clean up any remaining mixed punctuation
         result = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], result)
         
-        # Ensure all sentences end with proper punctuation
-        if result and not result.endswith(('.', '!', '?')):
-            result += '.'
+        # Ensure all sentences end with proper punctuation using centralized logic
+        result = _should_add_terminal_punctuation(result, language, PunctuationContext.SENTENCE_END)
         
         # Removed redundant short phrase patterns - already handled comprehensively by line 1255
         
@@ -1773,13 +1765,157 @@ def _is_continuation_word(word: str, language: str) -> bool:
     """
     continuation_words = {
         'en': ['and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'since', 'although', 'however', 'therefore', 'thus', 'hence', 'then', 'next', 'also', 'as', 'well', 'as', 'in', 'addition', 'furthermore', 'moreover', 'besides', 'additionally'],
-        'es': ['y', 'o', 'pero', 'así', 'porque', 'si', 'cuando', 'mientras', 'desde', 'aunque', 'sin', 'embargo', 'por', 'tanto', 'entonces', 'también', 'además', 'furthermore', 'más', 'aún'],
+        'es': ['y', 'o', 'pero', 'así', 'porque', 'si', 'cuando', 'mientras', 'desde', 'aunque', 'sin', 'embargo', 'por', 'tanto', 'entonces', 'también', 'además', 'furthermore', 'más', 'aún', 'a', 'al', 'hacia', 'hasta', 'de', 'del', 'en', 'con'],
         'de': ['und', 'oder', 'aber', 'also', 'weil', 'wenn', 'während', 'seit', 'obwohl', 'jedoch', 'daher', 'deshalb', 'dann', 'auch', 'außerdem', 'ferner', 'zudem'],
         'fr': ['et', 'ou', 'mais', 'donc', 'parce', 'si', 'quand', 'pendant', 'depuis', 'bien', 'que', 'cependant', 'donc', 'alors', 'aussi', 'de', 'plus', 'en', 'outre', 'par', 'ailleurs']
     }
     
     words = continuation_words.get(language, continuation_words['en'])
     return word.lower() in words
+
+
+class PunctuationContext:
+    """Context types for different punctuation scenarios."""
+    STANDALONE_SEGMENT = "standalone_segment"      # Single segment from Whisper  
+    SENTENCE_END = "sentence_end"                  # End of a complete sentence
+    FRAGMENT = "fragment"                          # Partial sentence fragment
+    TRAILING = "trailing"                          # Trailing fragment to carry forward
+    SPANISH_SPECIFIC = "spanish_specific"          # Spanish-specific formatting context
+
+
+def _should_add_terminal_punctuation(text: str, language: str, context: str = None, model=None) -> str:
+    """
+    Centralized logic for determining what terminal punctuation to add.
+    
+    This function consolidates all the scattered period insertion logic throughout
+    the codebase into a single, maintainable location.
+    
+    Args:
+        text: The text segment to analyze
+        language: Language code ('es', 'en', 'fr', 'de')
+        context: Context type from PunctuationContext class
+        model: Optional sentence transformer model for semantic analysis
+    
+    Returns:
+        The text with appropriate terminal punctuation added
+    """
+    if not text or text.endswith(('.', '!', '?')):
+        return text
+    
+    context = context or PunctuationContext.STANDALONE_SEGMENT
+    
+    # Check for continuation words (like "Ve a", "Voy a") 
+    words = text.split()
+    last_word = words[-1] if words else ''
+    
+    # For standalone segments that end with continuation words, don't add punctuation
+    # This fixes the "Ve a" -> "Ve a." bug
+    if _is_continuation_word(last_word, language):
+        if context == PunctuationContext.STANDALONE_SEGMENT:
+            # Don't add punctuation to incomplete segments like "Ve a"
+            return text
+        elif context == PunctuationContext.TRAILING:
+            # Trailing fragments should also not get punctuation
+            return text
+        # For other contexts, continue with normal punctuation logic
+    
+    # Check for questions using semantic analysis if model is available
+    if model and context != PunctuationContext.FRAGMENT:
+        if is_question_semantic(text, model, language):
+            return text + '?'
+        if is_exclamation_semantic(text, model, language):
+            return text + '!'
+    
+    # Language-specific question detection fallback
+    if language == 'es':
+        question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
+        text_lower = text.lower()
+        if any(word in text_lower for word in question_words):
+            return text + '?'
+    
+    # Special handling for short Spanish phrases
+    if language == 'es' and text.lower() in ['también sí', 'sí', 'no', 'claro', 'exacto', 'perfecto', 'vale', 'bien', 'pues tranquilo']:
+        return text + '.'
+    
+    # Default to period for complete sentences
+    return text + '.'
+
+
+def _should_carry_forward_segment(text: str, language: str) -> bool:
+    """
+    Determine if a segment should be carried forward to the next segment.
+    
+    This helps handle cases where Whisper splits incomplete phrases like "Ve a"
+    into separate segments that should be combined.
+    
+    Args:
+        text: The text segment to analyze
+        language: Language code
+        
+    Returns:
+        True if the segment should be carried forward
+    """
+    if not text:
+        return False
+        
+    words = text.split()
+    last_word = words[-1] if words else ''
+    
+    # Phrases ending with continuation words should be carried forward
+    return _is_continuation_word(last_word, language)
+
+
+def restore_punctuation_segment(text: str, language: str = 'en') -> str:
+    """
+    Restore punctuation for a single Whisper segment.
+    
+    This is similar to restore_punctuation() but uses STANDALONE_SEGMENT context
+    to avoid adding periods to incomplete phrases like "Ve a" that should be 
+    carried forward to the next segment.
+    
+    Args:
+        text: The transcribed text segment from Whisper
+        language: Language code ('en', 'es', 'de', 'fr')
+    
+    Returns:
+        str: Text with restored punctuation, using segment-aware context
+    """
+    if not text or not text.strip():
+        return text
+    
+    # Clean up the text
+    text = text.strip()
+    
+    # Use SentenceTransformers for better sentence boundary detection if available
+    if SENTENCE_TRANSFORMERS_AVAILABLE:
+        return _transformer_based_restoration_segment(text, language)
+    else:
+        # Simple fallback: clean up whitespace and use segment-aware punctuation
+        text = re.sub(r'\s+', ' ', text.strip())
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.STANDALONE_SEGMENT)
+
+
+def _transformer_based_restoration_segment(text: str, language: str = 'en') -> str:
+    """
+    Segment-aware version of _transformer_based_restoration.
+    
+    This version uses STANDALONE_SEGMENT context to avoid adding periods
+    to incomplete phrases that should be carried forward.
+    """
+    # Initialize the model once (use multilingual model for better language support)
+    model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+    if model is None:
+        # Fallback path if sentence-transformers is unavailable
+        text = re.sub(r'\s+', ' ', text.strip())
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.STANDALONE_SEGMENT)
+
+    # For segment processing, check if this should be carried forward
+    if _should_carry_forward_segment(text, language):
+        # Don't add punctuation to segments that should be carried forward
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.STANDALONE_SEGMENT)
+    
+    # For complete segments, use normal sentence processing
+    return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END, model)
 
 
 def _check_semantic_break(words: List[str], current_index: int, model) -> bool:
@@ -1840,13 +1976,8 @@ def _apply_semantic_punctuation(sentence: str, model, language: str, sentence_in
             sentence = sentence.rstrip('.?') + '!'
         return sentence
     
-    # Default to period if no other punctuation
-    if sentence and not sentence.endswith(('.', '!', '?')):
-        # Don't add period if it ends with a continuation word
-        if not _is_continuation_word(sentence.split()[-1] if sentence.split() else '', language):
-            sentence += '.'
-    
-    return sentence
+    # Use centralized punctuation logic
+    return _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END, model)
 
 
 def is_question_semantic(sentence: str, model, language: str) -> bool:
@@ -2223,13 +2354,8 @@ def _apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
         sentence = re.sub(r'\b(ja)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
         sentence = re.sub(r'\b(nein)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
     
-    # Add period if sentence doesn't end with punctuation
-    if sentence and not sentence.endswith(('.', '!', '?')):
-        # Don't add period if it ends with a conjunction
-        if not sentence.lower().endswith(('and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'since', 'although')):
-            sentence += '.'
-    
-    return sentence
+    # Use centralized punctuation logic
+    return _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END)
 
 def _format_non_spanish_text(text: str, language: str) -> str:
     """Basic capitalization and comma heuristics for non-Spanish languages.
