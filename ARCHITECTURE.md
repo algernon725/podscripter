@@ -91,7 +91,7 @@ flowchart TD
 2. If not `--single`, split media into ~480s chunks with ~3s overlap.
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
-5. Restore punctuation and assemble sentences using helper utilities (ellipsis/domain-aware; automatic spaCy capitalization).
+5. Restore punctuation using segment-aware processing (`restore_punctuation_segment()`) and assemble sentences using helper utilities (ellipsis/domain-aware; automatic spaCy capitalization).
 6. Write TXT or SRT.
 
 ## Components and responsibilities
@@ -117,7 +117,10 @@ flowchart TD
   - Globalize timestamps and remove overlap duplicates
 
 - **Punctuation and sentence assembly** (`punctuation_restorer.py`)
-  - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)`
+  - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)` for complete text
+  - `restore_punctuation_segment(...)` → segment-aware processing for individual Whisper segments
+  - **Centralized punctuation system**: `_should_add_terminal_punctuation()` with context-aware processing
+  - **Context types**: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`
   - Sentence-Transformers semantic cues + curated regex rules
   - Language-specific formatting (ES/EN/FR/DE)
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
@@ -209,6 +212,18 @@ flowchart TD
 - Non EN/ES/FR/DE languages are experimental
 - spaCy capitalization requires language models; disabled if unavailable
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
+
+## Recent architectural improvements
+
+### Centralized Punctuation System (2025)
+- **Problem solved**: Previously, period insertion logic was scattered across 14+ locations in the codebase, making bugs like "Ve a" → "Ve a." difficult to fix and maintain
+- **Solution**: Centralized all punctuation decisions into `_should_add_terminal_punctuation()` with context-aware processing
+- **Benefits**: 
+  - Single source of truth for punctuation logic
+  - Context-aware processing prevents incomplete phrase punctuation
+  - Easier debugging and maintenance
+  - Prevents similar bugs in the future
+- **Implementation**: Uses `PunctuationContext` enum to apply different rules for different scenarios (Whisper segments vs complete sentences)
 
 ## Key files
 

@@ -114,6 +114,17 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Focus on semantic understanding over rule-based patterns
 - Do not emit optional debug output for punctuated text
 
+#### Centralized Punctuation System (NEW)
+- **`_should_add_terminal_punctuation()`**: Single centralized function for all period/punctuation insertion decisions
+- **`PunctuationContext`**: Context-aware processing with different rules for different scenarios:
+  - `STANDALONE_SEGMENT`: For individual Whisper segments (avoids periods on incomplete phrases like "Ve a")
+  - `SENTENCE_END`: For complete sentences that should get terminal punctuation
+  - `FRAGMENT`: For sentence fragments during processing
+  - `TRAILING`: For trailing fragments that may be carried forward
+  - `SPANISH_SPECIFIC`: For Spanish-specific formatting contexts
+- **`restore_punctuation_segment()`**: Segment-aware API for processing individual Whisper segments
+- **Benefits**: Single source of truth, easier debugging, context-aware rules, prevents bugs like "Ve a" → "Ve a."
+
 #### Formatting Responsibilities
 - Perform punctuation, language-specific formatting, capitalization, comma insertion, hyphenation, and sentence-assembly utilities in `punctuation_restorer.py`.
 - Keep `podscripter.py` focused on orchestration (I/O, model selection, mode, calling helpers) and output writing. Assembly behavior is invoked via helpers in `punctuation_restorer.py`:
@@ -251,6 +262,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Implement a general solution rather than specific hack
 - Test the fix thoroughly across languages
 - Document the fix and reasoning
+- **Use centralized punctuation system**: When fixing punctuation bugs, use `_should_add_terminal_punctuation()` with appropriate context rather than adding scattered `text += '.'` logic
 
 ### 3. Testing
 - Run tests inside Docker container
@@ -269,6 +281,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Don't create one-off fixes for specific sentences
 - Don't hardcode language-specific rules unnecessarily
 - Don't ignore edge cases in punctuation patterns
+- **Don't add scattered period insertion**: Use the centralized `_should_add_terminal_punctuation()` function instead of adding `text += '.'` in multiple locations
 
 ### 3. Testing
 - Don't skip testing across multiple languages
