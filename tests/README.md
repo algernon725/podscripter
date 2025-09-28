@@ -5,13 +5,13 @@ All tests must be run inside Docker with model caches mounted.
 ### Build the image
 
 ```bash
-docker build --platform linux/arm64 -t podscripter .
+docker build -t podscripter .
 ```
 
 ### Run all default tests
 
 ```bash
-docker run --rm --platform linux/arm64 \
+docker run --rm \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
@@ -31,7 +31,7 @@ The default selection runs core English/Spanish/French/German punctuation and sp
 Example:
 
 ```bash
-docker run --rm --platform linux/arm64 \
+docker run --rm \
   -e RUN_ALL=1 \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
@@ -43,7 +43,7 @@ docker run --rm --platform linux/arm64 \
 ### Run a single test file
 
 ```bash
-docker run --rm --platform linux/arm64 \
+docker run --rm \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \

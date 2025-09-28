@@ -30,15 +30,14 @@
 Minimal setup and a single run:
 
 ```bash
-# Build image (Apple Silicon).
-# On Intel Macs or other architectures, remove `--platform linux/arm64`.
-docker build --platform linux/arm64 -t podscripter .
+# Build image
+docker build -t podscripter .
 
 # Create cache folders (first time only)
 mkdir -p audio-files models/sentence-transformers models/huggingface
 
 # Transcribe one file (TXT output). Replace example.mp3 with your file.
-docker run --rm --platform linux/arm64 \
+docker run --rm \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
@@ -55,8 +54,7 @@ Notes:
 
 ## Requirements
 
-- Apple Mac with an M series processor.
-- Other architectures supported by modifying the Docker build command
+- Docker-compatible system (Mac, Linux, Windows with WSL)
 
 ---
 
@@ -93,22 +91,20 @@ This creates the necessary directory structure for caching models:
 
 Build the container image that will run the transcription tool:
   ```bash
-  docker build --platform linux/arm64 -t podscripter .
+  docker build -t podscripter .
   ```
->💡 If you’re on an Intel Mac or other architecture, remove `--platform linux/arm64`
 
 ### 5. Start the Docker Container
 
 Run the container and mount the folders you just created:
   ```bash
-  docker run --platform linux/arm64 -it \
+  docker run -it \
     -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
     -v $(pwd)/models/huggingface:/root/.cache/huggingface \
     -v $(pwd)/audio-files:/app/audio-files \
     podscripter
   ```
 This opens an interactive terminal inside the container. You'll run all transcription commands from here.
->💡 If you’re on an Intel Mac or other architecture, remove `--platform linux/arm64`
 
 **Alternative: Use the caching script**
   ```bash
@@ -263,7 +259,7 @@ Run the test suite inside Docker with caches mounted. See `tests/README.md` for 
 Quick run (default selection):
 
 ```bash
-docker run --rm --platform linux/arm64 \
+docker run --rm \
   -e NLP_CAPITALIZATION=1 \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \

@@ -201,7 +201,6 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - It also exposes VAD toggles (`--no-vad`, `--vad-speech-pad-ms`) strictly for debugging; the main CLI uses constants
 
 ### 3. Docker Best Practices
-- Use `--platform linux/arm64` for M-series Mac compatibility
 - Mount volumes for model caching: `-v $(pwd)/models/whisper:/app/models`
 - Include all necessary environment variables in Dockerfile
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
