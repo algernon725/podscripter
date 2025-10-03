@@ -11,12 +11,14 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies
 RUN pip install --upgrade pip
 RUN pip install faster-whisper pydub
+RUN pip install torch
 RUN pip install sentence-transformers
 RUN pip install spacy==3.7.4
-RUN python -m spacy download es_core_news_sm
-RUN python -m spacy download en_core_web_sm
-RUN python -m spacy download fr_core_news_sm
-RUN python -m spacy download de_core_news_sm
+RUN pip install \
+    https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.7.0/es_core_news_sm-3.7.0-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.7.0/fr_core_news_sm-3.7.0-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.7.0/de_core_news_sm-3.7.0-py3-none-any.whl
 
 # No longer need NLTK - using simple sentence splitting
 
