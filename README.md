@@ -64,8 +64,8 @@ Notes:
 
 Make sure you have the following tools installed on your system:
 
-- [Docker](https://www.docker.com) - need help installing? See the beginner guide: [Docker installation for Windows, macOS, and Ubuntu](docs/docker-installation.md)
-- [Git](https://git-scm.com/downloads
+- [Docker](https://www.docker.com) — need help installing? See the beginner guide: [Docker installation for Windows, macOS, and Ubuntu](docs/docker-installation.md)
+- [Git](https://git-scm.com/downloads)
 
 ### 2. Clone the Repository
 
