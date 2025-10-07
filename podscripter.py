@@ -402,10 +402,9 @@ def _accumulate_segments(model_segments, chunk_start: float, last_end: float, ep
         g_start = chunk_start + float(seg.start); g_end = chunk_start + float(seg.end)
         global_segs.append((g_start, g_end, seg.text))
     deduped, new_last = _dedupe_segments(global_segs, last_end, epsilon)
-    # Join segments and normalize spaces to prevent double spaces from trailing/leading whitespace
-    text = " ".join(d["text"].strip() for d in deduped)
-    # Clean up any remaining multiple spaces that might occur
-    text = re.sub(r'\s+', ' ', text).strip()
+    # Join segments with single newlines to preserve boundaries while allowing sentence assembly
+    # Single newlines allow the punctuation logic to see segment boundaries and merge intelligently
+    text = "\n".join(d["text"].strip() for d in deduped)
     return deduped, text, new_last
 
 def _load_model(model_name: str, device: str, compute_type: str) -> WhisperModel:
@@ -605,39 +604,26 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
     if (lang_for_punctuation or '').lower() == 'en':
         from punctuation_restorer import _normalize_dotted_acronyms_en as normalize_dotted_acronyms_en
         all_text = normalize_dotted_acronyms_en(all_text)
-    text_segments = [seg.strip() for seg in all_text.split('\n\n') if seg.strip()]
-    sentences: list[str] = []
-    # Carry trailing fragments across segments for languages that commonly split clauses across lines
-    carry_fragment = "" if (lang_for_punctuation or '').lower() in ('fr', 'es') else None
-    for segment in text_segments:
-        # Use segment-aware punctuation to avoid adding periods to incomplete phrases
-        from punctuation_restorer import restore_punctuation_segment
-        processed_segment = restore_punctuation_segment(segment, lang_for_punctuation)
-        if carry_fragment is not None and carry_fragment:
-            processed_segment = (carry_fragment + ' ' + processed_segment).strip()
-            carry_fragment = ""
-        from punctuation_restorer import assemble_sentences_from_processed
-        seg_sentences, trailing = assemble_sentences_from_processed(processed_segment, (lang_for_punctuation or '').lower())
-        # Sanitize each sentence before collecting
-        for s in seg_sentences:
-            sentences.append(_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()))
-        if trailing:
-            if (lang_for_punctuation or '').lower() == 'fr':
-                carry_fragment = trailing
-            else:
-                cleaned = re.sub(r'^[",\s]+', '', trailing)
-                if cleaned:
-                    # Use centralized punctuation logic for trailing fragments
-                    from punctuation_restorer import _should_add_terminal_punctuation, PunctuationContext
-                    cleaned = _should_add_terminal_punctuation(cleaned, lang_for_punctuation, PunctuationContext.TRAILING)
-                    sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
-    if carry_fragment:
-        cleaned = re.sub(r'^[",\s]+', '', carry_fragment)
+    
+    # Process the entire text as one block to allow proper sentence formation across Whisper segments
+    # The punctuation restoration will add punctuation and split into sentences intelligently
+    from punctuation_restorer import restore_punctuation
+    processed_text = restore_punctuation(all_text, lang_for_punctuation)
+    
+    # Split the processed text into sentences
+    from punctuation_restorer import assemble_sentences_from_processed
+    sentences, trailing = assemble_sentences_from_processed(processed_text, (lang_for_punctuation or '').lower())
+    
+    # Handle any trailing fragment
+    if trailing:
+        cleaned = re.sub(r'^[",\s]+', '', trailing)
         if cleaned:
-            # Use centralized punctuation logic for carried fragments
             from punctuation_restorer import _should_add_terminal_punctuation, PunctuationContext
             cleaned = _should_add_terminal_punctuation(cleaned, lang_for_punctuation, PunctuationContext.TRAILING)
             sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
+    
+    # Sanitize all sentences
+    sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
     # Merge appositive location breaks across segments (Spanish): 
     # "..., de <Proper>. <Proper> ..." -> "..., de <Proper>, <Proper> ..."
     if sentences and (lang_for_punctuation or '').lower() == 'es':
