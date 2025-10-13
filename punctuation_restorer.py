@@ -1548,11 +1548,27 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     
     # CRITICAL: Never split when current word is a noun that commonly precedes numbers
     # and next word is a standalone number (e.g., "episode 184", "épisode 184", "chapter 5")
-    # This prevents incorrect splits like "episode. 184" in English/French
+    # OR when current word is a conjunction in a number list (e.g., "177 y 184", "3 and 4")
+    # This prevents incorrect splits like "episode. 184" or "y. 184" in all languages
     # Strip punctuation from next_word to check if it's a number (handles "184." → "184")
     if next_word:
         next_word_clean = next_word.strip('.,;:!?')
         if next_word_clean.isdigit():
+            current_word_clean = current_word.lower().strip('.,;:!?')
+            
+            # Check if current word is a conjunction (y/o/and/or/et/ou/und/oder) in a number list
+            # Pattern: "number, number, ... conjunction number"
+            conjunctions_before_numbers = {'y', 'o', 'and', 'or', 'et', 'ou', 'und', 'oder'}
+            if current_word_clean in conjunctions_before_numbers:
+                # Check if there's a number before the conjunction (indicating a list)
+                # Look back a few words to see if we're in a number list context
+                if len(current_chunk) >= 2:
+                    # Check if any of the previous 3 words contains digits (number list context)
+                    prev_words = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
+                    has_prev_number = any(any(c.isdigit() for c in w.strip('.,;:!?')) for w in prev_words)
+                    if has_prev_number:
+                        return False  # Don't split in a number list like "147, 151, 177 y 184"
+            
             # Common nouns that precede numbers across languages
             number_preceding_nouns = {
                 'episode', 'episodes', 'episodio', 'episodios', 'épisode', 'épisodes',  # episodes
@@ -1566,7 +1582,6 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
                 'serie', 'series', 'série', 'séries',  # series
                 'track', 'tracks', 'pista', 'pistas',  # tracks
             }
-            current_word_clean = current_word.lower().strip('.,;:!?')
             # Also handle contractions like "l'épisode" -> "épisode"
             if "'" in current_word_clean:
                 current_word_clean = current_word_clean.split("'")[-1]
