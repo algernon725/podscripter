@@ -30,7 +30,7 @@
 ### 2. Model Caching Strategy
 - Faster-Whisper (Whisper) models cached via Hugging Face Hub under `/root/.cache/huggingface` (mounted from `models/huggingface`)
 - Sentence-Transformers cached in `/root/.cache/torch/sentence_transformers`
-- HuggingFace models cached in `/root/.cache/huggingface`
+- Hugging Face models cached in `/root/.cache/huggingface`
 - Use `HF_HOME` environment variable (avoid deprecated `TRANSFORMERS_CACHE`)
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
 - Use a singleton model loader to avoid repeated model instantiation within a process
@@ -201,12 +201,18 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - It also exposes VAD toggles (`--no-vad`, `--vad-speech-pad-ms`) strictly for debugging; the main CLI uses constants
 
 ### 3. Docker Best Practices
-- Mount volumes for model caching: `-v $(pwd)/models/whisper:/app/models`
+- Mount volumes for model caching and media:
+  - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
+  - `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers`
+  - `-v $(pwd)/audio-files:/app/audio-files`
 - Include all necessary environment variables in Dockerfile
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
 - SpaCy capitalization is always enabled for all runs.
 - For performance on long files (> 1 hour): prefer single-call mode if resources allow; otherwise use overlapped chunking with 3s overlap and deduplication on merge.
- - Use a `.dockerignore` to exclude large local media (e.g., `audio-files/`) from the build context to speed up Docker builds
+- Build efficiency tips:
+  - Combine pip installs in a single `RUN` and use `--no-cache-dir`
+  - Keep `COPY . .` as the last step to maximize layer caching
+  - Use a `.dockerignore` to exclude large local media (e.g., `audio-files/`, `models/`) from the build context
 
 ### 4. Model Management
 - Cache models to avoid repeated downloads

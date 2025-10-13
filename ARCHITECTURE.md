@@ -153,7 +153,7 @@ flowchart TD
 
 - **Environment variables**
   - `HF_HOME`: Hugging Face cache root
-  - `WHISPER_CACHE_DIR`: Whisper model cache directory
+  - `WHISPER_MODEL`: default Whisper model name (overridden by CLI `--model`)
   - Optionally set `HF_HUB_OFFLINE=1` when caches are warm
 - **Runtime flags** (CLI)
   - `--output_dir <dir>` (required)
@@ -178,6 +178,11 @@ flowchart TD
   - Mount volumes to persist models between runs:
     - Faster-Whisper via Hugging Face Hub: `models/huggingface/` → `/root/.cache/huggingface`
     - Sentence-Transformers: `models/sentence-transformers/` → `/root/.cache/torch/sentence_transformers`
+    - Media: `audio-files/` → `/app/audio-files`
+  - Build efficiency:
+    - Combine pip installs into a single `RUN` with `--no-cache-dir`
+    - Keep `COPY . .` last to maximize layer caching
+    - Use `.dockerignore` to exclude large local media and caches (`audio-files/`, `models/`)
 - **Error handling**
   - Early exits for invalid input or unwritable output
   - Conservative fallbacks when ST/spaCy unavailable
