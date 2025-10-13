@@ -1591,7 +1591,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         
         # General rule: don't break after articles, prepositions, determiners, or common quantifiers
         # These words typically continue the sentence
-        if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra',
+        if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra',
                                     'todo', 'toda', 'todos', 'todas', 'alguno', 'alguna', 'algunos', 'algunas', 'cualquier', 'cualquiera', 'ningún', 'ninguna', 'ninguno', 'otro', 'otra', 'otros', 'otras']:
             return False
         
@@ -1618,7 +1618,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
             return False
         
         # Don't break if the current word ends with a preposition that should continue
-        if current_word.lower() in ['de', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
+        if current_word.lower() in ['de', 'del', 'al', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
             return False
         
     # Protect common Spanish question tail constructions: "qué" + infinitive (e.g., "qué decir")
