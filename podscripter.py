@@ -301,12 +301,17 @@ def _write_txt(sentences, output_file, language: str | None = None):
             direct_location_pattern = r'(\b[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*,\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑa-záéíóúñ])'
             s_protected = re.sub(direct_location_pattern, r'\1__LOCATION_DOT__\2', s_protected, flags=re.IGNORECASE)
             
-            # Pattern 3: Number lists with conjunctions (y/o) - don't split after final number
-            # Protects patterns like "147, 151, 156, 164, 170, 177 y 184. El episodio"
+            # Pattern 3: Number lists with conjunctions - don't split after final number
+            # Protects patterns like "147, 151, 156, 164, 170, 177 [conjunction] 184. Next sentence"
             # from being split after "184."
-            # This is a general fix for any number list ending with "y NUMBER" or "o NUMBER"
+            # Multilingual support for conjunctions:
+            # - Spanish: y, o
+            # - English: and, or
+            # - French: et, ou
+            # - German: und, oder
+            # This is a general fix for any number list ending with "conjunction NUMBER"
             # where the list contains commas (indicating multiple items)
-            number_list_pattern = r'(\d+(?:,\s*\d+)+(?:,?\s+[yo])\s+\d+)\.\s+([A-ZÁÉÍÓÚÑ¿¡])'
+            number_list_pattern = r'(\d+(?:,\s*\d+)+(?:,?\s+(?:y|o|and|or|et|ou|und|oder))\s+\d+)\.\s+([A-ZÁÉÍÓÚÑ¿¡])'
             s_protected = re.sub(number_list_pattern, r'\1__NUMBER_LIST_DOT__\2', s_protected, flags=re.IGNORECASE)
             
             parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)

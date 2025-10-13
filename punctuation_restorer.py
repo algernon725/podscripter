@@ -1546,6 +1546,34 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     current_word = words[current_index]
     next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
     
+    # CRITICAL: Never split when current word is a noun that commonly precedes numbers
+    # and next word is a standalone number (e.g., "episode 184", "épisode 184", "chapter 5")
+    # This prevents incorrect splits like "episode. 184" in English/French
+    # Strip punctuation from next_word to check if it's a number (handles "184." → "184")
+    if next_word:
+        next_word_clean = next_word.strip('.,;:!?')
+        if next_word_clean.isdigit():
+            # Common nouns that precede numbers across languages
+            number_preceding_nouns = {
+                'episode', 'episodes', 'episodio', 'episodios', 'épisode', 'épisodes',  # episodes
+                'chapter', 'chapters', 'capítulo', 'capítulos', 'chapitre', 'chapitres', 'kapitel',  # chapters
+                'year', 'years', 'año', 'años', 'année', 'années', 'jahr', 'jahre',  # years
+                'season', 'seasons', 'temporada', 'temporadas', 'saison', 'saisons', 'staffel',  # seasons
+                'volume', 'volumes', 'volumen', 'volúmenes', 'band', 'bände',  # volumes
+                'part', 'parts', 'parte', 'partes', 'partie', 'parties', 'teil', 'teile',  # parts
+                'page', 'pages', 'página', 'páginas', 'seite', 'seiten',  # pages
+                'number', 'numbers', 'número', 'números', 'numéro', 'numéros', 'nummer', 'nummern',  # numbers
+                'serie', 'series', 'série', 'séries',  # series
+                'track', 'tracks', 'pista', 'pistas',  # tracks
+            }
+            current_word_clean = current_word.lower().strip('.,;:!?')
+            # Also handle contractions like "l'épisode" -> "épisode"
+            if "'" in current_word_clean:
+                current_word_clean = current_word_clean.split("'")[-1]
+            
+            if current_word_clean in number_preceding_nouns:
+                return False
+    
     # Strong indicators as soft hints (never hard breaks)
     strong_end_indicators = _get_strong_end_indicators(language)
     if current_word.lower() in strong_end_indicators:
