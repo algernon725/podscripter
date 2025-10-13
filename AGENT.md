@@ -234,6 +234,23 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Test both positive and negative cases
 - Verify fixes work across all supported languages
 
+### 4. Known Resolved Issues
+
+#### Coordinating Conjunction Split Bug (Fixed)
+**Problem**: Sentences were incorrectly split after coordinating conjunctions (e.g., "y", "and", "et", "und") when processing long texts, violating grammar rules.
+- Example: `"errores y."` | `"Eco..."` instead of `"errores y eco..."`
+- Only occurred when semantic splitting thresholds were triggered (long texts >219 words)
+
+**Root Cause**: `_should_end_sentence_here()` lacked a general guard against ending sentences on coordinating conjunctions.
+
+**Solution**: Added early guard (lines ~1549-1562 in `punctuation_restorer.py`) that prevents splits when current word is a coordinating conjunction:
+- Spanish: y, e, o, u, pero, mas, sino
+- English: and, but, or, nor, for, so, yet
+- French: et, ou, mais, donc, or, ni, car
+- German: und, oder, aber, denn, sondern
+
+**Tests**: `test_conjunction_split_bug.py`, `test_episodio190_y_eco_bug.py`
+
 ## Documentation Standards
 
 ### README Updates

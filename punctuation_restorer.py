@@ -1546,6 +1546,21 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     current_word = words[current_index]
     next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
     
+    # CRITICAL: Never end a sentence on a coordinating conjunction
+    # These words grammatically require something to follow them
+    # Examples: "y" (es), "and" (en), "et" (fr), "und" (de), "but", "or", etc.
+    # This prevents splits like "teníamos muchos errores y." | "Eco..."
+    current_word_clean = current_word.lower().strip('.,;:!?')
+    coordinating_conjunctions = {
+        'y', 'e', 'o', 'u',  # Spanish: and, and (before i-), or, or (before o-)
+        'pero', 'mas', 'sino',  # Spanish: but
+        'and', 'but', 'or', 'nor', 'for', 'so', 'yet',  # English
+        'et', 'ou', 'mais', 'donc', 'or', 'ni', 'car',  # French
+        'und', 'oder', 'aber', 'denn', 'sondern',  # German
+    }
+    if current_word_clean in coordinating_conjunctions:
+        return False
+    
     # CRITICAL: Never split when current word is a noun that commonly precedes numbers
     # and next word is a standalone number (e.g., "episode 184", "épisode 184", "chapter 5")
     # OR when current word is a conjunction in a number list (e.g., "177 y 184", "3 and 4")
