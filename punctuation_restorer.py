@@ -399,15 +399,15 @@ def _finalize_text_common(text: str) -> str:
     masked = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
     # Unmask domains using centralized function
     out = unmask_domains(masked)
-    # Normalize comma spacing globally with thousands-aware behavior
+    # Normalize comma spacing globally
     # 1) Remove spaces before commas everywhere
     out = re.sub(r"\s+,", ",", out)
     # 1a) Deduplicate accidental double commas (allowing optional spaces between), e.g., ", ," -> ", "
     out = re.sub(r",\s*,+", ", ", out)
-    # 2) Collapse spaces only inside thousands-grouped numbers
-    out = re.sub(r"(?<!\d)(\d{1,3})(?:,\s?\d{3})+(?!\d)", lambda m: re.sub(r',\s+', ',', m.group(0)), out)
-    # 3) Ensure a single space after commas except when followed by a digit (to preserve thousands and enumerations)
-    out = re.sub(r",(?!\d)\s*", ", ", out)
+    # 2) Add space after ALL commas
+    # NOTE: This fixes number lists like "147,151,156" -> "147, 151, 156"
+    # Trade-off: thousands like "1,000" become "1, 000" (acceptable since rare in transcriptions)
+    out = re.sub(r",(?=\S)", ", ", out)  # Add space after comma if followed by non-whitespace
     return out.strip()
 
 
@@ -1384,13 +1384,13 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result = _spanish_cleanup_postprocess(result)
 
         # (Removed) final collapse of emphatic repeats
-        # Normalize comma spacing with thousands-aware behavior
+        # Normalize comma spacing
         # 1) Remove spaces before commas
         result = re.sub(r'\s+,', ',', result)
-        # 2) Collapse spaces only inside thousands-grouped numbers
-        result = re.sub(r'(?<!\d)(\d{1,3})(?:,\s?\d{3})+(?!\d)', lambda m: re.sub(r',\s+', ',', m.group(0)), result)
-        # 3) Ensure a single space after commas except when followed by a digit
-        result = re.sub(r',(?!\d)\s*', ', ', result)
+        # 2) Add space after ALL commas
+        # NOTE: This fixes number lists like "147,151,156" -> "147, 151, 156"
+        # Trade-off: thousands like "1,000" become "1, 000" (acceptable since rare in transcriptions)
+        result = re.sub(r',(?=\S)', ', ', result)  # Add space after comma if followed by non-whitespace
         # Ensure a single space after terminal punctuation when followed by a non-space and not part of an ellipsis
         # CRITICAL: Mask domains before space insertion to prevent breaking them
         result_masked_for_spacing = mask_domains(result, use_exclusions=True, language=language)
