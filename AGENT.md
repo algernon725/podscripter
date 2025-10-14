@@ -129,6 +129,11 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Perform punctuation, language-specific formatting, capitalization, comma insertion, hyphenation, and sentence-assembly utilities in `punctuation_restorer.py`.
 - Keep `podscripter.py` focused on orchestration (I/O, model selection, mode, calling helpers) and output writing. Assembly behavior is invoked via helpers in `punctuation_restorer.py`:
   - Ellipsis continuation and domain-aware splitting are exposed via `assemble_sentences_from_processed(processed, language)` (public API)
+  - Comma spacing is centralized in `_normalize_comma_spacing(text)` and MUST NOT be re-implemented inline. This helper:
+    - removes spaces before commas,
+    - deduplicates multiple commas,
+    - ensures a single space after commas.
+    - Trade-off: thousands like "1,000" become "1, 000". This is acceptable given the priority to correctly space number lists (e.g., episode numbers: "147,151,156" → "147, 151, 156").
   - The detailed helpers for dotted acronym normalization, French connector merges, etc., are private (`_normalize_dotted_acronyms_en`, `_fr_merge_short_connector_breaks`, and others)
   - Segment carry-over: when a segment ends without terminal punctuation, carry the trailing fragment into the next segment for French and Spanish
   - SRT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s)
@@ -402,6 +407,12 @@ Before submitting any changes, ensure:
   - Prefer editing constants and thresholds over changing logic
   - After any change, run `tests/run_all_tests.py` inside Docker with model caches mounted
   - Avoid adding one-off hacks; extend constants or helper behavior instead
+
+- Centralized comma spacing (2025)
+  - Problem: Comma spacing logic (e.g., for number lists) was duplicated across multiple locations, causing inconsistency and harder maintenance.
+  - Solution: Introduced `_normalize_comma_spacing(text)` in `punctuation_restorer.py` and replaced all inline regex variants.
+  - Behavior: Removes spaces before commas, deduplicates commas, ensures a single space after commas.
+  - Trade-off: Thousands separators will include a space (e.g., `1,000` → `1, 000`) to reliably fix number-list spacing; acceptable for transcript readability.
 
 ### Transcription pipeline refinements
 
