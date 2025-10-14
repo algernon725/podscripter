@@ -277,6 +277,28 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: `test_pues_que_split_bug.py`
 
+#### Preposition Split Bug (Fixed)
+**Problem**: Sentences were incorrectly ending with prepositions across all supported languages, which violates basic grammar rules.
+- Spanish example: `"entonces yo conocí a."` | `"Un amigo que trabajaba con cámaras"` (incorrect)
+- Should be: `"entonces yo conocí a un amigo que trabajaba con cámaras"` (correct)
+- English example: Ending with "to", "at", "from", "with", etc.
+- French example: Ending with "à", "de", "avec", "pour", etc.
+- German example: Ending with "zu", "bei", "mit", "von", etc.
+- Occurred when semantic splitting thresholds were triggered in long texts
+
+**Root Cause**: `_should_end_sentence_here()` was missing critical preposition guards:
+1. Spanish preposition `'a'` (to) was not in the check lists at lines 1700-1702 and 1727-1728
+2. Other Spanish prepositions `'ante'` (before), `'bajo'` (under) were also missing
+3. No preposition guards existed for English, French, or German
+
+**Solution**: Added comprehensive preposition guards (lines ~1700-1745 in `punctuation_restorer.py`):
+- Spanish: Added `'a'`, `'ante'`, `'bajo'` to existing preposition lists
+- English: Added guard for common prepositions (to, at, from, with, by, of, in, on, for, about, etc.)
+- French: Added guard for common prepositions (à, de, en, pour, avec, sans, sous, sur, dans, chez, etc.)
+- German: Added guard for common prepositions (zu, an, auf, aus, bei, mit, nach, von, vor, in, für, etc.)
+
+**Tests**: `test_preposition_split_bug.py`, `test_preposition_split_long_text.py`
+
 ## Documentation Standards
 
 ### README Updates

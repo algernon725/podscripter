@@ -1697,7 +1697,8 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         
         # General rule: don't break after articles, prepositions, determiners, or common quantifiers
         # These words typically continue the sentence
-        if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra',
+        # CRITICAL: Include 'a' (to), 'ante' (before), 'bajo' (under) - common prepositions that should never end sentences
+        if current_word.lower() in ['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'a', 'ante', 'bajo', 'de', 'del', 'al', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra',
                                     'todo', 'toda', 'todos', 'todas', 'alguno', 'alguna', 'algunos', 'algunas', 'cualquier', 'cualquiera', 'ningún', 'ninguna', 'ninguno', 'otro', 'otra', 'otros', 'otras']:
             return False
         
@@ -1724,7 +1725,23 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
             return False
         
         # Don't break if the current word ends with a preposition that should continue
-        if current_word.lower() in ['de', 'del', 'al', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
+        # CRITICAL: Include 'a' (to), 'ante' (before), 'bajo' (under) - these are common Spanish prepositions
+        if current_word.lower() in ['a', 'ante', 'bajo', 'de', 'del', 'al', 'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante', 'según', 'hacia', 'hasta', 'desde', 'contra']:
+            return False
+    
+    # English: Don't break after common prepositions that require continuation
+    if language == 'en':
+        if current_word.lower() in ['to', 'at', 'from', 'with', 'by', 'of', 'in', 'on', 'for', 'about', 'into', 'onto', 'upon', 'after', 'before', 'through', 'during', 'without', 'within', 'among', 'between', 'under', 'over', 'above', 'below', 'across', 'along', 'around', 'behind', 'beside', 'beyond', 'near', 'off', 'toward', 'towards', 'until', 'up', 'down', 'out', 'inside', 'outside', 'throughout', 'against']:
+            return False
+    
+    # French: Don't break after common prepositions that require continuation
+    if language == 'fr':
+        if current_word.lower() in ['à', 'de', 'en', 'pour', 'avec', 'sans', 'sous', 'sur', 'dans', 'chez', 'par', 'vers', 'contre', 'entre', 'parmi', 'pendant', 'depuis', 'devant', 'derrière', 'avant', 'après', 'durant', 'selon', 'malgré', 'sauf', 'jusque', "jusqu'à"]:
+            return False
+    
+    # German: Don't break after common prepositions that require continuation
+    if language == 'de':
+        if current_word.lower() in ['zu', 'an', 'auf', 'aus', 'bei', 'mit', 'nach', 'von', 'vor', 'in', 'für', 'durch', 'über', 'unter', 'hinter', 'neben', 'zwischen', 'um', 'ohne', 'gegen', 'seit', 'bis', 'während', 'wegen', 'trotz', 'innerhalb', 'außerhalb']:
             return False
         
     # Protect common Spanish question tail constructions: "qué" + infinitive (e.g., "qué decir")
