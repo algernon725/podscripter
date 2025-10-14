@@ -377,6 +377,55 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
     return result
 
 
+def _normalize_comma_spacing(text: str) -> str:
+    """Normalize comma spacing in text.
+    
+    This function:
+    1. Removes spaces before commas
+    2. Deduplicates multiple commas
+    3. Adds space after all commas
+    
+    Trade-off: Thousands separators like "1,000" become "1, 000".
+    This is acceptable because:
+    - Number lists (episode numbers, dates) are more common in transcriptions
+    - "1, 000" is still understandable
+    - The alternative (trying to detect thousands) caused false positives
+    
+    Examples:
+        >>> _normalize_comma_spacing("episodio 147,151,156")
+        "episodio 147, 151, 156"
+        >>> _normalize_comma_spacing("hay 1,000 personas")
+        "hay 1, 000 personas"
+        >>> _normalize_comma_spacing("palabra ,otra")
+        "palabra, otra"
+        >>> _normalize_comma_spacing("test, ,doble")
+        "test, doble"
+    
+    Args:
+        text: Input text with potentially inconsistent comma spacing
+        
+    Returns:
+        Text with normalized comma spacing
+    """
+    if not text:
+        return text if text is not None else ""
+    
+    # 1) Remove spaces before commas everywhere
+    text = re.sub(r"\s+,", ",", text)
+    
+    # 2) Deduplicate accidental double commas (allowing optional spaces between)
+    # e.g., ", ," -> ", " or ",,," -> ", "
+    text = re.sub(r",\s*,+", ", ", text)
+    
+    # 3) Normalize space after commas: ensure exactly one space (or none if at end)
+    # First, normalize any existing spaces after commas
+    text = re.sub(r",\s+", ", ", text)
+    # Then add space where missing (when followed by non-whitespace)
+    text = re.sub(r",(?=\S)", ", ", text)
+    
+    return text
+
+
 # Final universal cleanup applied at the end of the pipeline
 def _finalize_text_common(text: str) -> str:
     """Apply safe, language-agnostic cleanup at the very end.
@@ -399,15 +448,8 @@ def _finalize_text_common(text: str) -> str:
     masked = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
     # Unmask domains using centralized function
     out = unmask_domains(masked)
-    # Normalize comma spacing globally
-    # 1) Remove spaces before commas everywhere
-    out = re.sub(r"\s+,", ",", out)
-    # 1a) Deduplicate accidental double commas (allowing optional spaces between), e.g., ", ," -> ", "
-    out = re.sub(r",\s*,+", ", ", out)
-    # 2) Add space after ALL commas
-    # NOTE: This fixes number lists like "147,151,156" -> "147, 151, 156"
-    # Trade-off: thousands like "1,000" become "1, 000" (acceptable since rare in transcriptions)
-    out = re.sub(r",(?=\S)", ", ", out)  # Add space after comma if followed by non-whitespace
+    # Normalize comma spacing using centralized function
+    out = _normalize_comma_spacing(out)
     return out.strip()
 
 
@@ -1384,13 +1426,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result = _spanish_cleanup_postprocess(result)
 
         # (Removed) final collapse of emphatic repeats
-        # Normalize comma spacing
-        # 1) Remove spaces before commas
-        result = re.sub(r'\s+,', ',', result)
-        # 2) Add space after ALL commas
-        # NOTE: This fixes number lists like "147,151,156" -> "147, 151, 156"
-        # Trade-off: thousands like "1,000" become "1, 000" (acceptable since rare in transcriptions)
-        result = re.sub(r',(?=\S)', ', ', result)  # Add space after comma if followed by non-whitespace
+        # Normalize comma spacing using centralized function
+        result = _normalize_comma_spacing(result)
         # Ensure a single space after terminal punctuation when followed by a non-space and not part of an ellipsis
         # CRITICAL: Mask domains before space insertion to prevent breaking them
         result_masked_for_spacing = mask_domains(result, use_exclusions=True, language=language)

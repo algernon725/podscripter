@@ -44,6 +44,7 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 
 from punctuation_restorer import (
     restore_punctuation,
+    _normalize_comma_spacing,
 )
 from domain_utils import fix_spaced_domains, mask_domains, unmask_domains
 
@@ -512,12 +513,8 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
             out = re.sub(r"!\s*(\S)", r"! \1", out)
             # Capitalize after terminators when appropriate
             out = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", out)
-            # Normalize comma spacing
-            out = re.sub(r"\s+,", ",", out)
-            # Add space after ALL commas
-            # NOTE: This fixes number lists like "147,151,156" -> "147, 151, 156"
-            # Trade-off: thousands like "1,000" become "1, 000" (acceptable since rare in transcriptions)
-            out = re.sub(r",(?=\S)", ", ", out)  # Add space after comma if followed by non-whitespace
+            # Normalize comma spacing using centralized function
+            out = _normalize_comma_spacing(out)
             # Replace stray intra-word periods between lowercase letters: "vendedores.ambulantes" -> "vendedores ambulantes"
             out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
             # Tighten percent formatting: keep number and % together
