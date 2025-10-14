@@ -262,6 +262,21 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: `test_conjunction_split_bug.py`, `test_episodio190_y_eco_bug.py`
 
+#### Spanish Question Split Bug (Fixed)
+**Problem**: Spanish questions starting mid-sentence with inverted question marks were incorrectly split into separate sentences.
+- Example: `"Pues, ¿qué pasó, Nate?"` → `"Pues, ¿Qué?"` | `"¿Pasó, Nate?"` (incorrect)
+- Occurred when semantic splitting thresholds triggered (long texts) and question word was capitalized
+
+**Root Cause**: `_should_end_sentence_here()` lacked guards against splitting when:
+1. Current word contains `¿` (Spanish inverted question mark)
+2. Inside an unclosed Spanish question (seen `¿` but not closing `?`)
+
+**Solution**: Added Spanish-specific guard (lines 1601-1610 in `punctuation_restorer.py`) that prevents splits:
+- When current word contains `¿`
+- When current chunk has unclosed question (`¿` present, `?` absent)
+
+**Tests**: `test_pues_que_split_bug.py`
+
 ## Documentation Standards
 
 ### README Updates

@@ -1598,6 +1598,17 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     if current_word_clean in coordinating_conjunctions:
         return False
     
+    # Spanish: Never split after or inside an unclosed inverted question mark
+    # This prevents splits like "Pues, ¿Qué?" | "¿Pasó, Nate?" from "Pues, ¿qué pasó, Nate?"
+    if language == 'es':
+        # Don't split if current word contains/ends with '¿'
+        if '¿' in current_word:
+            return False
+        # Don't split if we're inside an unclosed question (have '¿' but no '?')
+        current_text = ' '.join(current_chunk)
+        if '¿' in current_text and '?' not in current_text:
+            return False
+    
     # CRITICAL: Never split when current word is a noun that commonly precedes numbers
     # and next word is a standalone number (e.g., "episode 184", "épisode 184", "chapter 5")
     # OR when current word is a conjunction in a number list (e.g., "177 y 184", "3 and 4")
