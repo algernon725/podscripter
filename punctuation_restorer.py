@@ -1598,6 +1598,52 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     if current_word_clean in coordinating_conjunctions:
         return False
     
+    # CRITICAL: Never end a sentence on a continuative/auxiliary verb
+    # These verbs grammatically require continuation (e.g., "estaba continuando", "was working", "était en train")
+    # Examples: "estaba" (es imperfect), "era" (es imperfect), "había" (es auxiliary), "was"/"were" (en), etc.
+    # This prevents splits like "...y yo estaba en Colombia y estaba." | "Continuando con la universidad..."
+    continuative_auxiliary_verbs = {
+        # Spanish: Imperfect tense (incomplete/ongoing past) and auxiliary verbs
+        'estaba', 'estaban', 'estabas', 'estábamos', 'estabais',  # estar (imperfect) - was/were
+        'era', 'eran', 'eras', 'éramos', 'erais',  # ser (imperfect) - was/were
+        'había', 'habían', 'habías', 'habíamos', 'habíais',  # haber (imperfect/auxiliary) - had/there was
+        'tenía', 'tenían', 'tenías', 'teníamos', 'teníais',  # tener (imperfect) - had
+        'iba', 'iban', 'ibas', 'íbamos', 'ibais',  # ir (imperfect) - was going
+        'hacía', 'hacían', 'hacías', 'hacíamos', 'hacíais',  # hacer (imperfect) - was doing
+        'podía', 'podían', 'podías', 'podíamos', 'podíais',  # poder (imperfect) - could
+        'debía', 'debían', 'debías', 'debíamos', 'debíais',  # deber (imperfect) - should
+        'quería', 'querían', 'querías', 'queríamos', 'queríais',  # querer (imperfect) - wanted
+        'sabía', 'sabían', 'sabías', 'sabíamos', 'sabíais',  # saber (imperfect) - knew
+        'venía', 'venían', 'venías', 'veníamos', 'veníais',  # venir (imperfect) - was coming
+        'decía', 'decían', 'decías', 'decíamos', 'decíais',  # decir (imperfect) - was saying
+        'he', 'has', 'ha', 'hemos', 'habéis', 'han',  # haber (auxiliary for perfect tenses) - have/has
+        
+        # English: Imperfect/continuous and auxiliary verbs
+        'was', 'were',  # past continuous marker
+        'had',  # past perfect auxiliary
+        'been',  # perfect continuous marker
+        'have', 'has',  # perfect tense auxiliaries
+        
+        # French: Imperfect tense and auxiliary verbs
+        'étais', 'était', 'étions', 'étiez', 'étaient',  # être (imperfect) - was/were
+        'avais', 'avait', 'avions', 'aviez', 'avaient',  # avoir (imperfect/auxiliary) - had
+        'allais', 'allait', 'allions', 'alliez', 'allaient',  # aller (imperfect) - was going
+        'faisais', 'faisait', 'faisions', 'faisiez', 'faisaient',  # faire (imperfect) - was doing
+        'avait',  # avoir (auxiliary) - had
+        
+        # German: Imperfect tense and auxiliary verbs
+        'war', 'warst', 'waren', 'wart',  # sein (imperfect) - was/were
+        'hatte', 'hattest', 'hatten', 'hattet',  # haben (imperfect/auxiliary) - had
+        'ging', 'gingst', 'gingen', 'gingt',  # gehen (imperfect) - was going
+        'machte', 'machtest', 'machten', 'machtet',  # machen (imperfect) - was doing
+        'konnte', 'konntest', 'konnten', 'konntet',  # können (imperfect) - could
+        'wollte', 'wolltest', 'wollten', 'wolltet',  # wollen (imperfect) - wanted
+        'musste', 'musstest', 'mussten', 'musstet',  # müssen (imperfect) - had to
+        'sollte', 'solltest', 'sollten', 'solltet',  # sollen (imperfect) - should
+    }
+    if current_word_clean in continuative_auxiliary_verbs:
+        return False
+    
     # Spanish: Never split after or inside an unclosed inverted question mark
     # This prevents splits like "Pues, ¿Qué?" | "¿Pasó, Nate?" from "Pues, ¿qué pasó, Nate?"
     if language == 'es':

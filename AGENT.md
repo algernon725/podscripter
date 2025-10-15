@@ -299,6 +299,25 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: `test_preposition_split_bug.py`, `test_preposition_split_long_text.py`
 
+#### Continuative/Auxiliary Verb Split Bug (Fixed)
+**Problem**: Sentences were incorrectly breaking at continuative/auxiliary verbs (e.g., "estaba", "era", "was", "were", "était") when processing long texts, violating grammar rules across all supported languages.
+- Spanish example: `"...y yo estaba en Colombia y estaba."` | `"Continuando con la universidad..."` (incorrect)
+- Should be: `"...y yo estaba en Colombia y estaba continuando con la universidad..."` (correct)
+- English example: Ending with "was", "were", "had" (e.g., "I was." | "Working...")
+- French example: Ending with "était", "avait" (e.g., "il était." | "En train de...")
+- German example: Ending with "war", "hatte" (e.g., "er war." | "Gerade...")
+- Only occurred when semantic splitting thresholds were triggered in long texts (>200 words)
+
+**Root Cause**: `_should_end_sentence_here()` lacked a guard against ending sentences on continuative/auxiliary verbs. These verbs are grammatically incomplete without their complement.
+
+**Solution**: Added comprehensive guard (lines ~1601-1645 in `punctuation_restorer.py`) that prevents splits when current word is a continuative/auxiliary verb:
+- Spanish: Imperfect tense (estaba, era, tenía, había, iba, hacía, podía, debía, quería, sabía, venía, decía) and perfect auxiliaries (he, has, ha, hemos, habéis, han)
+- English: Past continuous (was, were), perfect auxiliaries (had, been, have, has)
+- French: Imperfect tense (étais, était, étions, étiez, étaient, avais, avait, allais, allait, faisais, faisait) and auxiliary (avait)
+- German: Imperfect tense (war, hatte, ging, machte) and modal verbs (konnte, wollte, musste, sollte)
+
+**Tests**: `test_continuative_verb_split_bug.py`
+
 ## Documentation Standards
 
 ### README Updates
