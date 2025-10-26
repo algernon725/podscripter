@@ -189,6 +189,9 @@ def _get_language_thresholds(language: str) -> dict:
             'min_chunk_inside_question': 25,
             'min_chunk_capital_break': 38,
             'min_chunk_semantic_break': 42,
+            # Whisper boundary integration thresholds
+            'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
+            'max_words_force_split': 100,   # Force split on very long segments even without boundary
         }
     # Defaults for other languages (align with existing logic)
     return {
@@ -198,6 +201,9 @@ def _get_language_thresholds(language: str) -> dict:
         'min_chunk_inside_question': 20,
         'min_chunk_capital_break': 20,
         'min_chunk_semantic_break': 25,
+        # Whisper boundary integration thresholds
+        'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
+        'max_words_force_split': 100,   # Force split on very long segments even without boundary
     }
 
 
@@ -1083,13 +1089,197 @@ def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphra
         return _SENTENCE_TRANSFORMER_SINGLETON
 
 
-def restore_punctuation(text: str, language: str = 'en') -> str:
+def _extract_segment_boundaries(text: str, segments: list[dict]) -> list[int]:
+    """
+    Convert Whisper segments to character positions in the concatenated text.
+    
+    Args:
+        text: Concatenated text from all segments
+        segments: List of dicts with 'text' field from Whisper
+    
+    Returns:
+        List of character positions where Whisper segments end
+    """
+    boundaries = []
+    position = 0
+    for seg in segments:
+        seg_text = seg['text'].strip()
+        if not seg_text:
+            continue
+        # Account for joining with newlines/spaces
+        position += len(seg_text)
+        boundaries.append(position)
+        position += 1  # Account for separator (space or newline)
+    return boundaries
+
+
+def _char_positions_to_word_indices(text: str, char_positions: list[int]) -> set[int]:
+    """
+    Convert character positions to word indices for fast lookup.
+    
+    Args:
+        text: The full text string
+        char_positions: Character positions of segment boundaries
+    
+    Returns:
+        Set of word indices that are at or near segment boundaries
+    """
+    if not char_positions:
+        return set()
+    
+    words = text.split()
+    word_boundaries = set()
+    
+    # Build mapping of character positions to word indices
+    char_to_word = []
+    current_pos = 0
+    for word_idx, word in enumerate(words):
+        word_start = text.find(word, current_pos)
+        if word_start == -1:
+            # Word not found, skip
+            continue
+        word_end = word_start + len(word)
+        char_to_word.append((word_start, word_end, word_idx))
+        current_pos = word_end
+    
+    # Map char positions to nearest word indices
+    # Allow a small tolerance (+3) for spaces and punctuation
+    for char_pos in char_positions:
+        for word_start, word_end, word_idx in char_to_word:
+            if word_start <= char_pos <= word_end + 3:
+                word_boundaries.add(word_idx)
+                break
+    
+    return word_boundaries
+
+
+def _violates_grammatical_rules(current_word: str, next_word: str, language: str) -> bool:
+    """
+    Check if breaking at current position would violate basic grammatical rules.
+    
+    This consolidates checks for prepositions, conjunctions, and continuative verbs
+    that should never end a sentence.
+    
+    Args:
+        current_word: The word at the current position
+        next_word: The following word
+        language: Language code ('en', 'es', 'fr', 'de')
+    
+    Returns:
+        True if breaking here would violate grammar rules
+    """
+    current_clean = current_word.lower().strip('.,;:!?¿¡')
+    
+    # Check coordinating conjunctions (should never end sentences)
+    coordinating_conjunctions = {
+        'y', 'e', 'o', 'u', 'pero', 'mas', 'sino',  # Spanish
+        'and', 'but', 'or', 'nor', 'for', 'so', 'yet',  # English
+        'et', 'ou', 'mais', 'donc', 'or', 'ni', 'car',  # French
+        'und', 'oder', 'aber', 'denn', 'sondern',  # German
+    }
+    if current_clean in coordinating_conjunctions:
+        return True
+    
+    # Language-specific checks
+    if language == 'es':
+        # Spanish prepositions and articles
+        spanish_forbidden = {
+            'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+            'a', 'ante', 'bajo', 'de', 'del', 'al', 'en', 'con', 'por', 
+            'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante',
+            'según', 'hacia', 'hasta', 'desde', 'contra',
+            'todo', 'toda', 'todos', 'todas', 'alguno', 'alguna', 'algunos',
+            'algunas', 'cualquier', 'cualquiera', 'ningún', 'ninguna', 'ninguno',
+            'otro', 'otra', 'otros', 'otras'
+        }
+        if current_clean in spanish_forbidden:
+            return True
+        
+        # Spanish continuative/auxiliary verbs
+        spanish_continuative = {
+            'estaba', 'estabas', 'estábamos', 'estaban',
+            'era', 'eras', 'éramos', 'eran',
+            'tenía', 'tenías', 'teníamos', 'tenían',
+            'había', 'habías', 'habíamos', 'habían',
+            'iba', 'ibas', 'íbamos', 'iban',
+            'hacía', 'hacías', 'hacíamos', 'hacían',
+            'podía', 'podías', 'podíamos', 'podían',
+            'debía', 'debías', 'debíamos', 'debían',
+            'quería', 'querías', 'queríamos', 'querían',
+            'sabía', 'sabías', 'sabíamos', 'sabían',
+            'venía', 'venías', 'veníamos', 'venían',
+            'decía', 'decías', 'decíamos', 'decían',
+            'he', 'has', 'ha', 'hemos', 'habéis', 'han'
+        }
+        if current_clean in spanish_continuative:
+            return True
+    
+    elif language == 'en':
+        # English prepositions
+        english_prepositions = {
+            'to', 'at', 'from', 'with', 'by', 'of', 'in', 'on', 'for',
+            'about', 'into', 'through', 'during', 'before', 'after',
+            'above', 'below', 'between', 'among', 'under', 'over'
+        }
+        if current_clean in english_prepositions:
+            return True
+        
+        # English continuative/auxiliary verbs
+        english_continuative = {
+            'was', 'were', 'had', 'been', 'have', 'has'
+        }
+        if current_clean in english_continuative:
+            return True
+    
+    elif language == 'fr':
+        # French prepositions
+        french_prepositions = {
+            'à', 'de', 'en', 'pour', 'avec', 'sans', 'sous', 'sur',
+            'dans', 'chez', 'vers', 'par', 'entre', 'parmi', 'du', 'des'
+        }
+        if current_clean in french_prepositions:
+            return True
+        
+        # French continuative verbs
+        french_continuative = {
+            'étais', 'était', 'étions', 'étiez', 'étaient',
+            'avais', 'avait', 'avions', 'aviez', 'avaient',
+            'allais', 'allait', 'allions', 'alliez', 'allaient',
+            'faisais', 'faisait', 'faisions', 'faisiez', 'faisaient'
+        }
+        if current_clean in french_continuative:
+            return True
+    
+    elif language == 'de':
+        # German prepositions
+        german_prepositions = {
+            'zu', 'an', 'auf', 'aus', 'bei', 'mit', 'nach', 'von',
+            'vor', 'in', 'für', 'über', 'unter', 'durch', 'gegen',
+            'ohne', 'um', 'zwischen'
+        }
+        if current_clean in german_prepositions:
+            return True
+        
+        # German continuative verbs and modals
+        german_continuative = {
+            'war', 'hatte', 'ging', 'machte', 'konnte', 'wollte',
+            'musste', 'sollte'
+        }
+        if current_clean in german_continuative:
+            return True
+    
+    return False
+
+
+def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: list[int] | None = None) -> str:
     """
     Restore punctuation to transcribed text using advanced NLP techniques.
     
     Args:
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
+        whisper_boundaries (list[int] | None): Optional list of character positions where 
+            Whisper segments end. These boundaries are used as hints for sentence breaks.
     
     Returns:
         str: Text with restored punctuation
@@ -1102,14 +1292,14 @@ def restore_punctuation(text: str, language: str = 'en') -> str:
     
     # Use advanced punctuation restoration
     try:
-        return _advanced_punctuation_restoration(text, language, True)  # Enable custom patterns by default
+        return _advanced_punctuation_restoration(text, language, True, whisper_boundaries)
     except Exception as e:
         logger.warning(f"Advanced punctuation restoration failed: {e}")
         logger.info("Returning original text without punctuation restoration.")
         return text
 
 
-def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
+def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None) -> str:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
     
@@ -1117,6 +1307,7 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom sentence endings and question word patterns
+        whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
     
     Returns:
         str: Text with restored punctuation
@@ -1124,14 +1315,14 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
     
     # Use SentenceTransformers for better sentence boundary detection
     if SENTENCE_TRANSFORMERS_AVAILABLE:
-        return _transformer_based_restoration(text, language, use_custom_patterns)
+        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_boundaries)
     else:
         # Simple fallback: just clean up whitespace and add basic punctuation
         text = re.sub(r'\s+', ' ', text.strip())
         return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
 
-def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True) -> str:
+def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None) -> str:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
@@ -1139,6 +1330,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom patterns
+        whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
     
     Returns:
         str: Text with restored punctuation
@@ -1150,8 +1342,13 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         text = re.sub(r'\s+', ' ', text.strip())
         return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
+    # Convert character-based whisper boundaries to word indices for fast lookup
+    whisper_word_boundaries = None
+    if whisper_boundaries:
+        whisper_word_boundaries = _char_positions_to_word_indices(text, whisper_boundaries)
+
     # 1) Semantic split into sentences (token-based loop with _should_end_sentence_here)
-    sentences = _semantic_split_into_sentences(text, language, model)
+    sentences = _semantic_split_into_sentences(text, language, model, whisper_word_boundaries)
     # 2) Punctuate sentences and join
     result = _punctuate_semantic_sentences(sentences, model, language)
     
@@ -1489,10 +1686,17 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
 from typing import List
 
 
-def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]:
+def _semantic_split_into_sentences(text: str, language: str, model, whisper_word_boundaries: set[int] | None = None) -> List[str]:
     """Split text into sentences using semantic boundary checks.
-
-    Returns a list of raw sentences (without per-language post-formatting).
+    
+    Args:
+        text: The text to split
+        language: Language code
+        model: SentenceTransformer model
+        whisper_word_boundaries: Optional set of word indices where Whisper segments end
+    
+    Returns:
+        List of raw sentences (without per-language post-formatting).
     """
     # CRITICAL: Mask domains before splitting to prevent semantic splitter from breaking them
     # Support both single and compound TLDs, exclude common Spanish words to avoid false positives
@@ -1508,7 +1712,7 @@ def _semantic_split_into_sentences(text: str, language: str, model) -> List[str]
     current_chunk: List[str] = []
     for i, word in enumerate(words):
         current_chunk.append(word)
-        if _should_end_sentence_here(words, i, current_chunk, model, language):
+        if _should_end_sentence_here(words, i, current_chunk, model, language, whisper_word_boundaries):
             sentence_text = ' '.join(current_chunk).strip()
             if sentence_text:
                 # Unmask domains before adding to sentences using centralized function
@@ -1547,7 +1751,7 @@ def _punctuate_semantic_sentences(sentences: List[str], model, language: str) ->
     return out
 
 
-def _should_end_sentence_here(words: List[str], current_index: int, current_chunk: List[str], model, language: str) -> bool:
+def _should_end_sentence_here(words: List[str], current_index: int, current_chunk: List[str], model, language: str, whisper_word_boundaries: set[int] | None = None) -> bool:
     """
     Determine if a sentence should end at the current position using semantic coherence.
     
@@ -1557,6 +1761,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         current_chunk (list): Current sentence chunk
         model: SentenceTransformer model
         language (str): Language code
+        whisper_word_boundaries (set[int] | None): Optional set of word indices where Whisper segments end
     
     Returns:
         bool: True if sentence should end here
@@ -1578,6 +1783,22 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     
     if len(current_chunk) < thresholds.get('min_chunk_before_split', 18):  # Slightly less aggressive
         return False
+    
+    # NEW: Check if we're at a Whisper segment boundary
+    # Whisper boundaries are prioritized as they represent acoustic pauses,
+    # but we still respect grammatical rules to avoid breaking on conjunctions/prepositions
+    if whisper_word_boundaries and current_index in whisper_word_boundaries:
+        min_words_whisper = thresholds.get('min_words_whisper_break', 10)
+        
+        if len(current_chunk) >= min_words_whisper:
+            current_word = words[current_index]
+            next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
+            
+            # Use consolidated grammatical check - don't break if it would violate grammar
+            if not _violates_grammatical_rules(current_word, next_word, language):
+                # Whisper suggests breaking here and it's grammatically valid
+                return True
+            # Otherwise, fall through to existing logic even though Whisper suggested a break
     
     # Check for natural sentence endings
     current_word = words[current_index]

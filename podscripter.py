@@ -493,7 +493,7 @@ def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, tra
                 cf.unlink()
     return all_segments, all_text, detected_language
 
-def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: bool) -> list[str]:
+def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool) -> list[str]:
     def _sanitize_sentence_output(s: str, language: str) -> str:
         try:
             if (language or '').lower() != 'es' or not s:
@@ -617,10 +617,15 @@ def _assemble_sentences(all_text: str, lang_for_punctuation: str | None, quiet: 
         from punctuation_restorer import _normalize_dotted_acronyms_en as normalize_dotted_acronyms_en
         all_text = normalize_dotted_acronyms_en(all_text)
     
+    # Extract Whisper segment boundaries to inform sentence splitting
+    # These boundaries represent acoustic pauses and are useful hints for sentence breaks
+    from punctuation_restorer import _extract_segment_boundaries
+    segment_boundaries = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
+    
     # Process the entire text as one block to allow proper sentence formation across Whisper segments
     # The punctuation restoration will add punctuation and split into sentences intelligently
     from punctuation_restorer import restore_punctuation
-    processed_text = restore_punctuation(all_text, lang_for_punctuation)
+    processed_text = restore_punctuation(all_text, lang_for_punctuation, whisper_boundaries=segment_boundaries)
     
     # Split the processed text into sentences
     from punctuation_restorer import assemble_sentences_from_processed
@@ -963,7 +968,7 @@ def _transcribe_with_sentences(
         if not quiet:
             logger.info("Restoring punctuation...")
         lang_for_punctuation = 'en' if translate_to_english else (detected_language if language is None else language)
-        sentences = _assemble_sentences(all_text, lang_for_punctuation, quiet)
+        sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
         output_path_txt: str | None = None
