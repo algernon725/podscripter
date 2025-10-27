@@ -218,7 +218,7 @@ This feature is CPU-only and uses cached spaCy "sm" models baked into the image.
 
 ## Development
 
-See `tests/README.md` for details on running tests and using the ad-hoc script `tests/test_transcription.py` (supports raw dumps with `--dump-raw`).
+See `tests/README.md` for details on running tests.
 
 ## Batch Transcription: All Media Files
 
