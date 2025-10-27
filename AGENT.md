@@ -483,3 +483,29 @@ Before submitting any changes, ensure:
   - Early input/output validation via `_validate_paths`
   - Constants hoisted (e.g., `DEFAULT_CHUNK_SEC`, `DEFAULT_OVERLAP_SEC`, `DEDUPE_EPSILON_SEC`, `PROMPT_TAIL_CHARS`)
   - Prefer `pathlib.Path` over `os.path`/`glob`; keep orchestration helpers private
+
+### Whisper Segment Boundary Integration (2025)
+
+Podscripter now uses a 4-signal hybrid approach for sentence breaking (language‑agnostic across EN/ES/FR/DE):
+
+- **1. Grammatical guards**: Avoid ending sentences on coordinating conjunctions, prepositions, and continuative/auxiliary verbs.
+- **2. Semantic coherence**: Use Sentence-Transformers similarity to confirm low-coherence boundaries.
+- **3. Configurable thresholds**: Minimum chunk length, overall length, and capital/semantic break limits.
+- **4. Whisper segment boundaries (new)**: Treat Whisper `all_segments` boundaries as prioritized hints for sentence breaks.
+
+Rules for Whisper boundaries:
+- Boundaries are prioritized hints, still gated by grammatical guards and minimum chunk size.
+- Boundaries are ignored at grammatically invalid positions (e.g., after conjunctions/prepositions/continuative verbs).
+- Backward compatible: when boundaries are absent, behavior remains unchanged.
+
+Threading through the pipeline:
+- Orchestrator passes `all_segments` to `_assemble_sentences(...)`.
+- `_assemble_sentences` extracts character boundary positions and calls `restore_punctuation(text, language, whisper_boundaries=...)`.
+- Punctuation converts character boundaries to word indices and uses them in `_semantic_split_into_sentences(..., whisper_word_boundaries=...)` and `_should_end_sentence_here(...)`.
+
+Thresholds (set via `_get_language_thresholds(language)`):
+- `min_words_whisper_break` (default 10): minimum words in the current chunk before honoring a Whisper boundary.
+- `max_words_force_split` (default 100): safety for very long run-ons (reserved for future tuning/usage).
+
+Tests:
+- `tests/test_whisper_boundary_integration.py` validates boundary extraction, grammatical gating, and multi-language behavior.

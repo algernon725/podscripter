@@ -232,6 +232,18 @@ flowchart TD
   - Prevents similar bugs in the future
 - **Implementation**: Uses `PunctuationContext` enum to apply different rules for different scenarios (Whisper segments vs complete sentences)
 
+### Whisper segment boundary integration
+
+- The orchestrator now passes `all_segments` into sentence assembly. `_assemble_sentences(all_text, all_segments, ...)` extracts Whisper segment end positions and forwards them to `restore_punctuation(text, language, whisper_boundaries=...)`.
+- The punctuation pipeline converts character boundaries to word indices and uses them as prioritized hints inside `_semantic_split_into_sentences(..., whisper_word_boundaries=...)` and `_should_end_sentence_here(...)`.
+- Hints are gated by grammatical rules and minimum chunk size; they are ignored for invalid break positions (e.g., conjunctions/prepositions/continuative verbs).
+- Thresholds (language-agnostic; in `_get_language_thresholds(language)`):
+  - `min_words_whisper_break` (default 10)
+  - `max_words_force_split` (default 100)
+- Backward compatible: behavior is unchanged when boundaries are not provided.
+
+Tests: `tests/test_whisper_boundary_integration.py` covers extraction, gating, and multi-language behavior.
+
 ## Key files
 
 - `podscripter.py`: orchestration, chunking, ASR, output
