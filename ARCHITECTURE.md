@@ -206,6 +206,7 @@ flowchart TD
   - `tests/test_sentence_assembly_unit.py` protects Spanish ellipsis/domain handling and French connector merges
   - `tests/test_chunk_merge_helpers.py` validates dedupe and accumulation correctness for segments
   - `tests/test_srt_normalization.py` validates SRT cue trimming behavior
+  - `tests/test_initials_normalization.py` (WIP) documents expected behavior for person initial normalization
 
 ## Extensibility
 
@@ -218,7 +219,8 @@ flowchart TD
 - Non EN/ES/FR/DE languages are experimental
 - spaCy capitalization requires language models; disabled if unavailable
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
- - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
+- Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
+- **WIP**: Person initials (e.g., "C.S. Lewis", "J.K. Rowling") in non-English transcriptions may still split into separate sentences. Infrastructure is in place (`_normalize_initials_and_acronyms()`) but requires additional masking to protect initials through spaCy processing. See AGENT.md "Known Open Issues" for details.
 
 ## Recent architectural improvements
 

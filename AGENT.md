@@ -134,7 +134,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
     - deduplicates multiple commas,
     - ensures a single space after commas.
     - Trade-off: thousands like "1,000" become "1, 000". This is acceptable given the priority to correctly space number lists (e.g., episode numbers: "147,151,156" → "147, 151, 156").
-  - The detailed helpers for dotted acronym normalization, French connector merges, etc., are private (`_normalize_dotted_acronyms_en`, `_fr_merge_short_connector_breaks`, and others)
+  - The detailed helpers for initial/acronym normalization, French connector merges, etc., are private (`_normalize_initials_and_acronyms`, `_normalize_dotted_acronyms_en` (legacy alias), `_fr_merge_short_connector_breaks`, and others)
   - Segment carry-over: when a segment ends without terminal punctuation, carry the trailing fragment into the next segment for French and Spanish
   - SRT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s)
 
@@ -199,6 +199,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `test_spanish_domains_and_ellipses.py` (comprehensive domain handling including single/compound TLDs and ellipsis continuation; tests triple merge functionality)
   - `test_spanish_false_domains.py` (tests prevention of Spanish words being treated as domains; e.g., `uno.de` → `uno. de`)
   - `test_domain_utils.py` (comprehensive tests for centralized domain detection, masking, and exclusion utilities)
+  - `test_initials_normalization.py` (WIP: tests for person initial normalization like "C.S. Lewis"; currently documents expected behavior)
   - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
  - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
   - Defaults: model `medium`, device `cpu`, compute type `auto`
@@ -317,6 +318,42 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - German: Imperfect tense (war, hatte, ging, machte) and modal verbs (konnte, wollte, musste, sollte)
 
 **Tests**: `test_continuative_verb_split_bug.py`
+
+### 5. Known Open Issues / Work In Progress
+
+#### Person Initials Normalization (WIP - Partial)
+**Problem**: Names with initials like "C.S. Lewis" or "J.K. Rowling" in non-English transcriptions (especially Spanish) are incorrectly split into separate sentences.
+- Example: `"es a C. S. Lewis porque"` → `"Es a c."` | `"S."` | `"Lewis porque..."` (3 sentences - incorrect)
+- Should be: One sentence containing "C.S. Lewis"
+- Occurs across all languages when English names with initials appear in transcriptions
+
+**Root Cause**: spaCy's tokenizer/detokenizer reconstructs text with spaces during `_apply_spacy_capitalization()`, undoing the initial normalization. The normalized "C.S. Lewis" becomes "c. S. Lewis" which then splits into separate sentences.
+
+**Current Progress** (WIP):
+- ✅ Created `_normalize_initials_and_acronyms()` function (language-agnostic)
+  - Removes spaces from person initials: "C. S. Lewis" → "C.S. Lewis"
+  - Collapses organizational acronyms: "U. S. A." → "USA"
+  - Distinguishes between person names and acronyms using context
+- ✅ Applied globally before punctuation restoration in `podscripter.py`
+- ✅ Added spaCy protection for initial patterns in `should_capitalize()`
+- ✅ Added negative lookbehind to prevent space insertion after initials
+- ✅ Comprehensive test suite: `tests/test_initials_normalization.py`
+
+**What's Working**:
+- English organizational acronyms normalize correctly (U.S. → US, USA, FBI, D.C. → DC)
+- The normalization function itself works as designed
+
+**What's Not Working Yet**:
+- Spanish (and other non-English) transcriptions with English names still split incorrectly
+- The issue is that spaCy processing re-adds spaces during text reconstruction
+
+**Next Steps**:
+- Implement initial-masking system (similar to domain masking in `domain_utils.py`)
+- Mask initials before spaCy processing
+- Unmask after all transformations
+- This will protect initials throughout the entire processing pipeline
+
+**Tests**: `test_initials_normalization.py` (comprehensive coverage for EN/ES/FR/DE)
 
 ## Documentation Standards
 
