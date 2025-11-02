@@ -613,9 +613,12 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
             return out
         except Exception:
             return s
-    if (lang_for_punctuation or '').lower() == 'en':
-        from punctuation_restorer import _normalize_dotted_acronyms_en as normalize_dotted_acronyms_en
-        all_text = normalize_dotted_acronyms_en(all_text)
+    
+    # Normalize person initials and organizational acronyms for ALL languages
+    # This prevents false sentence breaks when names like "C.S. Lewis" or "J.K. Rowling"
+    # appear in non-English transcriptions (e.g., Spanish podcasts discussing English authors)
+    from punctuation_restorer import _normalize_initials_and_acronyms
+    all_text = _normalize_initials_and_acronyms(all_text)
     
     # Extract Whisper segment boundaries to inform sentence splitting
     # These boundaries represent acoustic pauses and are useful hints for sentence breaks

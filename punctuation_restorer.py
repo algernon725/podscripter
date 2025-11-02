@@ -447,7 +447,9 @@ def _finalize_text_common(text: str) -> str:
     # Use centralized domain masking with Spanish exclusions
     masked = mask_domains(out, use_exclusions=True, language='es')
     # Ensure single space after sentence punctuation when followed by a letter (including lowercase accented)
-    masked = re.sub(r"(?<!\.)\.\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r". \1", masked)
+    # But NOT for person initials like "C.S." where the period is part of the initial
+    # Use negative lookbehind to avoid: periods in ellipses, periods after single capital letters (initials)
+    masked = re.sub(r"(?<!\.)(?<![A-Z])\.\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r". \1", masked)
     masked = re.sub(r"\?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"? \1", masked)
     masked = re.sub(r"!\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"! \1", masked)
     # Capitalize after terminators when appropriate
@@ -460,21 +462,88 @@ def _finalize_text_common(text: str) -> str:
 
 
 # --- Cross-language helpers exposed for orchestration ---
-def _normalize_dotted_acronyms_en(text: str) -> str:
-    """Collapse dotted uppercase acronyms to avoid false sentence splits in English.
-
+def _normalize_initials_and_acronyms(text: str) -> str:
+    """Normalize person initials and organizational acronyms to avoid false sentence splits.
+    
+    This function is language-agnostic and handles:
+    1. Person initials: Remove spaces but keep periods to prevent sentence breaks
+       - "C. S. Lewis" → "C.S. Lewis"
+       - "J. K. Rowling" → "J.K. Rowling"  
+       - "J. R. R. Tolkien" → "J.R.R. Tolkien"
+    2. Organizational acronyms at sentence/phrase boundaries: Remove both spaces and periods
+       - "U. S. A." → "USA" (at end or before punctuation)
+       - "in the U. S. today" → "in the US today" (before lowercase word)
+    
     Examples:
-      - "U. S. A." → "USA", "U. S." → "US", "U.S." → "US"
+      - "es a C. S. Lewis porque" → "es a C.S. Lewis porque" (person initials)
+      - "the U. S. Capitol" → "the U.S. Capitol" (acronym before proper noun - keep periods)
+      - "in the U. S. A." → "in the USA" (acronym at end - remove periods)
     """
     if not text:
         return text
-    # Three-letter sequences: U. S. A. → USA
-    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
-    # Two-letter sequences (spaced): U. S. → US, D. C. → DC
-    text = re.sub(r"\b([A-Z])\.\s*([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", lambda m: ''.join(m.groups()), text)
-    # Two-letter sequences (compact): U.S. → US, D.C. → DC
-    text = re.sub(r"\b([A-Z])\.([A-Z])\.(?=[\s\-\)\]\}\,\"'`:;]|$)", r"\1\2", text)
+    
+    # Strategy: ALWAYS remove spaces from initials/acronyms, but only remove periods
+    # when it's clearly an organizational acronym (not a person name).
+    
+    # Pattern 1: Three spaced initials followed by a word starting with capital + lowercase
+    # This is almost certainly a person name: "J. R. R. Tolkien"
+    # Convert to compact form with periods: "J.R.R. Tolkien"
+    text = re.sub(
+        r"\b([A-Z])\.\s+([A-Z])\.\s+([A-Z])\.\s+([A-Z][a-z]+)",
+        r"\1.\2.\3. \4",
+        text
+    )
+    
+    # Pattern 2: Two spaced initials followed by a word starting with capital + lowercase
+    # This is likely a person name: "C. S. Lewis", "J. K. Rowling"
+    # Convert to compact form with periods: "C.S. Lewis"
+    text = re.sub(
+        r"\b([A-Z])\.\s+([A-Z])\.\s+([A-Z][a-z]+)",
+        r"\1.\2. \3",
+        text
+    )
+    
+    # Pattern 3: Three-letter acronyms at end or before punctuation/lowercase
+    # Remove both spaces AND periods: "U. S. A." → "USA"
+    text = re.sub(
+        r"\b([A-Z])\.\s*([A-Z])\.\s*([A-Z])\.(?=\s*[,;:!?\.\)\]\"']|\s+[a-z]|\s*$)",
+        lambda m: ''.join(m.groups()),
+        text
+    )
+    
+    # Pattern 4: Two-letter acronyms before lowercase words or at boundaries
+    # Remove both spaces AND periods: "U. S. today" → "US today"
+    text = re.sub(
+        r"\b([A-Z])\.\s+([A-Z])\.(?=\s+[a-z]|\s*[,;:!?\.\)\]\"']|\s*$)",
+        lambda m: ''.join(m.groups()),
+        text
+    )
+    
+    # Pattern 5: Compact two-letter forms before lowercase or at boundaries
+    # "U.S. today" → "US today", but "C.S. Lewis" stays as is
+    text = re.sub(
+        r"\b([A-Z])\.([A-Z])\.(?=\s+[a-z]|\s*[,;:!?\.\)\]\"']|\s*$)",
+        r"\1\2",
+        text
+    )
+    
+    # Pattern 6: Any remaining spaced initials (e.g., "U. S. Capitol")
+    # Just remove spaces, keep periods: "U. S." → "U.S."
+    text = re.sub(
+        r"\b([A-Z])\.\s+([A-Z])\.",
+        r"\1.\2.",
+        text
+    )
+    
     return text
+
+
+def _normalize_dotted_acronyms_en(text: str) -> str:
+    """Legacy alias for _normalize_initials_and_acronyms for backward compatibility.
+    
+    Deprecated: Use _normalize_initials_and_acronyms instead.
+    """
+    return _normalize_initials_and_acronyms(text)
 
 
 # (Removed) emphatic repeat merging to simplify maintenance
@@ -3109,6 +3178,22 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
                     return False
         except Exception:
             pass
+        
+        # ALWAYS preserve person initials (single or multiple capital letters with periods)
+        # This handles names like "C.S. Lewis", "J.K. Rowling", "J.R.R. Tolkien"
+        # Match patterns like "C.", "C.S.", "J.R.R."
+        if re.fullmatch(r"[A-Z]\.([A-Z]\.)*", txt):
+            # Look ahead to see if followed by a capitalized name (likely surname)
+            try:
+                if tok.i + 1 < len(doc):
+                    next_tok = doc[tok.i + 1]
+                    next_txt = next_tok.text
+                    # If followed by a capitalized word (e.g., "C.S." followed by "Lewis")
+                    if next_txt and next_txt[0].isupper() and len(next_txt) > 1 and next_txt.isalpha():
+                        return True
+            except Exception:
+                pass
+        
         low = txt.lower()
         if low in connectors:
             return False
