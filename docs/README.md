@@ -1,6 +1,6 @@
 # podscripter
 
-![podscripter](podscripter-logo.jpeg)
+![podscripter](docs/podscripter-logo.jpeg)
 
 ## Overview
 
@@ -19,6 +19,7 @@
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
 - **Primary Language Support**: English (en), Spanish (es), French (fr), German (de). Other languages are experimental.
 - **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with automatic spaCy-based capitalization.
+- **Optional Speaker Diarization**: Detect speaker changes for improved sentence boundaries in multi-speaker content (interviews, conversations, podcasts).
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
 - **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
 - **Hugging Face Integration**: Leverages Hugging Face models and caches for local, offline workflows.
@@ -80,12 +81,13 @@ Open a terminal and run:
 Create folders to store audio files and model data:
   ```bash
   mkdir -p audio-files
-  mkdir -p models/sentence-transformers models/huggingface
+  mkdir -p models/sentence-transformers models/huggingface models/pyannote
   ```
 
 This creates the necessary directory structure for caching models:
 - `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos)
 - `models/sentence-transformers/` - Caches sentence embedding models for punctuation restoration
+- `models/pyannote/` - Caches speaker diarization models (only needed if using `--enable-diarization`)
 
 ### 4. Build the Docker Image
 
@@ -101,6 +103,7 @@ Run the container and mount the folders you just created:
   docker run -it \
     -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
     -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+    -v $(pwd)/models/pyannote:/root/.cache/pyannote \
     -v $(pwd)/audio-files:/app/audio-files \
     podscripter
   ```
@@ -126,7 +129,8 @@ python podscripter.py <media_file> --output_dir <output_dir> \
   [--language <code>|auto] [--output_format {txt|srt}] [--single] \
   [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
   [--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
-  [--quiet|--verbose]
+  [--enable-diarization] [--min-speakers <int>] [--max-speakers <int>] \
+  [--hf-token <str>] [--quiet|--verbose]
 ```
 
 **Example:**
@@ -165,6 +169,38 @@ python podscripter.py audio-files/example.mp3 --output_dir audio-files --single
 ```
 Use `--single` if your hardware can handle longer files in a single call for best context continuity. Default mode uses overlapped chunking with VAD.
 
+**With speaker diarization (interviews/conversations)**
+
+Speaker diarization improves sentence boundaries by detecting when speakers change. First-time setup requires accepting model terms and creating a Hugging Face token:
+
+**Setup (first time only):**
+1. **Accept model licenses** (required before token will work):
+   - Visit https://huggingface.co/pyannote/speaker-diarization-3.1
+   - Click "Agree and access repository"
+   - Also accept: https://huggingface.co/pyannote/segmentation-3.0
+
+2. **Create a Hugging Face token**:
+   - Go to https://huggingface.co/settings/tokens
+   - Click "New token"
+   - Choose **"Read"** permission (not "Write")
+   - Give it a name (e.g., "podscripter-diarization")
+   - Copy the token
+
+3. **Use the token**:
+```bash
+python podscripter.py audio-files/interview.mp3 --output_dir audio-files \
+  --enable-diarization --hf-token YOUR_TOKEN_HERE
+```
+
+Or set as environment variable (recommended):
+```bash
+export HF_TOKEN=YOUR_TOKEN_HERE
+python podscripter.py audio-files/interview.mp3 --output_dir audio-files \
+  --enable-diarization
+```
+
+After first successful download, models are cached in `models/pyannote/` and subsequent runs don't need the token.
+
 ### Expected output snippets
 
 English (TXT):
@@ -192,6 +228,10 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | `--beam-size`        | Beam size for decoding (default `3`) |
 | `--no-vad`           | Disable VAD filtering (default: VAD enabled) |
 | `--vad-speech-pad-ms`| Padding in milliseconds when VAD is enabled (default `200`) |
+| `--enable-diarization` | Enable speaker diarization for improved sentence boundaries (default: disabled) |
+| `--min-speakers`     | Minimum number of speakers (optional, auto-detect if not specified) |
+| `--max-speakers`     | Maximum number of speakers (optional, auto-detect if not specified) |
+| `--hf-token`         | Hugging Face token for pyannote models (required for first-time download) |
 | `--quiet`/`--verbose`| Toggle log verbosity (default `--verbose`) |
 
 
@@ -235,16 +275,17 @@ When learning a new language, especially through podcasts, having accurate, alig
 
 ## Model Caching
 
-Podscripter caches models locally to avoid repeated downloads. Cache locations are created during Installation → “Set Up Required Folders” and are mounted into the container in the run commands above. In short:
+Podscripter caches models locally to avoid repeated downloads. Cache locations are created during Installation → "Set Up Required Folders" and are mounted into the container in the run commands above. In short:
 
 - Faster-Whisper (Whisper) models are cached via the Hugging Face Hub under `models/huggingface/` (look for `hub/` entries like `Systran/faster-whisper-*`)
 - Sentence-Transformers under `models/sentence-transformers/`
+- Pyannote (speaker diarization) under `models/pyannote/` (only needed if using `--enable-diarization`)
 
 Note: The Sentence-Transformers loader first attempts to load from the local cache and prefers offline use when the cache is present (avoids network calls). When caches are warm you may set `HF_HOME` and/or `HF_HUB_OFFLINE=1` to run fully offline.
 
 **To clear cache and re-download models:**
 ```bash
-rm -rf models/sentence-transformers/* models/huggingface/*
+rm -rf models/sentence-transformers/* models/huggingface/* models/pyannote/*
 ```
 
 ## Output
@@ -264,6 +305,7 @@ docker run --rm \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
+  -v $(pwd)/models/pyannote:/root/.cache/pyannote \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter python3 /app/tests/run_all_tests.py
 ```
