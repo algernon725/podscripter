@@ -170,13 +170,36 @@ python podscripter.py audio-files/example.mp3 --output_dir audio-files --single
 Use `--single` if your hardware can handle longer files in a single call for best context continuity. Default mode uses overlapped chunking with VAD.
 
 **With speaker diarization (interviews/conversations)**
+
+Speaker diarization improves sentence boundaries by detecting when speakers change. First-time setup requires accepting model terms and creating a Hugging Face token:
+
+**Setup (first time only):**
+1. **Accept model licenses** (required before token will work):
+   - Visit https://huggingface.co/pyannote/speaker-diarization-3.1
+   - Click "Agree and access repository"
+   - Also accept: https://huggingface.co/pyannote/segmentation-3.0
+
+2. **Create a Hugging Face token**:
+   - Go to https://huggingface.co/settings/tokens
+   - Click "New token"
+   - Choose **"Read"** permission (not "Write")
+   - Give it a name (e.g., "podscripter-diarization")
+   - Copy the token
+
+3. **Use the token**:
 ```bash
 python podscripter.py audio-files/interview.mp3 --output_dir audio-files \
-  --enable-diarization --hf-token YOUR_HF_TOKEN
+  --enable-diarization --hf-token YOUR_TOKEN_HERE
 ```
-Speaker diarization improves sentence boundaries by detecting when speakers change. Requires a Hugging Face token for first-time model download. Get a token at: https://huggingface.co/settings/tokens
 
-After accepting the pyannote model terms at https://huggingface.co/pyannote/speaker-diarization-3.1, subsequent runs use cached models (no token needed).
+Or set as environment variable (recommended):
+```bash
+export HF_TOKEN=YOUR_TOKEN_HERE
+python podscripter.py audio-files/interview.mp3 --output_dir audio-files \
+  --enable-diarization
+```
+
+After first successful download, models are cached in `models/pyannote/` and subsequent runs don't need the token.
 
 ### Expected output snippets
 
