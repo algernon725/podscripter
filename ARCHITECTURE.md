@@ -116,12 +116,19 @@ flowchart TD
   - `_accumulate_segments(...)` and `_dedupe_segments(...)`
   - Globalize timestamps and remove overlap duplicates
 
+- **Speaker Diarization** (`speaker_diarization.py`) - Optional
+  - `diarize_audio(...)` performs speaker detection using pyannote.audio
+  - `_extract_speaker_boundaries(...)` extracts speaker change timestamps
+  - `_merge_boundaries(...)` merges speaker and Whisper boundaries with deduplication
+  - Boundaries represent high-confidence sentence break hints
+
 - **Punctuation and sentence assembly** (`punctuation_restorer.py`)
   - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)` for complete text
   - `restore_punctuation_segment(...)` → segment-aware processing for individual Whisper segments
   - **Centralized punctuation system**: `_should_add_terminal_punctuation()` with context-aware processing
   - **Context types**: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`
   - Sentence-Transformers semantic cues + curated regex rules
+  - Accepts merged Whisper + speaker boundaries for improved sentence splitting
   - Language-specific formatting (ES/EN/FR/DE)
   - Comma spacing normalization is centralized in `_normalize_comma_spacing(text)` and must not be duplicated inline at call sites. This helper removes spaces before commas, deduplicates multiple commas, and ensures a single space after commas. Trade-off: thousands separators like `1,000` will appear as `1, 000` to guarantee correct spacing for common number lists.
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
@@ -168,6 +175,10 @@ flowchart TD
   - `--no-vad` (disable VAD filtering; default is enabled)
   - `--vad-speech-pad-ms <int>` (padding in ms when VAD is enabled; default 200)
   - `--dump-raw` (also write raw Whisper output for debugging to `<basename>_raw.txt` in `--output_dir`)
+  - `--enable-diarization` (enable speaker diarization for improved sentence boundaries; default disabled)
+  - `--min-speakers <int>` (minimum number of speakers for diarization; default auto-detect)
+  - `--max-speakers <int>` (maximum number of speakers for diarization; default auto-detect)
+  - `--hf-token <str>` (Hugging Face token for pyannote model access; required for first download)
   - `--quiet`/`--verbose` (default verbose)
 
 ## Operations
@@ -246,9 +257,50 @@ flowchart TD
 
 Tests: `tests/test_whisper_boundary_integration.py` covers extraction, gating, and multi-language behavior.
 
+### Speaker Diarization Integration (2025)
+
+Podscripter optionally uses speaker diarization to detect when speakers change, providing high-priority hints for sentence boundaries.
+
+**Library**: pyannote.audio 3.1.1
+
+**Integration**: Speaker boundaries are merged with Whisper segment boundaries and passed through the punctuation pipeline.
+
+**Priority hierarchy** (in `_should_end_sentence_here`):
+1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
+2. Speaker boundaries (high priority - almost always break)
+3. Whisper boundaries (medium priority)
+4. Semantic coherence (fallback)
+
+**Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
+
+Benefits:
+- More accurate sentence breaks at dialogue transitions
+- Especially useful for interviews, conversations, and multi-speaker content
+- Complements existing grammatical guards and semantic analysis
+- Natural speaker changes almost always align with sentence boundaries
+
+Caching:
+- Models cached in `models/pyannote/` mounted to `/root/.cache/pyannote`
+- Requires Hugging Face token for first-time model download (`--hf-token` or `HF_TOKEN` env var)
+- Subsequent runs use cached models for fast startup
+
+Threading through pipeline:
+- Diarization runs on media file before transcription (can be parallelized in future)
+- Speaker boundaries extracted via `_extract_speaker_boundaries(...)`
+- Merged with Whisper boundaries using `_merge_boundaries(...)` in `_assemble_sentences(...)`
+- Boundaries within 1.0s are deduplicated to avoid redundancy
+- Passed to `restore_punctuation(..., whisper_boundaries=merged_boundaries)`
+- Prioritized in `_should_end_sentence_here(..., speaker_word_boundaries=...)`
+
+Configuration:
+- `DEFAULT_DIARIZATION_DEVICE = "cpu"` (can use GPU if available)
+- `SPEAKER_BOUNDARY_EPSILON_SEC = 1.0` (merge boundaries within 1s)
+- `MIN_SPEAKER_SEGMENT_SEC = 2.0` (ignore very short speaker segments)
+
 ## Key files
 
 - `podscripter.py`: orchestration, chunking, ASR, output
 - `punctuation_restorer.py`: punctuation, language formatting, capitalization
 - `domain_utils.py`: centralized domain detection, masking, and Spanish false domain prevention
+- `speaker_diarization.py`: speaker change detection and boundary extraction (optional feature)
 - `Dockerfile`: runtime and dependency setup

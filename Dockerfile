@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pydub \
     torch \
     sentence-transformers \
-    spacy==3.7.4
+    spacy==3.7.4 \
+    pyannote.audio==3.1.1
 
 # Install spaCy language models
 RUN pip install --no-cache-dir \

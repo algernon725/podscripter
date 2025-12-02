@@ -151,6 +151,10 @@ def transcribe(
     vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
     write_output: bool = True,
     output_dir: str | Path | None = None,
+    enable_diarization: bool = False,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+    hf_token: str | None = None,
 ) -> TranscriptionResult:
     """
     Transcribe an audio/video file and optionally write the result to disk.
@@ -176,6 +180,10 @@ def transcribe(
         write_output: If True, write a .txt or .srt file to `output_dir` and set `output_path`.
                       If False, no files are written and `output_dir` may be None.
         output_dir: Directory to write outputs when `write_output=True`.
+        enable_diarization: If True, perform speaker diarization for improved sentence boundaries.
+        min_speakers: Minimum number of speakers (None for auto-detect).
+        max_speakers: Maximum number of speakers (None for auto-detect).
+        hf_token: Hugging Face token for pyannote model access (required for first-time download).
 
     Returns:
         TranscriptionResult: dict-like object with keys:
@@ -221,6 +229,10 @@ def transcribe(
         vad_filter=vad_filter,
         vad_speech_pad_ms=vad_speech_pad_ms,
         write_output=write_output,
+        enable_diarization=enable_diarization,
+        min_speakers=min_speakers,
+        max_speakers=max_speakers,
+        hf_token=hf_token,
     )
 
 def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english: bool):
@@ -493,7 +505,7 @@ def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, tra
                 cf.unlink()
     return all_segments, all_text, detected_language
 
-def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool) -> list[str]:
+def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None) -> list[str]:
     def _sanitize_sentence_output(s: str, language: str) -> str:
         try:
             if (language or '').lower() != 'es' or not s:
@@ -623,12 +635,21 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     # Extract Whisper segment boundaries to inform sentence splitting
     # These boundaries represent acoustic pauses and are useful hints for sentence breaks
     from punctuation_restorer import _extract_segment_boundaries
-    segment_boundaries = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
+    whisper_boundaries = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
+    
+    # Merge speaker boundaries with Whisper boundaries if available
+    # Speaker boundaries have higher priority as they represent speaker changes
+    merged_boundaries = whisper_boundaries
+    if speaker_boundaries:
+        from speaker_diarization import _merge_boundaries
+        merged_boundaries = _merge_boundaries(whisper_boundaries, speaker_boundaries)
+        if not quiet:
+            logger.info(f"Merged {len(speaker_boundaries)} speaker boundaries with {len(whisper_boundaries or [])} Whisper boundaries")
     
     # Process the entire text as one block to allow proper sentence formation across Whisper segments
     # The punctuation restoration will add punctuation and split into sentences intelligently
     from punctuation_restorer import restore_punctuation
-    processed_text = restore_punctuation(all_text, lang_for_punctuation, whisper_boundaries=segment_boundaries)
+    processed_text = restore_punctuation(all_text, lang_for_punctuation, whisper_boundaries=merged_boundaries)
     
     # Split the processed text into sentences
     from punctuation_restorer import assemble_sentences_from_processed
@@ -866,6 +887,10 @@ def _transcribe_with_sentences(
     vad_filter: bool = DEFAULT_VAD_FILTER,
     vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS,
     write_output: bool = True,
+    enable_diarization: bool = False,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+    hf_token: str | None = None,
 ) -> TranscriptionResult:
     _t0 = time.time()
     # Validate media path
@@ -884,6 +909,30 @@ def _transcribe_with_sentences(
     model_name = model_name; beam_size = beam_size; device = device
     if not quiet:
         _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english)
+    
+    # Perform speaker diarization if enabled
+    speaker_boundaries = None
+    if enable_diarization:
+        if not quiet:
+            logger.info("Performing speaker diarization...")
+        try:
+            from speaker_diarization import diarize_audio
+            # Get HF token from environment if not provided
+            token = hf_token or os.environ.get("HF_TOKEN")
+            diarization_result = diarize_audio(
+                media_file,
+                min_speakers=min_speakers,
+                max_speakers=max_speakers,
+                use_auth_token=token,
+                device=device,
+            )
+            speaker_boundaries = diarization_result['speaker_boundaries']
+            if not quiet:
+                logger.info(f"Detected {diarization_result['num_speakers']} speakers with {len(speaker_boundaries)} speaker changes")
+        except Exception as e:
+            logger.warning(f"Speaker diarization failed: {e}. Continuing without speaker boundaries.")
+            if not quiet:
+                logger.info("Tip: For first-time use, provide --hf-token or set HF_TOKEN environment variable")
     # Load model if not provided
     if model is None:
         try:
@@ -971,7 +1020,7 @@ def _transcribe_with_sentences(
         if not quiet:
             logger.info("Restoring punctuation...")
         lang_for_punctuation = 'en' if translate_to_english else (detected_language if language is None else language)
-        sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet)
+        sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
         output_path_txt: str | None = None
@@ -1013,6 +1062,11 @@ def main():
     parser.add_argument("--no-vad", dest="vad_filter", action="store_false", help="Disable VAD filtering (default: enabled)")
     parser.add_argument("--vad-speech-pad-ms", dest="vad_speech_pad_ms", type=int, default=DEFAULT_VAD_SPEECH_PAD_MS, help="Padding (ms) around detected speech when VAD is enabled")
     parser.add_argument("--dump-raw", dest="dump_raw", action="store_true", help="Also write raw Whisper output for debugging (filename_raw.txt)")
+    # Speaker diarization controls
+    parser.add_argument("--enable-diarization", dest="enable_diarization", action="store_true", help="Enable speaker diarization for improved sentence boundaries")
+    parser.add_argument("--min-speakers", dest="min_speakers", type=int, default=None, help="Minimum number of speakers (optional, auto-detect if not specified)")
+    parser.add_argument("--max-speakers", dest="max_speakers", type=int, default=None, help="Maximum number of speakers (optional, auto-detect if not specified)")
+    parser.add_argument("--hf-token", dest="hf_token", default=None, help="Hugging Face token for pyannote models (required for first-time download)")
     vg = parser.add_mutually_exclusive_group(); vg.add_argument("--quiet", action="store_true", help="Reduce log output"); vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)"); parser.set_defaults(verbose=True)
     # Defaults for VAD
     parser.set_defaults(vad_filter=DEFAULT_VAD_FILTER)
@@ -1060,6 +1114,10 @@ def main():
             vad_filter=args.vad_filter,
             vad_speech_pad_ms=args.vad_speech_pad_ms,
             write_output=True,
+            enable_diarization=args.enable_diarization,
+            min_speakers=args.min_speakers,
+            max_speakers=args.max_speakers,
+            hf_token=args.hf_token,
         )
         if not quiet and result.get("detected_language"):
             logger.info(f"Detected language: {result['detected_language']}")

@@ -91,7 +91,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Handle rate limiting gracefully (especially for HuggingFace API)
 - Raise typed exceptions at the source and handle them centrally in the CLI:
   - `InvalidInputError`, `ModelLoadError`, `TranscriptionError`, `OutputWriteError`
-  - Exit codes: 2=input, 3=model load, 4=transcription, 5=write, 1=unexpected
+  - Exit codes: 2=input, 3=model load, 4=transcription, 5=write, 6=diarization, 1=unexpected
 
 ### Logging
 - Use a single logger named `podscripter` configured in `podscripter.py`
@@ -210,6 +210,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Mount volumes for model caching and media:
   - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
   - `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers`
+  - `-v $(pwd)/models/pyannote:/root/.cache/pyannote` (if using speaker diarization)
   - `-v $(pwd)/audio-files:/app/audio-files`
 - Include all necessary environment variables in Dockerfile
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
@@ -546,3 +547,61 @@ Thresholds (set via `_get_language_thresholds(language)`):
 
 Tests:
 - `tests/test_whisper_boundary_integration.py` validates boundary extraction, grammatical gating, and multi-language behavior.
+
+### Speaker Diarization Integration (2025)
+
+Podscripter includes optional speaker diarization to improve sentence boundaries at speaker changes.
+
+**Purpose:**
+- Detects when speakers change in audio
+- Provides high-priority hints for sentence boundaries
+- Especially useful for multi-speaker content (interviews, conversations, podcasts with guests)
+- Speaker changes naturally align with sentence breaks in dialogue
+
+**Implementation Guidelines:**
+- **Opt-in feature** (disabled by default to avoid dependency bloat)
+- Uses pyannote.audio 3.1.1 with Hugging Face model caching
+- Speaker boundaries merged with Whisper boundaries via `_merge_boundaries(...)`
+- Priority: Speaker boundaries > Whisper boundaries > Semantic coherence
+- Still respects grammatical guards (no breaks on prepositions/conjunctions/auxiliary verbs)
+- Boundaries within 1.0s are deduplicated to avoid redundancy
+
+**Module structure:**
+- `speaker_diarization.py`: Separate module following project's modularity pattern
+- `diarize_audio(...)`: Main entry point, returns `DiarizationResult`
+- `_extract_speaker_boundaries(...)`: Extracts timestamps where speakers change
+- `_merge_boundaries(...)`: Merges and deduplicates Whisper + speaker boundaries
+- `DiarizationError`: Typed exception for error handling
+
+**CLI Flags:**
+- `--enable-diarization`: Enable speaker diarization (default: disabled)
+- `--min-speakers <int>`: Minimum number of speakers (optional, auto-detect by default)
+- `--max-speakers <int>`: Maximum number of speakers (optional, auto-detect by default)
+- `--hf-token <str>`: Hugging Face token (required for first download)
+
+**Environment Variables:**
+- `HF_TOKEN`: Alternative to `--hf-token` flag
+- Precedence: CLI flag > environment variable
+
+**Model Caching:**
+- Cache directory: `models/pyannote/` → `/root/.cache/pyannote`
+- First run requires HF token (same pattern as sentence-transformers)
+- Subsequent runs use cached models
+- Mount in Docker: `-v $(pwd)/models/pyannote:/root/.cache/pyannote`
+
+**Testing:**
+- Unit tests: `tests/test_speaker_diarization_unit.py` (boundary extraction, merging, deduplication)
+- Integration tests: `tests/test_speaker_diarization_integration.py` (realistic scenarios, edge cases)
+- Controlled by `RUN_DIARIZATION=1` environment flag in test suite
+- Tests do not require actual audio or diarization models (mock data)
+
+**Error Handling:**
+- `DiarizationError` raised for diarization failures
+- Gracefully degrades: logs warning and continues without speaker boundaries
+- Exit code 6 for diarization errors in CLI (new code added to exit code list)
+
+**Performance:**
+- Adds ~10-30% overhead depending on audio length
+- Runs on CPU by default (same device as Whisper)
+- Can use GPU if available (`device="cuda"`)
+- Model caching makes subsequent runs much faster
