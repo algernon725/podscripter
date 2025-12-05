@@ -7,9 +7,11 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(THIS_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+if THIS_DIR not in sys.path:
+    sys.path.insert(0, THIS_DIR)
 
 import punctuation_restorer as pr  # noqa: E402
-from tests.spanish_samples import SPANISH_ASR_SEGMENTS, HUMAN_REFERENCE_TEXT  # noqa: E402
+from spanish_samples import SPANISH_ASR_SEGMENTS, HUMAN_REFERENCE_TEXT  # noqa: E402
 
 
 def _normalize(s: str) -> str:
@@ -76,7 +78,8 @@ def test_spanish_transcription_scoring():
     all_text = ' '.join(SPANISH_ASR_SEGMENTS)
     
     # Run through the full pipeline including sanitization
-    sentences = _assemble_sentences(all_text, 'es', quiet=True)
+    # Pass empty list for all_segments since we don't have real Whisper segments
+    sentences = _assemble_sentences(all_text, [], 'es', quiet=True)
     
     generated_text = "\n\n".join(sentences)
 
