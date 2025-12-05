@@ -8,7 +8,16 @@ as hints for sentence splitting.
 
 from typing import TypedDict, Optional
 import logging
+import warnings
 from pathlib import Path
+
+# Suppress torchaudio warning about MPEG_LAYER_III subtype (harmless MP3 metadata issue)
+warnings.filterwarnings(
+    "ignore",
+    message="The MPEG_LAYER_III subtype is unknown to TorchAudio",
+    category=UserWarning,
+    module="torchaudio"
+)
 
 logger = logging.getLogger("podscripter")
 
