@@ -9,14 +9,16 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies in fewer layers for better caching
+# Pin torch/torchaudio versions for pyannote.audio compatibility (torchaudio <2.8 required)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     faster-whisper \
     pydub \
-    torch \
+    torch==2.2.0 \
+    torchaudio==2.2.0 \
     sentence-transformers \
     spacy==3.7.4 \
-    pyannote.audio==3.1.1
+    pyannote.audio==3.3.2
 
 # Install spaCy language models
 RUN pip install --no-cache-dir \
