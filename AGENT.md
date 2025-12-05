@@ -91,7 +91,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Handle rate limiting gracefully (especially for HuggingFace API)
 - Raise typed exceptions at the source and handle them centrally in the CLI:
   - `InvalidInputError`, `ModelLoadError`, `TranscriptionError`, `OutputWriteError`
-  - Exit codes: 2=input, 3=model load, 4=transcription, 5=write, 6=diarization, 1=unexpected
+  - Exit codes: 2=input, 3=model load, 4=transcription, 5=write, 1=unexpected
 
 ### Logging
 - Use a single logger named `podscripter` configured in `podscripter.py`
@@ -560,7 +560,7 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 
 **Implementation Guidelines:**
 - **Opt-in feature** (disabled by default to avoid dependency bloat)
-- Uses pyannote.audio 3.1.1 with Hugging Face model caching
+- Uses pyannote.audio 3.3.2 with Hugging Face model caching
 - Speaker boundaries merged with Whisper boundaries via `_merge_boundaries(...)`
 - Priority: Speaker boundaries > Whisper boundaries > Semantic coherence
 - Still respects grammatical guards (no breaks on prepositions/conjunctions/auxiliary verbs)
@@ -597,8 +597,8 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 
 **Error Handling:**
 - `DiarizationError` raised for diarization failures
-- Gracefully degrades: logs warning and continues without speaker boundaries
-- Exit code 6 for diarization errors in CLI (new code added to exit code list)
+- Gracefully degrades: logs warning and continues without speaker boundaries (no hard exit)
+- Tip message suggests providing `--hf-token` or `HF_TOKEN` for first-time use
 
 **Performance:**
 - Adds ~10-30% overhead depending on audio length

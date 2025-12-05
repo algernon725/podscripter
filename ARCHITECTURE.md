@@ -261,7 +261,7 @@ Tests: `tests/test_whisper_boundary_integration.py` covers extraction, gating, a
 
 Podscripter optionally uses speaker diarization to detect when speakers change, providing high-priority hints for sentence boundaries.
 
-**Library**: pyannote.audio 3.1.1
+**Library**: pyannote.audio 3.3.2
 
 **Integration**: Speaker boundaries are merged with Whisper segment boundaries and passed through the punctuation pipeline.
 
