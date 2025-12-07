@@ -19,6 +19,15 @@ warnings.filterwarnings(
     module="torchaudio"
 )
 
+# Suppress pyannote pooling warning when processing very short audio segments
+# This occurs when std() is called on tensors with only 1 sample (degrees of freedom = 0)
+# It's a harmless numerical edge case that doesn't affect output quality
+warnings.filterwarnings(
+    "ignore",
+    message=r"std\(\): degrees of freedom is <= 0",
+    category=UserWarning,
+)
+
 logger = logging.getLogger("podscripter")
 
 # Default settings
