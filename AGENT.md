@@ -571,15 +571,18 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 **Module structure:**
 - `speaker_diarization.py`: Separate module following project's modularity pattern
 - `diarize_audio(...)`: Main entry point, returns `DiarizationResult`
-- `_extract_speaker_boundaries(...)`: Extracts timestamps where speakers change
+- `_extract_speaker_boundaries(...)`: Extracts timestamps where speakers change; returns both filtered boundaries and detailed `BoundaryInfo` for debugging
 - `_merge_boundaries(...)`: Merges and deduplicates Whisper + speaker boundaries
+- `write_diarization_dump(...)`: Writes comprehensive debug dump file (raw segments, boundary analysis, merge details)
 - `DiarizationError`: Typed exception for error handling
+- `BoundaryInfo`: TypedDict with detailed info about each potential boundary (timestamp, speakers, duration, included/filtered status, reason)
 
 **CLI Flags:**
 - `--enable-diarization`: Enable speaker diarization (default: disabled)
 - `--min-speakers <int>`: Minimum number of speakers (optional, auto-detect by default)
 - `--max-speakers <int>`: Maximum number of speakers (optional, auto-detect by default)
 - `--hf-token <str>`: Hugging Face token (required for first download)
+- `--dump-diarization`: Write diarization debug dump to `<basename>_diarization.txt` (requires `--enable-diarization`)
 
 **Environment Variables:**
 - `HF_TOKEN`: Alternative to `--hf-token` flag

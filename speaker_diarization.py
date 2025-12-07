@@ -52,6 +52,7 @@ class DiarizationResult(TypedDict):
     segments: list[SpeakerSegment]
     num_speakers: int
     speaker_boundaries: list[float]  # Speaker change timestamps
+    filtered_boundaries: list[dict]  # Detailed info about filtered boundaries
 
 
 class DiarizationError(Exception):
@@ -139,25 +140,37 @@ def diarize_audio(
             return {
                 "segments": [],
                 "num_speakers": 0,
-                "speaker_boundaries": []
+                "speaker_boundaries": [],
+                "filtered_boundaries": []
             }
         
         # Extract speaker boundaries (where speakers change)
-        boundaries = _extract_speaker_boundaries(segments)
+        boundaries, boundary_details = _extract_speaker_boundaries(segments)
         
         logger.info(f"Detected {len(speakers)} unique speakers with {len(boundaries)} speaker changes")
         
         return {
             "segments": segments,
             "num_speakers": len(speakers),
-            "speaker_boundaries": boundaries
+            "speaker_boundaries": boundaries,
+            "filtered_boundaries": boundary_details
         }
         
     except Exception as e:
         raise DiarizationError(f"Speaker diarization failed: {e}") from e
 
 
-def _extract_speaker_boundaries(segments: list[SpeakerSegment]) -> list[float]:
+class BoundaryInfo(TypedDict):
+    """Detailed info about a potential speaker boundary."""
+    timestamp: float
+    from_speaker: str
+    to_speaker: str
+    segment_duration: float
+    included: bool
+    reason: str
+
+
+def _extract_speaker_boundaries(segments: list[SpeakerSegment]) -> tuple[list[float], list[BoundaryInfo]]:
     """
     Extract speaker change timestamps from speaker segments.
     
@@ -168,12 +181,15 @@ def _extract_speaker_boundaries(segments: list[SpeakerSegment]) -> list[float]:
         segments: List of speaker segments
         
     Returns:
-        List of timestamps where speakers change
+        Tuple of:
+        - List of timestamps where speakers change (filtered)
+        - List of BoundaryInfo with details about all potential boundaries
     """
     if not segments:
-        return []
+        return [], []
     
     boundaries = []
+    boundary_details: list[BoundaryInfo] = []
     
     # Sort segments by start time to ensure proper ordering
     sorted_segments = sorted(segments, key=lambda s: s["start"])
@@ -189,10 +205,23 @@ def _extract_speaker_boundaries(segments: list[SpeakerSegment]) -> list[float]:
             
             # Only add if segment is long enough (filter out very short segments)
             segment_duration = current["end"] - current["start"]
-            if segment_duration >= MIN_SPEAKER_SEGMENT_SEC:
+            included = segment_duration >= MIN_SPEAKER_SEGMENT_SEC
+            
+            reason = "included" if included else f"segment too short ({segment_duration:.2f}s < {MIN_SPEAKER_SEGMENT_SEC}s)"
+            
+            boundary_details.append({
+                "timestamp": boundary_time,
+                "from_speaker": current["speaker"],
+                "to_speaker": next_seg["speaker"],
+                "segment_duration": segment_duration,
+                "included": included,
+                "reason": reason,
+            })
+            
+            if included:
                 boundaries.append(boundary_time)
     
-    return boundaries
+    return boundaries, boundary_details
 
 
 def _merge_boundaries(
@@ -248,6 +277,103 @@ def _merge_boundaries(
         i = j
     
     return merged
+
+
+def write_diarization_dump(
+    diarization_result: DiarizationResult,
+    output_file: str,
+    merged_boundaries: list[float] | None = None,
+    whisper_boundaries: list[float] | None = None,
+) -> None:
+    """
+    Write diarization data to a file for debugging purposes.
+    
+    Args:
+        diarization_result: Result from diarize_audio()
+        output_file: Path to write the dump file
+        merged_boundaries: Optional merged boundaries (speaker + Whisper)
+        whisper_boundaries: Optional Whisper segment boundaries
+    """
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("=" * 60 + "\n")
+        f.write("SPEAKER DIARIZATION DEBUG DUMP\n")
+        f.write("=" * 60 + "\n\n")
+        
+        # Summary
+        f.write("SUMMARY\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"Number of speakers detected: {diarization_result['num_speakers']}\n")
+        f.write(f"Total speaker segments: {len(diarization_result['segments'])}\n")
+        f.write(f"Speaker boundaries used: {len(diarization_result['speaker_boundaries'])}\n")
+        f.write(f"Min segment duration for boundary: {MIN_SPEAKER_SEGMENT_SEC}s\n")
+        f.write(f"Boundary merge epsilon: {SPEAKER_BOUNDARY_EPSILON_SEC}s\n")
+        f.write("\n")
+        
+        # All raw speaker segments
+        f.write("RAW SPEAKER SEGMENTS (from pyannote)\n")
+        f.write("-" * 40 + "\n")
+        for i, seg in enumerate(diarization_result['segments'], 1):
+            duration = seg['end'] - seg['start']
+            f.write(f"{i:3d}. [{seg['start']:7.2f}s - {seg['end']:7.2f}s] "
+                   f"({duration:5.2f}s) {seg['speaker']}\n")
+        f.write("\n")
+        
+        # Boundary analysis
+        f.write("SPEAKER BOUNDARY ANALYSIS\n")
+        f.write("-" * 40 + "\n")
+        f.write("(Speaker changes and whether they were used for sentence splitting)\n\n")
+        
+        filtered = diarization_result.get('filtered_boundaries', [])
+        if filtered:
+            for i, b in enumerate(filtered, 1):
+                status = "✓ INCLUDED" if b['included'] else "✗ FILTERED"
+                f.write(f"{i:3d}. {b['timestamp']:7.2f}s: {b['from_speaker']} → {b['to_speaker']}\n")
+                f.write(f"     Segment duration: {b['segment_duration']:.2f}s\n")
+                f.write(f"     Status: {status}\n")
+                if not b['included']:
+                    f.write(f"     Reason: {b['reason']}\n")
+                f.write("\n")
+        else:
+            f.write("No speaker changes detected.\n\n")
+        
+        # Final speaker boundaries used
+        f.write("FINAL SPEAKER BOUNDARIES (used for sentence splitting)\n")
+        f.write("-" * 40 + "\n")
+        if diarization_result['speaker_boundaries']:
+            for i, ts in enumerate(diarization_result['speaker_boundaries'], 1):
+                f.write(f"{i:3d}. {ts:7.2f}s\n")
+        else:
+            f.write("No speaker boundaries passed filtering.\n")
+        f.write("\n")
+        
+        # Whisper boundaries if provided
+        if whisper_boundaries is not None:
+            f.write("WHISPER SEGMENT BOUNDARIES\n")
+            f.write("-" * 40 + "\n")
+            for i, ts in enumerate(whisper_boundaries, 1):
+                f.write(f"{i:3d}. {ts:7.2f}s\n")
+            f.write("\n")
+        
+        # Merged boundaries if provided
+        if merged_boundaries is not None:
+            f.write("MERGED BOUNDARIES (speaker + Whisper, deduplicated)\n")
+            f.write("-" * 40 + "\n")
+            for i, ts in enumerate(merged_boundaries, 1):
+                # Indicate source
+                is_speaker = any(abs(ts - sb) < 0.01 for sb in diarization_result['speaker_boundaries'])
+                is_whisper = whisper_boundaries and any(abs(ts - wb) < 0.01 for wb in whisper_boundaries)
+                source = []
+                if is_speaker:
+                    source.append("speaker")
+                if is_whisper:
+                    source.append("whisper")
+                source_str = " (" + "+".join(source) + ")" if source else ""
+                f.write(f"{i:3d}. {ts:7.2f}s{source_str}\n")
+            f.write("\n")
+        
+        f.write("=" * 60 + "\n")
+        f.write("END OF DIARIZATION DUMP\n")
+        f.write("=" * 60 + "\n")
 
 
 def _convert_boundaries_to_word_indices(

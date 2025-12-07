@@ -118,9 +118,11 @@ flowchart TD
 
 - **Speaker Diarization** (`speaker_diarization.py`) - Optional
   - `diarize_audio(...)` performs speaker detection using pyannote.audio
-  - `_extract_speaker_boundaries(...)` extracts speaker change timestamps
+  - `_extract_speaker_boundaries(...)` extracts speaker change timestamps; returns both filtered boundaries and detailed `BoundaryInfo` for debugging
   - `_merge_boundaries(...)` merges speaker and Whisper boundaries with deduplication
+  - `write_diarization_dump(...)` writes comprehensive debug file with raw segments, boundary analysis, and merge details
   - Boundaries represent high-confidence sentence break hints
+  - Debug dump (`--dump-diarization`) aids troubleshooting when speaker changes don't trigger sentence breaks
 
 - **Punctuation and sentence assembly** (`punctuation_restorer.py`)
   - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)` for complete text
@@ -179,6 +181,7 @@ flowchart TD
   - `--min-speakers <int>` (minimum number of speakers for diarization; default auto-detect)
   - `--max-speakers <int>` (maximum number of speakers for diarization; default auto-detect)
   - `--hf-token <str>` (Hugging Face token for pyannote model access; required for first download)
+  - `--dump-diarization` (write diarization debug dump to `<basename>_diarization.txt`; requires `--enable-diarization`)
   - `--quiet`/`--verbose` (default verbose)
 
 ## Operations
@@ -296,6 +299,16 @@ Configuration:
 - `DEFAULT_DIARIZATION_DEVICE = "cpu"` (can use GPU if available)
 - `SPEAKER_BOUNDARY_EPSILON_SEC = 1.0` (merge boundaries within 1s)
 - `MIN_SPEAKER_SEGMENT_SEC = 2.0` (ignore very short speaker segments)
+
+Debugging:
+- Use `--dump-diarization` to write `<basename>_diarization.txt` with:
+  - Summary (speaker count, segment count, filtering parameters)
+  - Raw speaker segments from pyannote (timestamps and speaker labels)
+  - Speaker boundary analysis (each change with included/filtered status and reason)
+  - Final speaker boundaries used for sentence splitting
+  - Whisper segment boundaries (for comparison)
+  - Merged boundaries with source labels (speaker/whisper)
+- Helps troubleshoot why specific speaker changes did not cause sentence breaks
 
 ## Key files
 

@@ -99,6 +99,10 @@ class TranscriptionResult(TypedDict):
     output_path: str | None
     num_segments: int
     elapsed_secs: float
+    # Diarization debugging info (None if diarization not enabled)
+    diarization_result: dict | None
+    whisper_boundaries: list[float] | None
+    merged_boundaries: list[float] | None
 
 __all__ = [
     "transcribe",
@@ -912,6 +916,7 @@ def _transcribe_with_sentences(
     
     # Perform speaker diarization if enabled
     speaker_boundaries = None
+    diarization_result = None  # Store for potential dump
     if enable_diarization:
         if not quiet:
             logger.info("Performing speaker diarization...")
@@ -1015,11 +1020,34 @@ def _transcribe_with_sentences(
             except Exception as e:
                 raise OutputWriteError(f"Failed to write SRT: {e}")
             output_path = str(output_file)
-        return {"segments": all_segments, "sentences": [], "detected_language": detected_language, "output_path": output_path, "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
+        return {
+            "segments": all_segments,
+            "sentences": [],
+            "detected_language": detected_language,
+            "output_path": output_path,
+            "num_segments": len(all_segments),
+            "elapsed_secs": round(time.time() - _t0, 3),
+            "diarization_result": diarization_result,
+            "whisper_boundaries": None,
+            "merged_boundaries": None,
+        }
     else:
         if not quiet:
             logger.info("Restoring punctuation...")
         lang_for_punctuation = 'en' if translate_to_english else (detected_language if language is None else language)
+        
+        # Extract Whisper boundaries for debugging
+        from punctuation_restorer import _extract_segment_boundaries
+        whisper_boundaries_for_dump = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
+        
+        # Compute merged boundaries for debugging
+        merged_boundaries_for_dump = whisper_boundaries_for_dump
+        if speaker_boundaries and whisper_boundaries_for_dump:
+            from speaker_diarization import _merge_boundaries
+            merged_boundaries_for_dump = _merge_boundaries(whisper_boundaries_for_dump, speaker_boundaries)
+        elif speaker_boundaries:
+            merged_boundaries_for_dump = speaker_boundaries
+        
         sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
@@ -1031,7 +1059,17 @@ def _transcribe_with_sentences(
             except Exception as e:
                 raise OutputWriteError(f"Failed to write TXT: {e}")
             output_path_txt = str(output_file)
-        return {"segments": all_segments, "sentences": sentences, "detected_language": detected_language, "output_path": output_path_txt, "num_segments": len(all_segments), "elapsed_secs": round(time.time() - _t0, 3)}
+        return {
+            "segments": all_segments,
+            "sentences": sentences,
+            "detected_language": detected_language,
+            "output_path": output_path_txt,
+            "num_segments": len(all_segments),
+            "elapsed_secs": round(time.time() - _t0, 3),
+            "diarization_result": diarization_result,
+            "whisper_boundaries": whisper_boundaries_for_dump,
+            "merged_boundaries": merged_boundaries_for_dump,
+        }
 
 def _cleanup_chunks(media_file):
     media_dir = Path(media_file).resolve().parent
@@ -1062,6 +1100,7 @@ def main():
     parser.add_argument("--no-vad", dest="vad_filter", action="store_false", help="Disable VAD filtering (default: enabled)")
     parser.add_argument("--vad-speech-pad-ms", dest="vad_speech_pad_ms", type=int, default=DEFAULT_VAD_SPEECH_PAD_MS, help="Padding (ms) around detected speech when VAD is enabled")
     parser.add_argument("--dump-raw", dest="dump_raw", action="store_true", help="Also write raw Whisper output for debugging (filename_raw.txt)")
+    parser.add_argument("--dump-diarization", dest="dump_diarization", action="store_true", help="Write speaker diarization debug dump (filename_diarization.txt)")
     # Speaker diarization controls
     parser.add_argument("--enable-diarization", dest="enable_diarization", action="store_true", help="Enable speaker diarization for improved sentence boundaries")
     parser.add_argument("--min-speakers", dest="min_speakers", type=int, default=None, help="Minimum number of speakers (optional, auto-detect if not specified)")
@@ -1133,6 +1172,25 @@ def main():
                 logger.info(f"Raw output written to: {raw_output_file}")
             except Exception as e:
                 logger.error(f"Failed to write raw output: {e}")
+        
+        # Write diarization dump if requested
+        if args.dump_diarization:
+            if result.get('diarization_result'):
+                base_name = Path(args.media_file).stem
+                diarization_output_file = Path(args.output_dir) / f"{base_name}_diarization.txt"
+                try:
+                    from speaker_diarization import write_diarization_dump
+                    write_diarization_dump(
+                        result['diarization_result'],
+                        str(diarization_output_file),
+                        merged_boundaries=result.get('merged_boundaries'),
+                        whisper_boundaries=result.get('whisper_boundaries'),
+                    )
+                    logger.info(f"Diarization dump written to: {diarization_output_file}")
+                except Exception as e:
+                    logger.error(f"Failed to write diarization dump: {e}")
+            else:
+                logger.warning("--dump-diarization requested but diarization was not enabled. Use --enable-diarization to enable.")
         
         if not quiet:
             elapsed = time.time() - start_time; minutes = int(elapsed // 60); seconds = int(elapsed % 60)
