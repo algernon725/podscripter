@@ -31,7 +31,9 @@
 - Faster-Whisper (Whisper) models cached via Hugging Face Hub under `/root/.cache/huggingface` (mounted from `models/huggingface`)
 - Sentence-Transformers cached in `/root/.cache/torch/sentence_transformers`
 - Hugging Face models cached in `/root/.cache/huggingface`
+- Pyannote speaker diarization models cached in `/root/.cache/pyannote` (mounted from `models/pyannote`)
 - Use `HF_HOME` environment variable (avoid deprecated `TRANSFORMERS_CACHE`)
+- Use `PYANNOTE_CACHE` environment variable for pyannote.audio 3.x (version 4.0+ uses `HF_HOME` instead)
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
 - Use a singleton model loader to avoid repeated model instantiation within a process
 - SpaCy capitalization is always enabled, with models baked into the image (see Docker Best Practices)

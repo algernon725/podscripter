@@ -31,5 +31,7 @@ RUN pip install --no-cache-dir \
 COPY . .
 
 ENV HF_HOME=/root/.cache/huggingface
+# pyannote.audio 3.x uses PYANNOTE_CACHE for model caching (different from HF_HOME)
+ENV PYANNOTE_CACHE=/root/.cache/pyannote
 
 CMD ["bash"]
