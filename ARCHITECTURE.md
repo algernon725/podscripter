@@ -266,13 +266,16 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 
 **Library**: pyannote.audio 3.3.2
 
-**Integration**: Speaker boundaries are merged with Whisper segment boundaries and passed through the punctuation pipeline.
+**Integration**: Speaker boundaries are passed separately (not merged) to `restore_punctuation()` to enable different minimum word thresholds.
 
 **Priority hierarchy** (in `_should_end_sentence_here`):
 1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
-2. Speaker boundaries (high priority - almost always break)
-3. Whisper boundaries (medium priority)
-4. Semantic coherence (fallback)
+2. Speaker boundaries (highest priority - break even for very short phrases, min 2 words)
+3. Whisper boundaries (medium priority - min 10 words)
+4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
+5. Semantic coherence (fallback)
+
+**Critical implementation detail**: Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes.
 
 **Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
 
@@ -289,11 +292,11 @@ Caching:
 
 Threading through pipeline:
 - Diarization runs on media file before transcription (can be parallelized in future)
-- Speaker boundaries extracted via `_extract_speaker_boundaries(...)`
-- Merged with Whisper boundaries using `_merge_boundaries(...)` in `_assemble_sentences(...)`
-- Boundaries within 1.0s are deduplicated to avoid redundancy
-- Passed to `restore_punctuation(..., whisper_boundaries=merged_boundaries)`
-- Prioritized in `_should_end_sentence_here(..., speaker_word_boundaries=...)`
+- Speaker boundaries extracted via `_extract_speaker_boundaries(...)` as timestamps (seconds)
+- Timestamps converted to character positions via `_convert_speaker_timestamps_to_char_positions(...)` in `_assemble_sentences(...)`
+- Passed SEPARATELY to `restore_punctuation(..., whisper_boundaries=..., speaker_boundaries=...)`
+- Converted to word indices in `_transformer_based_restoration()`
+- Checked with low threshold (2 words) in `_should_end_sentence_here(..., speaker_word_boundaries=...)`
 
 Configuration:
 - `DEFAULT_DIARIZATION_DEVICE = "cpu"` (can use GPU if available)

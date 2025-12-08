@@ -1340,16 +1340,18 @@ def _violates_grammatical_rules(current_word: str, next_word: str, language: str
     return False
 
 
-def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: list[int] | None = None) -> str:
+def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> str:
     """
     Restore punctuation to transcribed text using advanced NLP techniques.
-    
+
     Args:
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
-        whisper_boundaries (list[int] | None): Optional list of character positions where 
+        whisper_boundaries (list[int] | None): Optional list of character positions where
             Whisper segments end. These boundaries are used as hints for sentence breaks.
-    
+        speaker_boundaries (list[int] | None): Optional list of character positions where
+            speakers change. These have highest priority for sentence breaks.
+
     Returns:
         str: Text with restored punctuation
     """
@@ -1384,14 +1386,14 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
     
     # Use SentenceTransformers for better sentence boundary detection
     if SENTENCE_TRANSFORMERS_AVAILABLE:
-        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_boundaries)
+        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_boundaries, speaker_boundaries)
     else:
         # Simple fallback: just clean up whitespace and add basic punctuation
         text = re.sub(r'\s+', ' ', text.strip())
         return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
 
-def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None) -> str:
+def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> str:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
@@ -1400,6 +1402,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom patterns
         whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
+        speaker_boundaries (list[int] | None): Optional character positions of speaker changes
     
     Returns:
         str: Text with restored punctuation
@@ -1411,16 +1414,17 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         text = re.sub(r'\s+', ' ', text.strip())
         return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
-    # Convert character-based whisper boundaries to word indices for fast lookup
-    # Note: whisper_boundaries may already contain merged speaker+whisper boundaries
-    # from _assemble_sentences(), so they represent all boundary hints
+    # Convert character-based boundaries to word indices for fast lookup
     whisper_word_boundaries = None
     if whisper_boundaries:
         whisper_word_boundaries = _char_positions_to_word_indices(text, whisper_boundaries)
+    
+    speaker_word_boundaries = None
+    if speaker_boundaries:
+        speaker_word_boundaries = _char_positions_to_word_indices(text, speaker_boundaries)
 
     # 1) Semantic split into sentences (token-based loop with _should_end_sentence_here)
-    # Pass None for speaker_word_boundaries since they're already merged into whisper_word_boundaries
-    sentences = _semantic_split_into_sentences(text, language, model, whisper_word_boundaries, speaker_word_boundaries=None)
+    sentences = _semantic_split_into_sentences(text, language, model, whisper_word_boundaries, speaker_word_boundaries)
     # 2) Punctuate sentences and join
     result = _punctuate_semantic_sentences(sentences, model, language)
     
@@ -1855,13 +1859,15 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     if len(words) <= thresholds.get('min_total_words_no_split', 25):  # If the entire input is short, don't split
         return False
     
-    if len(current_chunk) < thresholds.get('min_chunk_before_split', 18):  # Slightly less aggressive
-        return False
+    # PRIORITY 1: Check speaker/Whisper boundaries BEFORE general min_chunk check
+    # Speaker changes and Whisper segment boundaries are strong signals that should
+    # override the general minimum chunk length requirement (but still respect grammar)
     
-    # NEW: Check if we're at a speaker boundary (HIGHEST PRIORITY)
-    # Speaker changes almost always indicate sentence breaks, but still respect grammatical rules
+    # Check if we're at a speaker boundary (HIGHEST PRIORITY)
+    # Speaker changes almost always indicate sentence breaks, even for short phrases
+    # Use a very low minimum (2 words) since speaker changes are definitive
     if speaker_word_boundaries and current_index in speaker_word_boundaries:
-        min_words_speaker = thresholds.get('min_words_whisper_break', 10)
+        min_words_speaker = 2  # Very low threshold for speaker changes
         
         if len(current_chunk) >= min_words_speaker:
             current_word = words[current_index]
@@ -1871,11 +1877,11 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
             if not _violates_grammatical_rules(current_word, next_word, language):
                 # Speaker change suggests breaking here and it's grammatically valid
                 return True
-            # Otherwise, fall through to existing logic even though speaker changed
+            # Otherwise, fall through to Whisper check or existing logic
     
-    # Check if we're at a Whisper segment boundary (MEDIUM PRIORITY)
-    # Whisper boundaries are prioritized as they represent acoustic pauses,
-    # but we still respect grammatical rules to avoid breaking on conjunctions/prepositions
+    # Check if we're at a Whisper segment boundary (MEDIUM-HIGH PRIORITY)
+    # Whisper boundaries represent acoustic pauses and are good splitting hints
+    # Use a lower threshold than general splitting but higher than speaker changes
     if whisper_word_boundaries and current_index in whisper_word_boundaries:
         min_words_whisper = thresholds.get('min_words_whisper_break', 10)
         
@@ -1888,6 +1894,11 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
                 # Whisper suggests breaking here and it's grammatically valid
                 return True
             # Otherwise, fall through to existing logic even though Whisper suggested a break
+    
+    # PRIORITY 2: General minimum chunk length for semantic splitting
+    # This only applies when there's no speaker/Whisper boundary hint
+    if len(current_chunk) < thresholds.get('min_chunk_before_split', 18):
+        return False
     
     # Check for natural sentence endings
     current_word = words[current_index]

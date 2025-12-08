@@ -509,6 +509,98 @@ def _transcribe_chunked(model, media_file: str, language, beam_size: int, *, tra
                 cf.unlink()
     return all_segments, all_text, detected_language
 
+
+def _convert_speaker_timestamps_to_char_positions(
+    speaker_boundaries: list[float],
+    whisper_segments: list[dict],
+    text: str
+) -> list[int]:
+    """
+    Convert speaker boundary timestamps (seconds) to character positions in the text.
+    
+    Speaker diarization returns timestamps when speakers change. To use these for
+    sentence splitting, we need to map them to character positions in the concatenated
+    text, which is what the punctuation restorer uses.
+    
+    For each speaker boundary timestamp:
+    1. Find the Whisper segment whose time range contains or is closest to the boundary
+    2. Map that to the character position where that segment ends in the text
+    
+    Args:
+        speaker_boundaries: List of timestamps (seconds) where speakers change
+        whisper_segments: List of Whisper segment dicts with 'start', 'end', 'text' fields
+        text: The full concatenated text from all segments
+        
+    Returns:
+        List of character positions corresponding to speaker boundaries
+    """
+    if not speaker_boundaries or not whisper_segments:
+        return []
+    
+    # Build a mapping of segment index to character end position
+    # This mirrors the logic in _extract_segment_boundaries from punctuation_restorer.py
+    segment_char_positions = []
+    position = 0
+    for seg in whisper_segments:
+        seg_text = seg.get('text', '').strip()
+        if not seg_text:
+            continue
+        position += len(seg_text)
+        segment_char_positions.append({
+            'start': seg.get('start', 0),
+            'end': seg.get('end', 0),
+            'char_end': position,
+            'text': seg_text
+        })
+        position += 1  # Account for separator (space or newline)
+    
+    if not segment_char_positions:
+        return []
+    
+    # For each speaker boundary, find the best matching segment
+    char_positions = []
+    for boundary_time in speaker_boundaries:
+        best_segment = None
+        min_distance = float('inf')
+        
+        for seg_info in segment_char_positions:
+            seg_start = seg_info['start']
+            seg_end = seg_info['end']
+            
+            # Check if boundary falls within this segment
+            if seg_start <= boundary_time <= seg_end:
+                best_segment = seg_info
+                break
+            
+            # Otherwise, find the segment whose end is closest to (but not after) the boundary
+            # This handles cases where the speaker change happens in a gap between segments
+            if seg_end <= boundary_time:
+                distance = boundary_time - seg_end
+                if distance < min_distance:
+                    min_distance = distance
+                    best_segment = seg_info
+        
+        # If no segment ends before the boundary, use the first segment after it
+        if best_segment is None:
+            for seg_info in segment_char_positions:
+                if seg_info['start'] >= boundary_time:
+                    best_segment = seg_info
+                    break
+        
+        if best_segment:
+            char_positions.append(best_segment['char_end'])
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_positions = []
+    for pos in char_positions:
+        if pos not in seen:
+            seen.add(pos)
+            unique_positions.append(pos)
+    
+    return unique_positions
+
+
 def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None) -> list[str]:
     def _sanitize_sentence_output(s: str, language: str) -> str:
         try:
@@ -641,19 +733,28 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     from punctuation_restorer import _extract_segment_boundaries
     whisper_boundaries = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
     
-    # Merge speaker boundaries with Whisper boundaries if available
-    # Speaker boundaries have higher priority as they represent speaker changes
-    merged_boundaries = whisper_boundaries
-    if speaker_boundaries:
-        from speaker_diarization import _merge_boundaries
-        merged_boundaries = _merge_boundaries(whisper_boundaries, speaker_boundaries)
-        if not quiet:
-            logger.info(f"Merged {len(speaker_boundaries)} speaker boundaries with {len(whisper_boundaries or [])} Whisper boundaries")
+    # Convert speaker timestamps to character positions if available
+    # IMPORTANT: Speaker boundaries are timestamps (seconds), but we need character positions.
+    # Speaker boundaries are passed SEPARATELY to restore_punctuation so they can use a lower
+    # minimum word threshold (speaker changes should break sentences even for short phrases)
+    speaker_char_positions = None
+    if speaker_boundaries and all_segments:
+        speaker_char_positions = _convert_speaker_timestamps_to_char_positions(
+            speaker_boundaries, all_segments, all_text
+        )
+        if speaker_char_positions and not quiet:
+            logger.info(f"Converted {len(speaker_boundaries)} speaker boundaries to {len(speaker_char_positions)} char positions")
     
     # Process the entire text as one block to allow proper sentence formation across Whisper segments
     # The punctuation restoration will add punctuation and split into sentences intelligently
+    # Pass speaker boundaries separately so they use a lower threshold for breaking
     from punctuation_restorer import restore_punctuation
-    processed_text = restore_punctuation(all_text, lang_for_punctuation, whisper_boundaries=merged_boundaries)
+    processed_text = restore_punctuation(
+        all_text, 
+        lang_for_punctuation, 
+        whisper_boundaries=whisper_boundaries,
+        speaker_boundaries=speaker_char_positions
+    )
     
     # Split the processed text into sentences
     from punctuation_restorer import assemble_sentences_from_processed
@@ -1039,14 +1140,19 @@ def _transcribe_with_sentences(
         # Extract Whisper boundaries for debugging
         from punctuation_restorer import _extract_segment_boundaries
         whisper_boundaries_for_dump = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
-        
+
         # Compute merged boundaries for debugging
+        # Note: Both whisper_boundaries and speaker boundaries are converted to character positions
+        # before merging (same as in _assemble_sentences)
         merged_boundaries_for_dump = whisper_boundaries_for_dump
-        if speaker_boundaries and whisper_boundaries_for_dump:
-            from speaker_diarization import _merge_boundaries
-            merged_boundaries_for_dump = _merge_boundaries(whisper_boundaries_for_dump, speaker_boundaries)
-        elif speaker_boundaries:
-            merged_boundaries_for_dump = speaker_boundaries
+        if speaker_boundaries and all_segments:
+            speaker_char_positions = _convert_speaker_timestamps_to_char_positions(
+                speaker_boundaries, all_segments, all_text
+            )
+            if speaker_char_positions:
+                merged_boundaries_for_dump = sorted(set((whisper_boundaries_for_dump or []) + speaker_char_positions))
+            elif whisper_boundaries_for_dump:
+                merged_boundaries_for_dump = whisper_boundaries_for_dump
         
         sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []

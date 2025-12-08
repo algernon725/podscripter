@@ -322,6 +322,21 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: `test_continuative_verb_split_bug.py`
 
+#### Speaker Diarization Short Segment Bug (Fixed)
+**Problem**: Speaker changes were not triggering sentence breaks for short segments (e.g., "Mateo 712") because the general `min_chunk_before_split` check (20 words for Spanish) happened BEFORE the speaker/Whisper boundary checks.
+- Example: Speaker change after "Mateo 712" (2 words) should break, but didn't because 2 < 20
+- Result: `"Mateo 712 Bueno, Andrea, creo que..."` instead of `"Mateo 712." | "Bueno, Andrea, creo que..."`
+
+**Root Cause**: In `_should_end_sentence_here()`, the check `if len(current_chunk) < min_chunk_before_split: return False` was an early return that happened BEFORE checking speaker/Whisper boundaries. Short segments would return early without ever checking if there was a speaker change.
+
+**Solution**: 
+1. Moved speaker/Whisper boundary checks to happen BEFORE the general `min_chunk_before_split` check
+2. Speaker boundaries now use a very low threshold (2 words) since speaker changes are definitive
+3. Pass speaker boundaries separately to `restore_punctuation()` (not merged with Whisper boundaries) so they can use different thresholds
+4. Added `_convert_speaker_timestamps_to_char_positions()` to properly convert speaker timestamps to character positions
+
+**Tests**: `test_speaker_boundary_conversion.py`
+
 ### 5. Known Open Issues / Work In Progress
 
 #### Person Initials Normalization (WIP - Partial)
@@ -563,16 +578,22 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 **Implementation Guidelines:**
 - **Opt-in feature** (disabled by default to avoid dependency bloat)
 - Uses pyannote.audio 3.3.2 with Hugging Face model caching
-- Speaker boundaries merged with Whisper boundaries via `_merge_boundaries(...)`
+- Speaker boundaries passed SEPARATELY to `restore_punctuation()` (not merged with Whisper boundaries)
+- Speaker timestamps converted to character positions via `_convert_speaker_timestamps_to_char_positions()`
 - Priority: Speaker boundaries > Whisper boundaries > Semantic coherence
 - Still respects grammatical guards (no breaks on prepositions/conjunctions/auxiliary verbs)
-- Boundaries within 1.0s are deduplicated to avoid redundancy
+- **Critical**: Speaker boundary checks happen BEFORE general `min_chunk_before_split` threshold to allow breaking on short phrases
+
+**Minimum word thresholds** (in `_should_end_sentence_here`):
+- Speaker boundaries: **2 words** (very low since speaker changes are definitive signals)
+- Whisper boundaries: **10 words** (acoustic pause hints)
+- General semantic splitting: **20 words for Spanish, 15 for other languages** (only if no boundary hint)
 
 **Module structure:**
 - `speaker_diarization.py`: Separate module following project's modularity pattern
 - `diarize_audio(...)`: Main entry point, returns `DiarizationResult`
 - `_extract_speaker_boundaries(...)`: Extracts timestamps where speakers change; returns both filtered boundaries and detailed `BoundaryInfo` for debugging
-- `_merge_boundaries(...)`: Merges and deduplicates Whisper + speaker boundaries
+- `_convert_speaker_timestamps_to_char_positions(...)`: Converts speaker timestamps (seconds) to character positions in text (in `podscripter.py`)
 - `write_diarization_dump(...)`: Writes comprehensive debug dump file (raw segments, boundary analysis, merge details)
 - `DiarizationError`: Typed exception for error handling
 - `BoundaryInfo`: TypedDict with detailed info about each potential boundary (timestamp, speakers, duration, included/filtered status, reason)
@@ -596,6 +617,7 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 
 **Testing:**
 - Unit tests: `tests/test_speaker_diarization_unit.py` (boundary extraction, merging, deduplication)
+- Conversion tests: `tests/test_speaker_boundary_conversion.py` (timestamp-to-char-position conversion, realistic scenarios)
 - Integration tests: `tests/test_speaker_diarization_integration.py` (realistic scenarios, edge cases)
 - Controlled by `RUN_DIARIZATION=1` environment flag in test suite
 - Tests do not require actual audio or diarization models (mock data)
