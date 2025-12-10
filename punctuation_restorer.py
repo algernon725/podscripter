@@ -1185,20 +1185,20 @@ def _extract_segment_boundaries(text: str, segments: list[dict]) -> list[int]:
 def _char_positions_to_word_indices(text: str, char_positions: list[int]) -> set[int]:
     """
     Convert character positions to word indices for fast lookup.
-    
+
     Args:
         text: The full text string
         char_positions: Character positions of segment boundaries
-    
+
     Returns:
         Set of word indices that are at or near segment boundaries
     """
     if not char_positions:
         return set()
-    
+
     words = text.split()
     word_boundaries = set()
-    
+
     # Build mapping of character positions to word indices
     char_to_word = []
     current_pos = 0
@@ -1210,7 +1210,7 @@ def _char_positions_to_word_indices(text: str, char_positions: list[int]) -> set
         word_end = word_start + len(word)
         char_to_word.append((word_start, word_end, word_idx))
         current_pos = word_end
-    
+
     # Map char positions to nearest word indices
     # Allow a small tolerance (+3) for spaces and punctuation
     for char_pos in char_positions:
@@ -1218,7 +1218,7 @@ def _char_positions_to_word_indices(text: str, char_positions: list[int]) -> set
             if word_start <= char_pos <= word_end + 3:
                 word_boundaries.add(word_idx)
                 break
-    
+
     return word_boundaries
 
 
@@ -1363,14 +1363,14 @@ def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: lis
     
     # Use advanced punctuation restoration
     try:
-        return _advanced_punctuation_restoration(text, language, True, whisper_boundaries)
+        return _advanced_punctuation_restoration(text, language, True, whisper_boundaries, speaker_boundaries)
     except Exception as e:
         logger.warning(f"Advanced punctuation restoration failed: {e}")
         logger.info("Returning original text without punctuation restoration.")
         return text
 
 
-def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None) -> str:
+def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> str:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
     
@@ -1379,6 +1379,7 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom sentence endings and question word patterns
         whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
+        speaker_boundaries (list[int] | None): Optional character positions where speakers change
     
     Returns:
         str: Text with restored punctuation
@@ -1868,11 +1869,11 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     # Use a very low minimum (2 words) since speaker changes are definitive
     if speaker_word_boundaries and current_index in speaker_word_boundaries:
         min_words_speaker = 2  # Very low threshold for speaker changes
-        
+
         if len(current_chunk) >= min_words_speaker:
             current_word = words[current_index]
             next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
-            
+
             # Use consolidated grammatical check - don't break if it would violate grammar
             if not _violates_grammatical_rules(current_word, next_word, language):
                 # Speaker change suggests breaking here and it's grammatically valid
