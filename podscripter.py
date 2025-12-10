@@ -562,14 +562,16 @@ def _convert_speaker_timestamps_to_char_positions(
     for boundary_time in speaker_boundaries:
         best_segment = None
         min_distance = float('inf')
+        segment_idx = -1
         
-        for seg_info in segment_char_positions:
+        for idx, seg_info in enumerate(segment_char_positions):
             seg_start = seg_info['start']
             seg_end = seg_info['end']
             
             # Check if boundary falls within this segment
             if seg_start <= boundary_time <= seg_end:
                 best_segment = seg_info
+                segment_idx = idx
                 break
             
             # Otherwise, find the segment whose end is closest to (but not after) the boundary
@@ -579,12 +581,14 @@ def _convert_speaker_timestamps_to_char_positions(
                 if distance < min_distance:
                     min_distance = distance
                     best_segment = seg_info
+                    segment_idx = idx
         
         # If no segment ends before the boundary, use the first segment after it
         if best_segment is None:
-            for seg_info in segment_char_positions:
+            for idx, seg_info in enumerate(segment_char_positions):
                 if seg_info['start'] >= boundary_time:
                     best_segment = seg_info
+                    segment_idx = idx
                     break
         
         if best_segment:

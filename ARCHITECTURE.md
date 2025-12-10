@@ -272,10 +272,14 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
 2. Speaker boundaries (highest priority - break even for very short phrases, min 2 words)
 3. Whisper boundaries (medium priority - min 10 words)
+   - **Whisper boundary skipping**: If a speaker boundary is within the next 15 words, skip the Whisper boundary check to avoid splitting when the same speaker continues across Whisper segments
 4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
 5. Semantic coherence (fallback)
 
-**Critical implementation detail**: Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes.
+**Critical implementation details**: 
+- Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes
+- Whisper boundaries are skipped when a speaker boundary is nearby to prevent breaking when a speaker continues across acoustic pauses
+- Known limitation: Whisper-added periods at skipped boundaries may still cause unwanted sentence splits (see AGENT.md "Known Open Issues")
 
 **Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
 

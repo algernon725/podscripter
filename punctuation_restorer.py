@@ -1884,17 +1884,44 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     # Whisper boundaries represent acoustic pauses and are good splitting hints
     # Use a lower threshold than general splitting but higher than speaker changes
     if whisper_word_boundaries and current_index in whisper_word_boundaries:
-        min_words_whisper = thresholds.get('min_words_whisper_break', 10)
-        
-        if len(current_chunk) >= min_words_whisper:
-            current_word = words[current_index]
-            next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
+        # IMPORTANT: Skip this Whisper boundary if there's a speaker boundary coming up soon
+        # This prevents splitting when a speaker continues across Whisper segments
+        # Example: "ustedes." [Whisper boundary] "Mateo 712" [Speaker boundary] "Bueno..."
+        # We want to keep "ustedes Mateo 712" together since it's the same speaker
+        if speaker_word_boundaries:
+            # Check if there's a speaker boundary within the next 15 words
+            upcoming_speaker_boundary = any(
+                current_index < boundary_idx <= current_index + 15
+                for boundary_idx in speaker_word_boundaries
+            )
+            if upcoming_speaker_boundary:
+                # Skip this Whisper boundary and let the speaker boundary handle the split
+                pass
+            else:
+                min_words_whisper = thresholds.get('min_words_whisper_break', 10)
+                
+                if len(current_chunk) >= min_words_whisper:
+                    current_word = words[current_index]
+                    next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
+                    
+                    # Use consolidated grammatical check - don't break if it would violate grammar
+                    if not _violates_grammatical_rules(current_word, next_word, language):
+                        # Whisper suggests breaking here and it's grammatically valid
+                        return True
+                    # Otherwise, fall through to existing logic even though Whisper suggested a break
+        else:
+            # No speaker boundaries available, use Whisper boundary normally
+            min_words_whisper = thresholds.get('min_words_whisper_break', 10)
             
-            # Use consolidated grammatical check - don't break if it would violate grammar
-            if not _violates_grammatical_rules(current_word, next_word, language):
-                # Whisper suggests breaking here and it's grammatically valid
-                return True
-            # Otherwise, fall through to existing logic even though Whisper suggested a break
+            if len(current_chunk) >= min_words_whisper:
+                current_word = words[current_index]
+                next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
+                
+                # Use consolidated grammatical check - don't break if it would violate grammar
+                if not _violates_grammatical_rules(current_word, next_word, language):
+                    # Whisper suggests breaking here and it's grammatically valid
+                    return True
+                # Otherwise, fall through to existing logic even though Whisper suggested a break
     
     # PRIORITY 2: General minimum chunk length for semantic splitting
     # This only applies when there's no speaker/Whisper boundary hint
