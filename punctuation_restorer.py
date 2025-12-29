@@ -1340,7 +1340,7 @@ def _violates_grammatical_rules(current_word: str, next_word: str, language: str
     return False
 
 
-def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> str:
+def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[str] | None]:
     """
     Restore punctuation to transcribed text using advanced NLP techniques.
 
@@ -1351,50 +1351,57 @@ def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: lis
             Whisper segments end. These boundaries are used as hints for sentence breaks.
         speaker_boundaries (list[int] | None): Optional list of character positions where
             speakers change. These have highest priority for sentence breaks.
+        speaker_segments (list[dict] | None): Optional list of speaker segments with
+            'start_char', 'end_char', and 'speaker' fields. Used to detect when the
+            same speaker continues speaking.
 
     Returns:
-        str: Text with restored punctuation
+        tuple[str, list[str] | None]: A tuple of (processed_text, sentences_list).
+            - processed_text: Text with restored punctuation as a single string
+            - sentences_list: Optional pre-split list of sentences (used when speaker
+              segments are provided to preserve speaker-aware boundaries)
     """
     if not text.strip():
-        return text
+        return text, None
     
     # Clean up the text first
     text = re.sub(r'\s+', ' ', text.strip())
     
     # Use advanced punctuation restoration
     try:
-        return _advanced_punctuation_restoration(text, language, True, whisper_boundaries, speaker_boundaries)
+        return _advanced_punctuation_restoration(text, language, True, whisper_boundaries, speaker_boundaries, speaker_segments)
     except Exception as e:
         logger.warning(f"Advanced punctuation restoration failed: {e}")
         logger.info("Returning original text without punctuation restoration.")
-        return text
+        return text, None
 
 
-def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> str:
+def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[str] | None]:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
-    
+
     Args:
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom sentence endings and question word patterns
         whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
         speaker_boundaries (list[int] | None): Optional character positions where speakers change
-    
+        speaker_segments (list[dict] | None): Optional speaker segments with character ranges and labels
+
     Returns:
-        str: Text with restored punctuation
+        tuple[str, list[str] | None]: (processed_text, sentences_list)
     """
-    
+
     # Use SentenceTransformers for better sentence boundary detection
     if SENTENCE_TRANSFORMERS_AVAILABLE:
-        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_boundaries, speaker_boundaries)
+        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_boundaries, speaker_boundaries, speaker_segments)
     else:
         # Simple fallback: just clean up whitespace and add basic punctuation
         text = re.sub(r'\s+', ' ', text.strip())
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), None
 
 
-def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> str:
+def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[str] | None]:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
@@ -1404,6 +1411,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         use_custom_patterns (bool): Whether to use custom patterns
         whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
         speaker_boundaries (list[int] | None): Optional character positions of speaker changes
+        speaker_segments (list[dict] | None): Optional speaker segments with character ranges and labels
     
     Returns:
         str: Text with restored punctuation
@@ -1423,29 +1431,44 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     speaker_word_boundaries = None
     if speaker_boundaries:
         speaker_word_boundaries = _char_positions_to_word_indices(text, speaker_boundaries)
+    
+    # Convert speaker segments from character ranges to word ranges
+    speaker_word_segments = None
+    if speaker_segments:
+        speaker_word_segments = _convert_char_ranges_to_word_ranges(text, speaker_segments)
+        logger.debug(f"Converted {len(speaker_segments)} char ranges to {len(speaker_word_segments) if speaker_word_segments else 0} word ranges")
+        if speaker_word_segments and len(speaker_word_segments) > 0:
+            logger.debug(f"Sample word segments: first 3 = {speaker_word_segments[:3]}")
 
     # 1) Semantic split into sentences (token-based loop with _should_end_sentence_here)
-    sentences = _semantic_split_into_sentences(text, language, model, whisper_word_boundaries, speaker_word_boundaries)
-    # 2) Punctuate sentences and join
-    result = _punctuate_semantic_sentences(sentences, model, language)
+    sentences = _semantic_split_into_sentences(text, language, model, whisper_word_boundaries, speaker_word_boundaries, speaker_word_segments)
+    # 2) Punctuate each sentence individually (preserving boundaries from semantic split)
+    punctuated_sentences = []
+    for i, sent in enumerate(sentences):
+        if sent.strip():
+            punctuated = _apply_semantic_punctuation(sent, model, language, i, len(sentences))
+            punctuated_sentences.append(punctuated)
     
     # Apply Spanish-specific formatting
     if language == 'es':
-        # COMPREHENSIVE DOMAIN PROTECTION: Mask domains before ALL Spanish processing
-        result_with_protected_domains = mask_domains(result, use_exclusions=True, language=language)
-        # Domain-preserving sentence split and formatting is now handled by centralized masking
-        sentences_list, trailing_fragment = assemble_sentences_from_processed(result_with_protected_domains, 'es')
+        # CRITICAL: Use the punctuated sentences from semantic split directly
+        # Do NOT re-split by punctuation marks - that would ignore our speaker segment logic
+        sentences_list = punctuated_sentences
+        trailing_fragment = ""
         if trailing_fragment:
             cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
             cleaned = _should_add_terminal_punctuation(cleaned, language, PunctuationContext.TRAILING)
             if cleaned:
                 sentences_list.append(cleaned)
 
+        # CRITICAL: Format each sentence individually WITHOUT re-splitting by punctuation
+        # Re-splitting would undo our speaker segment logic
         formatted_sentences = []
         for s in sentences_list:
             sentence = (s or '').strip()
             if not sentence:
                 continue
+            
             # Capitalize first letter (but not for domains)
             if sentence and sentence[0].isalpha():
                 # Don't capitalize if this looks like a domain name
@@ -1465,29 +1488,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             else:
                 sentence = sentence.rstrip('.!?') + sentence[-1]
 
-            # Clean up duplicates
-            sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
-            sentence = re.sub(r'¿{2,}', '¿', sentence)
-            formatted_sentences.append(sentence)
-
-        result = ' '.join(formatted_sentences)
-        
-        # Add inverted question marks for questions (comprehensive approach)
-        # First, identify all sentences that end with question marks
-        # CRITICAL: Mask domains before splitting to prevent breaking them
-        result_masked_for_split = mask_domains(result, use_exclusions=True, language=language)
-        sentences = _split_sentences_preserving_delims(result_masked_for_split)
-        # Unmask domains in the split sentences
-        sentences = [re.sub(r"__DOT__", ".", s) for s in sentences]
-        for i in range(0, len(sentences), 2):
-            if i >= len(sentences):
-                break
-            sentence_text = sentences[i].strip()
-            punctuation = sentences[i + 1] if i + 1 < len(sentences) else ""
-            # If the sentence ends with a question mark, it should start with ¿
-            if punctuation == '?' and sentence_text and not sentence_text.startswith('¿'):
-                sentence_lower = sentence_text.lower()
-                # Question patterns that should have inverted question marks
+            # Add inverted question mark if needed (without re-splitting)
+            if sentence.endswith('?') and not sentence.startswith('¿'):
+                sentence_lower = sentence.lower()
                 question_patterns = [
                     r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
                     r'^(puedes|puede|podrías|podría|sabes|sabe|quieres|quiere|necesitas|necesita|tienes|tiene|vas|va|estás|están|pueden|quieren)',
@@ -1495,12 +1498,31 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                     r'^(estamos|están|listos|listas|listo|lista|bien|mal|correcto|incorrecto|verdad|cierto)'
                 ]
                 if any(re.search(pattern, sentence_lower) for pattern in question_patterns):
-                    # If leading is '¡', switch it to '¿'
-                    if sentence_text.startswith('¡'):
-                        sentence_text = sentence_text[1:].lstrip()
-                    sentences[i] = '¿' + sentence_text
-        result = ''.join(sentences)
+                    if sentence.startswith('¡'):
+                        sentence = sentence[1:].lstrip()
+                    sentence = '¿' + sentence
+            
+            # Clean up duplicates
+            sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
+            sentence = re.sub(r'¿{2,}', '¿', sentence)
+            formatted_sentences.append(sentence)
+
+        # Join sentences with proper spacing (no re-splitting!)
+        result = ' '.join(formatted_sentences)
         
+        # CRITICAL: When speaker segments are provided, skip all post-processing that would re-split
+        # Return the sentences list directly to preserve speaker-aware boundaries
+        if speaker_segments:
+            # Clean up double/mixed punctuation
+            result = _normalize_mixed_terminal_punctuation(result)
+            # Fix location appositive punctuation
+            result = _fix_location_appositive_punctuation(result, language)
+            # Final universal cleanup
+            result = _finalize_text_common(result)
+            # Return both the text AND the sentences list
+            return result, formatted_sentences
+        
+        # Original post-processing for non-diarization cases
         # Clean up double/mixed punctuation in one place
         result = _normalize_mixed_terminal_punctuation(result)
         
@@ -1757,13 +1779,17 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     result = _fix_location_appositive_punctuation(result, language)
     
     # Final universal cleanup
-    return _finalize_text_common(result)
+    result = _finalize_text_common(result)
+    
+    # Return tuple: (processed_text, sentences_list)
+    # sentences_list is None unless we used speaker segment logic above
+    return result, None
 
 
 from typing import List
 
 
-def _semantic_split_into_sentences(text: str, language: str, model, whisper_word_boundaries: set[int] | None = None, speaker_word_boundaries: set[int] | None = None) -> List[str]:
+def _semantic_split_into_sentences(text: str, language: str, model, whisper_word_boundaries: set[int] | None = None, speaker_word_boundaries: set[int] | None = None, speaker_word_segments: list[dict] | None = None) -> List[str]:
     """Split text into sentences using semantic boundary checks.
     
     Args:
@@ -1772,6 +1798,7 @@ def _semantic_split_into_sentences(text: str, language: str, model, whisper_word
         model: SentenceTransformer model
         whisper_word_boundaries: Optional set of word indices where Whisper segments end
         speaker_word_boundaries: Optional set of word indices where speakers change
+        speaker_word_segments: Optional list of speaker segments with word ranges and labels
     
     Returns:
         List of raw sentences (without per-language post-formatting).
@@ -1790,7 +1817,15 @@ def _semantic_split_into_sentences(text: str, language: str, model, whisper_word
     current_chunk: List[str] = []
     for i, word in enumerate(words):
         current_chunk.append(word)
-        if _should_end_sentence_here(words, i, current_chunk, model, language, whisper_word_boundaries, speaker_word_boundaries):
+        should_end = _should_end_sentence_here(words, i, current_chunk, model, language, whisper_word_boundaries, speaker_word_boundaries, speaker_word_segments)
+        
+        # DEBUG: Log sentence endings around connectors
+        if i + 1 < len(words):
+            next_word_clean = words[i + 1].lower().strip('.,;:!?¿¡')
+            if next_word_clean in {'y', 'e', 'o', 'u', 'and', 'but', 'or', 'et', 'ou', 'mais', 'und', 'oder', 'aber'}:
+                logger.debug(f"SENTENCE END CHECK: word {i} ('{word}'), next='{words[i + 1]}', connector='{next_word_clean}', should_end={should_end}, chunk_len={len(current_chunk)}")
+        
+        if should_end:
             sentence_text = ' '.join(current_chunk).strip()
             if sentence_text:
                 # Unmask domains before adding to sentences using centralized function
@@ -1829,7 +1864,117 @@ def _punctuate_semantic_sentences(sentences: List[str], model, language: str) ->
     return out
 
 
-def _should_end_sentence_here(words: List[str], current_index: int, current_chunk: List[str], model, language: str, whisper_word_boundaries: set[int] | None = None, speaker_word_boundaries: set[int] | None = None) -> bool:
+def _convert_char_ranges_to_word_ranges(text: str, char_ranges: list[dict]) -> list[dict]:
+    """
+    Convert character-based speaker segments to word-based segments.
+    
+    Args:
+        text: The full text
+        char_ranges: List of dicts with 'start_char', 'end_char', 'speaker' fields
+    
+    Returns:
+        List of dicts with 'start_word', 'end_word', 'speaker' fields
+    """
+    if not char_ranges:
+        return []
+    
+    words = text.split()
+    word_ranges = []
+    
+    # Build a mapping of character positions to word indices by scanning through the text
+    # This correctly handles any whitespace (spaces, newlines, tabs) between words
+    char_to_word = {}
+    word_idx = 0
+    in_word = False
+    current_word_start = 0
+    accumulated_word = ""
+    
+    for char_pos, char in enumerate(text):
+        if char.isspace():
+            if in_word:
+                # Just finished a word - map all its characters
+                for i in range(current_word_start, char_pos):
+                    char_to_word[i] = word_idx
+                # Also map this whitespace character to the word we just finished
+                char_to_word[char_pos] = word_idx
+                word_idx += 1
+                in_word = False
+                accumulated_word = ""
+        else:
+            if not in_word:
+                # Starting a new word
+                current_word_start = char_pos
+                in_word = True
+            accumulated_word += char
+    
+    # Handle the last word if text doesn't end with whitespace
+    if in_word:
+        for i in range(current_word_start, len(text)):
+            char_to_word[i] = word_idx
+    
+    logger.debug(f"Built char_to_word mapping: text_len={len(text)}, num_words={len(words)}, char_map_size={len(char_to_word)}")
+    
+    # Convert each character range to word range
+    for idx, char_range in enumerate(char_ranges):
+        start_char = char_range['start_char']
+        end_char = char_range['end_char']
+        speaker = char_range['speaker']
+        
+        # Find the word index for start and end positions
+        start_word = char_to_word.get(start_char)
+        end_word = char_to_word.get(end_char - 1) if end_char > 0 else None
+        
+        # If we couldn't find exact mappings, find the closest words
+        if start_word is None:
+            # Find the first word at or after this position
+            start_word = 0
+            for char_pos in range(start_char, len(text)):
+                if char_pos in char_to_word:
+                    start_word = char_to_word[char_pos]
+                    break
+        
+        if end_word is None:
+            # Find the last word at or before this position
+            end_word = len(words) - 1
+            for char_pos in range(min(end_char - 1, len(text) - 1), -1, -1):
+                if char_pos in char_to_word:
+                    end_word = char_to_word[char_pos]
+                    break
+        
+        logger.debug(f"Char range {idx}: chars [{start_char}:{end_char}] → words [{start_word}:{end_word}] speaker={speaker}")
+        
+        if start_word is not None and end_word is not None:
+            word_ranges.append({
+                'start_word': start_word,
+                'end_word': end_word,
+                'speaker': speaker
+            })
+    
+    return word_ranges
+
+
+def _get_speaker_at_word(word_index: int, speaker_segments: list[dict] | None) -> str | None:
+    """
+    Get the speaker label at a given word position.
+    
+    Args:
+        word_index: The word index to check
+        speaker_segments: List of speaker segments with 'start_word', 'end_word', 'speaker' fields
+    
+    Returns:
+        Speaker label if found, None otherwise
+    """
+    if not speaker_segments:
+        return None
+    
+    for segment in speaker_segments:
+        if segment['start_word'] <= word_index <= segment['end_word']:
+            return segment['speaker']
+    
+    return None
+
+
+def _should_end_sentence_here(words: List[str], current_index: int, current_chunk: List[str], model, language: str, whisper_word_boundaries: set[int] | None = None, speaker_word_boundaries: set[int] | None = None, speaker_word_segments: list[dict] | None = None) -> bool:
     """
     Determine if a sentence should end at the current position using semantic coherence.
     
@@ -1841,6 +1986,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
         language (str): Language code
         whisper_word_boundaries (set[int] | None): Optional set of word indices where Whisper segments end
         speaker_word_boundaries (set[int] | None): Optional set of word indices where speakers change
+        speaker_word_segments (list[dict] | None): Optional list of speaker segments with word ranges
     
     Returns:
         bool: True if sentence should end here
@@ -1876,14 +2022,31 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
 
             # Use consolidated grammatical check - don't break if it would violate grammar
             if not _violates_grammatical_rules(current_word, next_word, language):
-                # Speaker change suggests breaking here and it's grammatically valid
-                return True
+                # Additional check: don't break if next word is a connector word
+                # When same speaker continues, sentences starting with connectors like "Y", "and", "et", "und"
+                # indicate continuation of the same thought and should not be split
+                next_word_clean = next_word.lower().strip('.,;:!?¿¡')
+                
+                # Connector words that should not start a new sentence when same speaker continues
+                connector_words = {
+                    'y', 'e', 'o', 'u',  # Spanish: and, and (before i-), or, or (before o-)
+                    'and', 'but', 'or',  # English: and, but, or
+                    'et', 'ou', 'mais',  # French: and, or, but
+                    'und', 'oder', 'aber',  # German: and, or, but
+                }
+                
+                if next_word_clean not in connector_words:
+                    # Speaker change suggests breaking here and it's grammatically valid
+                    # AND next sentence doesn't start with a connector word
+                    return True
+                # Otherwise, fall through - don't break because next word is a connector
             # Otherwise, fall through to Whisper check or existing logic
     
     # Check if we're at a Whisper segment boundary (MEDIUM-HIGH PRIORITY)
     # Whisper boundaries represent acoustic pauses and are good splitting hints
     # Use a lower threshold than general splitting but higher than speaker changes
     if whisper_word_boundaries and current_index in whisper_word_boundaries:
+        logger.debug(f"At Whisper boundary: word {current_index}, has_speaker_word_boundaries={speaker_word_boundaries is not None}, has_speaker_segments={speaker_word_segments is not None}")
         # IMPORTANT: Skip this Whisper boundary if there's a speaker boundary coming up soon
         # This prevents splitting when a speaker continues across Whisper segments
         # Example: "ustedes." [Whisper boundary] "Mateo 712" [Speaker boundary] "Bueno..."
@@ -1906,8 +2069,39 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
                     
                     # Use consolidated grammatical check - don't break if it would violate grammar
                     if not _violates_grammatical_rules(current_word, next_word, language):
-                        # Whisper suggests breaking here and it's grammatically valid
-                        return True
+                        # Additional check: don't break if next word is a connector and same speaker continues
+                        # When diarization shows the same speaker is speaking, connector words like
+                        # "Y", "and", "et", "und" indicate continuation of the same thought
+                        next_word_clean = next_word.lower().strip('.,;:!?¿¡')
+                        
+                        # Connector words that should not start a new sentence when same speaker continues
+                        connector_words = {
+                            'y', 'e', 'o', 'u',  # Spanish: and, and (before i-), or, or (before o-)
+                            'and', 'but', 'or',  # English: and, but, or
+                            'et', 'ou', 'mais',  # French: and, or, but
+                            'und', 'oder', 'aber',  # German: and, or, but
+                        }
+                        
+                        # If next word is a connector, check if we're still with the same speaker
+                        if next_word_clean in connector_words:
+                            # Check if speaker continues
+                            current_speaker = _get_speaker_at_word(current_index, speaker_word_segments)
+                            next_speaker = _get_speaker_at_word(current_index + 1, speaker_word_segments)
+                            
+                            # DEBUG logging - ALWAYS log for connector words
+                            logger.debug(f"CONNECTOR: Whisper boundary at word {current_index} ('{words[current_index]}'), next='{next_word}', connector='{next_word_clean}', curr_spk={current_speaker}, next_spk={next_speaker}, has_segs={speaker_word_segments is not None and len(speaker_word_segments) > 0 if speaker_word_segments else False}")
+                            
+                            if current_speaker == next_speaker and current_speaker is not None:
+                                # Same speaker continues with a connector - don't break
+                                logger.debug(f"  → PREVENTING BREAK: same speaker {current_speaker} continues with connector '{next_word_clean}'")
+                                return False  # CRITICAL: Must return False, not pass!
+                            else:
+                                # Different speakers or no speaker info - allow break
+                                logger.info(f"  → ALLOWING BREAK: speakers differ or no info (curr={current_speaker}, next={next_speaker})")
+                                return True
+                        else:
+                            # Not a connector word - allow break
+                            return True
                     # Otherwise, fall through to existing logic even though Whisper suggested a break
         else:
             # No speaker boundaries available, use Whisper boundary normally
@@ -1919,8 +2113,34 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
                 
                 # Use consolidated grammatical check - don't break if it would violate grammar
                 if not _violates_grammatical_rules(current_word, next_word, language):
-                    # Whisper suggests breaking here and it's grammatically valid
-                    return True
+                    # Additional check: don't break if next word is a connector and same speaker continues
+                    # When diarization shows the same speaker is speaking, connector words like
+                    # "Y", "and", "et", "und" indicate continuation of the same thought
+                    next_word_clean = next_word.lower().strip('.,;:!?¿¡')
+                    
+                    # Connector words that should not start a new sentence when same speaker continues
+                    connector_words = {
+                        'y', 'e', 'o', 'u',  # Spanish: and, and (before i-), or, or (before o-)
+                        'and', 'but', 'or',  # English: and, but, or
+                        'et', 'ou', 'mais',  # French: and, or, but
+                        'und', 'oder', 'aber',  # German: and, or, but
+                    }
+                    
+                    # If next word is a connector, check if we're still with the same speaker
+                    if next_word_clean in connector_words:
+                        # Check if speaker continues
+                        current_speaker = _get_speaker_at_word(current_index, speaker_word_segments)
+                        next_speaker = _get_speaker_at_word(current_index + 1, speaker_word_segments)
+
+                        if current_speaker == next_speaker and current_speaker is not None:
+                            # Same speaker continues with a connector - don't break
+                            return False  # CRITICAL: Must return False, not pass!
+                        else:
+                            # Different speakers or no speaker info - allow break
+                            return True
+                    else:
+                        # Not a connector word - allow break
+                        return True
                 # Otherwise, fall through to existing logic even though Whisper suggested a break
     
     # PRIORITY 2: General minimum chunk length for semantic splitting
@@ -2190,6 +2410,31 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     
     # Use semantic coherence to determine if chunks should be separated
     if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):  # conservative semantic split
+        # CRITICAL: Check if next word is a connector AND same speaker continues
+        # This prevents semantic splitting when the same speaker uses connectors
+        if next_word:
+            next_word_clean = next_word.lower().strip('.,;:!?¿¡')
+            connector_words = {
+                'y', 'e', 'o', 'u',  # Spanish: and, and (before i-), or, or (before o-)
+                'and', 'but', 'or',  # English: and, but, or
+                'et', 'ou', 'mais',  # French: and, or, but
+                'und', 'oder', 'aber',  # German: and, or, but
+            }
+            
+            if next_word_clean in connector_words and speaker_word_segments:
+                # Check if speaker continues
+                current_speaker = _get_speaker_at_word(current_index, speaker_word_segments)
+                next_speaker = _get_speaker_at_word(current_index + 1, speaker_word_segments)
+                
+                logger.info(f"CONNECTOR (SEMANTIC): word {current_index} ('{words[current_index]}'), next='{next_word}', connector='{next_word_clean}', curr_spk={current_speaker}, next_spk={next_speaker}")
+                
+                if current_speaker == next_speaker and current_speaker is not None:
+                    # Same speaker continues with a connector - don't break
+                    logger.info(f"  → PREVENTING SEMANTIC BREAK: same speaker {current_speaker} continues with connector '{next_word_clean}'")
+                    return False
+                else:
+                    logger.info(f"  → Allowing semantic break: speakers differ or no info (curr={current_speaker}, next={next_speaker})")
+        
         # If the next token is a lowercase continuation or preposition, do not break
         if next_word and next_word and next_word[0].islower():
             if next_word.lower() in ['y', 'o', 'pero', 'que', 'de', 'en', 'para', 'con', 'por', 'sin', 'sobre']:

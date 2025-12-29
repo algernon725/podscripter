@@ -69,7 +69,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `--no-vad` (disable VAD filtering; default is enabled)
   - `--vad-speech-pad-ms <int>` (padding in ms when VAD is enabled; default 200)
   - `--dump-raw` (also write raw Whisper output for debugging to `<basename>_raw.txt` in `--output_dir`)
-  - `--quiet`/`--verbose` (default `--verbose`)
+  - `--quiet`/`--verbose`/`--debug` (mutually exclusive; default `--verbose`)
+    - `--debug` shows detailed sentence splitting decisions including speaker segment tracking
 ```
 
 ## Coding Style & Standards
@@ -97,12 +98,15 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### Logging
 - Use a single logger named `podscripter` configured in `podscripter.py`
-- Levels are controlled by CLI flags:
-  - `--quiet` → ERROR
-  - default (no flag) → INFO
-  - `--verbose` → INFO plus selective detail; avoid debug noise in punctuation helpers
-- Replace ad-hoc prints with `logger.info/warning/error`
-- Keep `punctuation_restorer.py` free of optional debug output
+- Levels are controlled by CLI flags (mutually exclusive):
+  - `--quiet` → ERROR (minimal output)
+  - `--verbose` → INFO (default; informative lifecycle logs)
+  - `--debug` → DEBUG (detailed sentence splitting decisions, speaker tracking, connector word evaluations)
+- Debug messages use `logger.debug()` and include:
+  - Speaker segment conversions (boundaries → chars → words)
+  - Connector word evaluations with speaker continuity checks
+  - Sentence ending decisions at every potential boundary
+- Replace ad-hoc prints with `logger.info/warning/error/debug`
 - SRT path logs a normalization summary (trimmed cues, max/total seconds) when writing subtitles
 
 ## Project-Specific Rules
@@ -337,6 +341,43 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: `test_speaker_boundary_conversion.py`
 
+#### Connector Word with Diarization Bug (Fixed - v0.3.1)
+**Problem**: When using speaker diarization (`--enable-diarization`), sentences were incorrectly starting with coordinating conjunctions ("Y", "O", "and", "et", "und") even when the same speaker was continuing their speech.
+- Spanish example: `"Yo soy Andrea de Santander, Colombia."` | `"Y yo soy Nate de Texas, Estados Unidos."` (incorrect - same speaker continues)
+- Should be: `"Yo soy Andrea de Santander, Colombia. Y yo soy Nate de Texas, Estados Unidos."` (correct)
+- English example: `"I live in Texas."` | `"And I work remotely."` → should be one sentence when same speaker
+- Only occurred when `--enable-diarization` was enabled; non-diarization mode was unaffected
+- Affected ALL supported languages (ES/EN/FR/DE) when diarization was enabled
+
+**Root Causes**: Multiple compounding issues were discovered during debugging:
+1. **Primary**: `_should_end_sentence_here()` checked if next word was a connector but didn't verify speaker continuity. It correctly prevented breaks at connectors in general, but didn't account for the special case where the same speaker continues with "Y" after a Whisper segment boundary.
+2. **Secondary - Re-splitting bug #1**: Spanish post-processing in `_transformer_based_restoration()` called `_split_sentences_preserving_delims()` to add inverted question marks, which re-split text by punctuation marks and undid the speaker-aware semantic boundaries.
+3. **Secondary - Re-splitting bug #2**: `podscripter.py` called `assemble_sentences_from_processed()` after `restore_punctuation()` returned, which re-split the carefully merged text by punctuation marks.
+4. **Secondary - Re-splitting bug #3**: `_write_txt()` function re-split each sentence by punctuation marks before writing to file, undoing all previous work.
+
+**Solution**: Multi-layered fix addressing all issues:
+1. **Enhanced speaker tracking**: 
+   - Added `_convert_speaker_segments_to_char_ranges()` to convert time-based speaker data to character positions
+   - Added `_convert_char_ranges_to_word_ranges()` to convert character positions to word indices
+   - Added `_get_speaker_at_word()` to query speaker at any word position
+   - Modified `_should_end_sentence_here()` to check: when next word is a connector AND current_speaker == next_speaker, return `False` to prevent break
+2. **Fixed re-splitting #1 (Spanish post-processing)**: 
+   - When speaker segments are provided, format each sentence individually for question marks
+   - Skip the `_split_sentences_preserving_delims()` call that was re-splitting the text
+   - Return pre-split sentences list directly
+3. **Fixed re-splitting #2 (restore_punctuation)**: 
+   - Changed `restore_punctuation()` return signature to tuple: `(processed_text, sentences_list)`
+   - When speaker segments used: return pre-split sentences that bypass `assemble_sentences_from_processed()`
+   - Updated `podscripter.py` to use pre-split sentences when available
+4. **Fixed re-splitting #3 (_write_txt)**: 
+   - Added `skip_resplit` parameter to `_write_txt()`
+   - When True, write sentences as-is without final punctuation-based splitting
+   - Set `skip_resplit=True` when speaker segments were used
+
+**Key insight**: The bug revealed that sentence splitting was happening in **three separate places** in the pipeline, making it extremely difficult to debug and maintain speaker-aware boundaries. Each re-splitting step was undoing the careful work of the semantic splitter.
+
+**Tests**: Verified with Episodio212.mp3 (33-minute Spanish podcast with 3 speakers, 86 speaker changes). Result: Zero sentences starting with connector words. All 34+ connector word boundaries correctly merged when same speaker continues.
+
 ### 5. Known Open Issues / Work In Progress
 
 #### Person Initials Normalization (WIP - Partial)
@@ -402,6 +443,118 @@ The punctuation restoration pipeline has multiple phases. Whisper's periods are 
 **Impact**: This is an edge case that primarily affects very short segments (< 3 words) that precede speaker changes. Most transcriptions work correctly.
 
 **Workaround**: For critical transcriptions, manually review and merge sentences where short phrases like Bible verse references are split from their context.
+
+## Future Refactoring Plans
+
+### Sentence Splitting Consolidation (High Priority)
+
+**Problem Identified**: Working on the connector word bug revealed that sentence splitting logic is scattered across multiple locations in the codebase:
+
+1. **`_semantic_split_into_sentences()`** in `punctuation_restorer.py` (~line 1775)
+   - Primary semantic splitter using transformer embeddings
+   - Calls `_should_end_sentence_here()` for boundary decisions
+   - Respects Whisper boundaries, speaker boundaries, grammatical guards
+
+2. **Spanish post-processing in `_transformer_based_restoration()`** (~line 1464-1595)
+   - Re-splits for inverted question mark insertion
+   - Was calling `_split_sentences_preserving_delims()` 
+   - Now bypassed when speaker segments used, but still runs for non-diarization
+
+3. **`assemble_sentences_from_processed()`** in `punctuation_restorer.py` (~line 656)
+   - Splits by punctuation marks: `[.!?]+`
+   - Handles ellipsis continuation for ES/FR
+   - Performs domain-aware splitting
+   - Called by `podscripter.py` after `restore_punctuation()` returns
+
+4. **`_write_txt()` in `podscripter.py`** (~line 276)
+   - Final splitting before file output
+   - Protects location appositives and number lists
+   - Re-splits by: `(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])`
+   - Now accepts `skip_resplit` flag but still runs for non-diarization
+
+**Impact**: 
+- **Maintainability**: Bug fixes require changes in multiple places
+- **Debuggability**: Difficult to trace why a sentence was split
+- **Feature additions**: Adding new split logic requires coordinating across 4+ locations
+- **Test complexity**: Must test splitting behavior at multiple pipeline stages
+
+**Recommended Refactor**:
+
+**Phase 1: Consolidate Splitting Logic** (Breaking change - v0.4.0)
+1. Create single `SentenceSplitter` class in new file `sentence_splitter.py`:
+   ```python
+   class SentenceSplitter:
+       def __init__(self, language, model, config):
+           self.language = language
+           self.model = model
+           self.config = config
+       
+       def split(self, text, whisper_boundaries, speaker_segments, mode='semantic'):
+           """Single entry point for all sentence splitting"""
+           # Consolidate all splitting logic here
+           pass
+   ```
+
+2. Modes to support:
+   - `semantic`: Use transformer embeddings (current `_semantic_split_into_sentences`)
+   - `punctuation`: Split by punctuation marks (current `assemble_sentences_from_processed`)
+   - `hybrid`: Semantic + punctuation validation
+   - `preserve`: Use pre-split sentences (current speaker segment path)
+
+3. Move all splitting logic into `SentenceSplitter`:
+   - `_should_end_sentence_here()` → `SentenceSplitter._evaluate_boundary()`
+   - Grammatical guards → `SentenceSplitter._check_grammatical_validity()`
+   - Speaker/Whisper boundary handling → `SentenceSplitter._process_boundaries()`
+   - Language-specific rules → `SentenceSplitter._apply_language_rules()`
+
+4. Replace all call sites with single `splitter.split()` call:
+   - `restore_punctuation()` calls `splitter.split()` once
+   - Remove splitting from Spanish post-processing
+   - Remove `assemble_sentences_from_processed()` splitting (keep only domain/ellipsis logic)
+   - Remove `_write_txt()` splitting (keep only domain protection)
+
+**Phase 2: Unify Return Values** (v0.4.1)
+1. Have `restore_punctuation()` always return `(text, sentences_list)` tuple
+2. Make `sentences_list` always populated (never None)
+3. Remove conditional re-splitting paths in `podscripter.py`
+4. Simplify `_write_txt()` to just format and write pre-split sentences
+
+**Phase 3: Add Split Provenance** (v0.4.2)
+1. Add metadata to track why each sentence was split:
+   ```python
+   @dataclass
+   class Sentence:
+       text: str
+       split_reason: str  # 'speaker_change', 'whisper_boundary', 'semantic', 'punctuation'
+       confidence: float
+       start_word: int
+       end_word: int
+       speaker: Optional[str]
+   ```
+
+2. Enable debugging: `--dump-sentences` flag to write split provenance
+3. Improve testing: Assert on split reasons, not just final output
+
+**Benefits**:
+- **Easier debugging**: Single place to add logging and debug
+- **Better testing**: Test splitting logic in isolation
+- **Cleaner code**: Remove duplicated split patterns
+- **Future-proof**: Easy to add new splitting strategies
+- **Provenance**: Understand why each split was made
+
+**Migration Strategy**:
+- v0.4.0: Breaking change (major refactor)
+- Provide migration guide for anyone extending the code
+- Keep comprehensive tests to verify behavior unchanged
+- Add deprecation warnings in v0.3.x for functions that will move
+
+**Estimated Effort**: 
+- Phase 1: ~40 hours (major refactor, testing across languages)
+- Phase 2: ~8 hours (cleanup and simplification)
+- Phase 3: ~12 hours (metadata and debugging features)
+- **Total**: ~60 hours for complete refactor
+
+**Priority**: High - This refactor would significantly improve maintainability and make future features (like custom split rules, ML-based boundary detection) much easier to implement.
 
 ## Documentation Standards
 

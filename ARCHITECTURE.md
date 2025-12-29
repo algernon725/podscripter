@@ -182,7 +182,8 @@ flowchart TD
   - `--max-speakers <int>` (maximum number of speakers for diarization; default auto-detect)
   - `--hf-token <str>` (Hugging Face token for pyannote model access; required for first download)
   - `--dump-diarization` (write diarization debug dump to `<basename>_diarization.txt`; requires `--enable-diarization`)
-  - `--quiet`/`--verbose` (default verbose)
+  - `--quiet`/`--verbose`/`--debug` (mutually exclusive; default verbose)
+    - `--debug` shows detailed sentence splitting decisions and speaker segment tracking
 
 ## Operations
 
@@ -203,7 +204,10 @@ flowchart TD
   - Conservative fallbacks when ST/spaCy unavailable
   - Typed exceptions surfaced from the orchestrator and mapped to exit codes:
     - `InvalidInputError` (2), `ModelLoadError` (3), `TranscriptionError` (4), `OutputWriteError` (5), unexpected (1)
-  - Logging via a single `podscripter` logger; `--quiet` sets ERROR level; default INFO; `--verbose` retains informative lifecycle logs without debug output from punctuation internals
+  - Logging via a single `podscripter` logger; three levels:
+    - `--quiet` → ERROR (minimal)
+    - `--verbose` → INFO (default; lifecycle logs)
+    - `--debug` → DEBUG (detailed sentence splitting, speaker tracking, connector evaluations)
 
 ## Performance characteristics
 
@@ -235,6 +239,7 @@ flowchart TD
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
 - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
 - **WIP**: Person initials (e.g., "C.S. Lewis", "J.K. Rowling") in non-English transcriptions may still split into separate sentences. Infrastructure is in place (`_normalize_initials_and_acronyms()`) but requires additional masking to protect initials through spaCy processing. See AGENT.md "Known Open Issues" for details.
+- **Technical debt**: Sentence splitting logic is scattered across 4+ locations in the codebase (semantic splitter, Spanish post-processing, `assemble_sentences_from_processed`, `_write_txt`). This makes debugging and maintenance difficult. A refactoring plan to consolidate all splitting logic into a single `SentenceSplitter` class is documented in AGENT.md "Future Refactoring Plans". Current workaround uses bypass flags and pre-split sentence lists for speaker diarization mode.
 
 ## Recent architectural improvements
 
@@ -266,15 +271,25 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 
 **Library**: pyannote.audio 3.3.2
 
-**Integration**: Speaker boundaries are passed separately (not merged) to `restore_punctuation()` to enable different minimum word thresholds.
+**Integration**: Full speaker segment information (with labels and ranges) is threaded through the entire punctuation pipeline to enable speaker-aware sentence splitting.
+
+**Speaker Segment Tracking** (v0.3.1):
+- **Full speaker context**: Instead of just boundary timestamps, entire speaker segments (with labels and ranges) are tracked
+- **Conversion pipeline**:
+  1. `_convert_speaker_segments_to_char_ranges()`: Time-based segments → character positions in text
+  2. `_convert_char_ranges_to_word_ranges()`: Character positions → word indices
+  3. `_get_speaker_at_word()`: Query speaker label at any word position
+- **Connector word handling**: When a sentence would start with a connector word ("Y", "O", "and", "et", "und"), check if the same speaker is continuing. If yes, merge into previous sentence. If no (different speaker), allow the break.
+- **Example**: `"...Colombia. Y yo soy..."` stays together if same speaker, splits if different speaker starting with "Y"
 
 **Priority hierarchy** (in `_should_end_sentence_here`):
 1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
-2. Speaker boundaries (highest priority - break even for very short phrases, min 2 words)
-3. Whisper boundaries (medium priority - min 10 words)
+2. **Speaker continuity check (NEW)**: At connector words, prevent break if same speaker continues
+3. Speaker boundaries (highest priority - break even for very short phrases, min 2 words)
+4. Whisper boundaries (medium priority - min 10 words)
    - **Whisper boundary skipping**: If a speaker boundary is within the next 15 words, skip the Whisper boundary check to avoid splitting when the same speaker continues across Whisper segments
-4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
-5. Semantic coherence (fallback)
+5. General min_chunk_before_split check (20 words for Spanish, 15 for others)
+6. Semantic coherence (fallback)
 
 **Critical implementation details**: 
 - Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes
@@ -300,7 +315,9 @@ Threading through pipeline:
 - Timestamps converted to character positions via `_convert_speaker_timestamps_to_char_positions(...)` in `_assemble_sentences(...)`
 - Passed SEPARATELY to `restore_punctuation(..., whisper_boundaries=..., speaker_boundaries=...)`
 - Converted to word indices in `_transformer_based_restoration()`
-- Checked with low threshold (2 words) in `_should_end_sentence_here(..., speaker_word_boundaries=...)`
+- Full speaker segments converted to word ranges and passed as `speaker_word_segments` parameter
+- Checked with low threshold (2 words) in `_should_end_sentence_here(..., speaker_word_boundaries=..., speaker_word_segments=...)`
+- Used for connector word continuity checks: "Is the same speaker continuing with 'Y'?"
 
 Configuration:
 - `DEFAULT_DIARIZATION_DEVICE = "cpu"` (can use GPU if available)
@@ -316,6 +333,15 @@ Debugging:
   - Whisper segment boundaries (for comparison)
   - Merged boundaries with source labels (speaker/whisper)
 - Helps troubleshoot why specific speaker changes did not cause sentence breaks
+
+**Sentence Re-splitting Protection** (v0.3.1):
+- **Problem**: Sentence splitting was happening in three separate places, causing speaker-aware boundaries to be overridden
+- **Solution**: When speaker segments are used:
+  1. `restore_punctuation()` returns tuple `(text, sentences_list)` with pre-split sentences
+  2. Spanish post-processing bypasses `_split_sentences_preserving_delims()` and returns pre-split list
+  3. `podscripter.py` uses pre-split sentences, skipping `assemble_sentences_from_processed()`
+  4. `_write_txt()` accepts `skip_resplit=True` to write sentences without final splitting
+- **Result**: Speaker-aware sentence boundaries are preserved through entire pipeline to file output
 
 ## Key files
 

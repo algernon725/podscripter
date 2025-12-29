@@ -273,7 +273,7 @@ def _split_audio_with_overlap(media_file: str, chunk_length_sec: int = DEFAULT_C
             break
     return chunk_infos
 
-def _write_txt(sentences, output_file, language: str | None = None):
+def _write_txt(sentences, output_file, language: str | None = None, skip_resplit: bool = False):
     with open(output_file, "w") as f:
         for sentence in sentences:
             s = (sentence or "").strip()
@@ -331,15 +331,24 @@ def _write_txt(sentences, output_file, language: str | None = None):
             number_list_pattern = r'(\d+(?:,\s*\d+)+(?:,?\s+(?:y|o|and|or|et|ou|und|oder))\s+\d+)\.\s+([A-ZÁÉÍÓÚÑ¿¡])'
             s_protected = re.sub(number_list_pattern, r'\1__NUMBER_LIST_DOT__\2', s_protected, flags=re.IGNORECASE)
             
-            parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
-            # Restore the protected periods
-            parts = [p.replace('__LOCATION_DOT__', '. ').replace('__NUMBER_LIST_DOT__', '. ') for p in parts]
-            for p in parts:
-                p = (p or "").strip()
-                if p:
-                    # Unmask domains before writing
-                    p = unmask_domains(p)
-                    f.write(f"{p}\n\n")
+            # CRITICAL: Skip re-splitting when speaker segments were used to create sentences
+            # Re-splitting would undo the speaker-aware sentence boundaries
+            if skip_resplit:
+                # Write sentence as-is, without re-splitting
+                s = (s or "").strip()
+                if s:
+                    f.write(f"{s}\n\n")
+            else:
+                # Original behavior: split by punctuation marks
+                parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
+                # Restore the protected periods
+                parts = [p.replace('__LOCATION_DOT__', '. ').replace('__NUMBER_LIST_DOT__', '. ') for p in parts]
+                for p in parts:
+                    p = (p or "").strip()
+                    if p:
+                        # Unmask domains before writing
+                        p = unmask_domains(p)
+                        f.write(f"{p}\n\n")
 
 def _write_srt(segments, output_file):
     def format_timestamp(seconds):
@@ -605,7 +614,119 @@ def _convert_speaker_timestamps_to_char_positions(
     return unique_positions
 
 
-def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None) -> list[str]:
+def _convert_speaker_segments_to_char_ranges(
+    speaker_segments: list[dict],
+    whisper_segments: list[dict],
+    text: str
+) -> list[dict]:
+    """
+    Convert speaker segments (with start/end times and speaker labels) to character ranges.
+    
+    Speaker diarization returns segments with time ranges and speaker labels.
+    To use this for sentence splitting, we need to map these to character positions
+    in the concatenated text.
+    
+    Args:
+        speaker_segments: List of speaker segment dicts with 'start', 'end', 'speaker' fields
+        whisper_segments: List of Whisper segment dicts with 'start', 'end', 'text' fields
+        text: The full concatenated text from all segments
+        
+    Returns:
+        List of dicts with:
+        - start_char: character position where speaker segment starts
+        - end_char: character position where speaker segment ends
+        - speaker: speaker label
+    """
+    if not speaker_segments or not whisper_segments:
+        return []
+    
+    # Build a mapping of Whisper segments to character positions
+    # This mirrors the logic in _convert_speaker_timestamps_to_char_positions
+    whisper_char_positions = []
+    position = 0
+    for idx, seg in enumerate(whisper_segments):
+        seg_text = seg.get('text', '').strip()
+        if not seg_text:
+            continue
+        char_start = position
+        position += len(seg_text)
+        whisper_char_positions.append({
+            'start': seg.get('start', 0),
+            'end': seg.get('end', 0),
+            'char_start': char_start,
+            'char_end': position,
+            'text': seg_text,
+            'whisper_idx': idx
+        })
+        position += 1  # Account for separator (space or newline)
+    
+    if not whisper_char_positions:
+        return []
+    
+    logger.debug(f"Built {len(whisper_char_positions)} Whisper char positions, total text length: {position}")
+    
+    # Sort speaker segments by duration (longest first) to handle overlaps
+    # When segments overlap, we prefer the longer segment as it's more reliable
+    sorted_speaker_segs = sorted(
+        speaker_segments,
+        key=lambda s: (s.get('end', 0) - s.get('start', 0)),
+        reverse=True
+    )
+    
+    # Track which character ranges have been assigned to avoid conflicts from overlapping segments
+    assigned_chars = set()
+    
+    # For each speaker segment (longest first), map it to character positions
+    speaker_char_ranges = []
+    for spk_idx, spk_seg in enumerate(sorted_speaker_segs):
+        spk_start_time = spk_seg.get('start', 0)
+        spk_end_time = spk_seg.get('end', 0)
+        spk_label = spk_seg.get('speaker', 'UNKNOWN')
+        spk_duration = spk_end_time - spk_start_time
+        
+        # Skip very short segments that might be noise or overlap artifacts
+        if spk_duration < 1.5:  # Less than 1.5 seconds - likely noise
+            logger.debug(f"Skipping short speaker segment {spk_idx} ({spk_label}): duration {spk_duration:.2f}s")
+            continue
+        
+        # Find the Whisper segments that overlap with this speaker segment
+        overlapping_whisper = []
+        for whisp_info in whisper_char_positions:
+            whisp_start = whisp_info['start']
+            whisp_end = whisp_info['end']
+            
+            # Check if there's any overlap between speaker and whisper segment
+            if not (whisp_end < spk_start_time or whisp_start > spk_end_time):
+                # Check if this character range hasn't been assigned yet
+                whisp_range = set(range(whisp_info['char_start'], whisp_info['char_end']))
+                if not whisp_range.issubset(assigned_chars):
+                    overlapping_whisper.append(whisp_info)
+        
+        if overlapping_whisper:
+            # Character range spans from first to last overlapping Whisper segment
+            char_start = overlapping_whisper[0]['char_start']
+            char_end = overlapping_whisper[-1]['char_end']
+            
+            # Mark these characters as assigned
+            assigned_chars.update(range(char_start, char_end))
+            
+            logger.debug(f"Speaker seg ({spk_label}): time [{spk_start_time:.2f}s:{spk_end_time:.2f}s] → chars [{char_start}:{char_end}], {len(overlapping_whisper)} Whisper segs")
+            
+            speaker_char_ranges.append({
+                'start_char': char_start,
+                'end_char': char_end,
+                'speaker': spk_label
+            })
+        else:
+            logger.debug(f"Speaker seg ({spk_label}): time [{spk_start_time:.2f}s:{spk_end_time:.2f}s] has NO unassigned overlapping Whisper segments")
+    
+    # Sort by character position for easier processing downstream
+    speaker_char_ranges.sort(key=lambda r: r['start_char'])
+    
+    return speaker_char_ranges
+
+
+def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None, speaker_segments: list[dict] | None = None) -> list[str]:
     def _sanitize_sentence_output(s: str, language: str) -> str:
         try:
             if (language or '').lower() != 'es' or not s:
@@ -747,22 +868,46 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
             speaker_boundaries, all_segments, all_text
         )
         if speaker_char_positions and not quiet:
-            logger.info(f"Converted {len(speaker_boundaries)} speaker boundaries to {len(speaker_char_positions)} char positions")
+            logger.debug(f"Converted {len(speaker_boundaries)} speaker boundaries to {len(speaker_char_positions)} char positions")
+    
+    # NEW: Convert speaker segments to character ranges
+    # This allows the punctuation logic to know WHO is speaking at each position,
+    # not just WHERE speakers change. This prevents breaking on connector words when
+    # the same speaker continues.
+    speaker_char_ranges = None
+    if speaker_segments and all_segments:
+        speaker_char_ranges = _convert_speaker_segments_to_char_ranges(
+            speaker_segments, all_segments, all_text
+        )
+        if speaker_char_ranges and not quiet:
+            logger.debug(f"Converted {len(speaker_segments)} speaker segments to {len(speaker_char_ranges)} char ranges")
+            if len(speaker_char_ranges) > 0:
+                logger.debug(f"First speaker range: {speaker_char_ranges[0]}")
+                logger.debug(f"Last speaker range: {speaker_char_ranges[-1]}")
+                logger.debug(f"Text length: {len(all_text)} chars")
     
     # Process the entire text as one block to allow proper sentence formation across Whisper segments
     # The punctuation restoration will add punctuation and split into sentences intelligently
     # Pass speaker boundaries separately so they use a lower threshold for breaking
     from punctuation_restorer import restore_punctuation
-    processed_text = restore_punctuation(
+    processed_text, pre_split_sentences = restore_punctuation(
         all_text, 
         lang_for_punctuation, 
         whisper_boundaries=whisper_boundaries,
-        speaker_boundaries=speaker_char_positions
+        speaker_boundaries=speaker_char_positions,
+        speaker_segments=speaker_char_ranges
     )
     
-    # Split the processed text into sentences
-    from punctuation_restorer import assemble_sentences_from_processed
-    sentences, trailing = assemble_sentences_from_processed(processed_text, (lang_for_punctuation or '').lower())
+    # CRITICAL: If restore_punctuation provided a pre-split sentences list (when speaker segments
+    # are used), use that directly to preserve speaker-aware sentence boundaries.
+    # Otherwise, split the processed text by punctuation marks.
+    if pre_split_sentences:
+        sentences = pre_split_sentences
+        trailing = ""
+    else:
+        # Split the processed text into sentences
+        from punctuation_restorer import assemble_sentences_from_processed
+        sentences, trailing = assemble_sentences_from_processed(processed_text, (lang_for_punctuation or '').lower())
     
     # Handle any trailing fragment
     if trailing:
@@ -1158,14 +1303,21 @@ def _transcribe_with_sentences(
             elif whisper_boundaries_for_dump:
                 merged_boundaries_for_dump = whisper_boundaries_for_dump
         
-        sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries)
+        # Extract speaker segments if diarization was performed
+        speaker_segments_list = None
+        if diarization_result:
+            speaker_segments_list = diarization_result['segments']
+        
+        sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries, speaker_segments=speaker_segments_list)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
         output_path_txt: str | None = None
         if write_output and out_dir is not None:
             output_file = Path(out_dir) / f"{base_name}.txt"
             try:
-                _write_txt(sentences, str(output_file), language=lang_for_punctuation)
+                # Skip re-splitting if we used speaker segments
+                skip_resplit = (speaker_segments_list is not None and len(speaker_segments_list) > 0)
+                _write_txt(sentences, str(output_file), language=lang_for_punctuation, skip_resplit=skip_resplit)
             except Exception as e:
                 raise OutputWriteError(f"Failed to write TXT: {e}")
             output_path_txt = str(output_file)
@@ -1216,18 +1368,23 @@ def main():
     parser.add_argument("--min-speakers", dest="min_speakers", type=int, default=None, help="Minimum number of speakers (optional, auto-detect if not specified)")
     parser.add_argument("--max-speakers", dest="max_speakers", type=int, default=None, help="Maximum number of speakers (optional, auto-detect if not specified)")
     parser.add_argument("--hf-token", dest="hf_token", default=None, help="Hugging Face token for pyannote models (required for first-time download)")
-    vg = parser.add_mutually_exclusive_group(); vg.add_argument("--quiet", action="store_true", help="Reduce log output"); vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)"); parser.set_defaults(verbose=True)
+    vg = parser.add_mutually_exclusive_group(); vg.add_argument("--quiet", action="store_true", help="Reduce log output"); vg.add_argument("--verbose", action="store_true", help="Verbose log output (default)"); vg.add_argument("--debug", action="store_true", help="Debug log output (shows detailed sentence splitting decisions)"); parser.set_defaults(verbose=True)
     # Defaults for VAD
     parser.set_defaults(vad_filter=DEFAULT_VAD_FILTER)
     args = parser.parse_args()
-    quiet = args.quiet or (not args.verbose)
+    quiet = args.quiet or (not args.verbose and not args.debug)
     # Configure logging
     handler = logging.StreamHandler()
     formatter = logging.Formatter('%(message)s')
     handler.setFormatter(formatter)
     logger.handlers.clear()
     logger.addHandler(handler)
-    logger.setLevel(logging.ERROR if quiet else logging.INFO)
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    elif quiet:
+        logger.setLevel(logging.ERROR)
+    else:
+        logger.setLevel(logging.INFO)
     language_arg = args.language.strip().lower() if args.language else "auto"
     language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
     # CLI-only: set threads
