@@ -26,6 +26,9 @@ SOFTWARE.
 """
 Punctuation restoration module for multilingual text processing.
 Supports English, Spanish, French, and German with advanced NLP techniques.
+
+NOTE: Sentence splitting logic has been consolidated into sentence_splitter.py (v0.4.0).
+This module now focuses on punctuation restoration and language-specific formatting.
 """
 
 # Per-language tuning guide (constants and thresholds)
@@ -66,12 +69,13 @@ Supports English, Spanish, French, and German with advanced NLP techniques.
 
 import re
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 from dataclasses import dataclass
 import os
 import numpy as np
 import warnings
 from domain_utils import mask_domains, unmask_domains, apply_safe_text_processing, create_domain_aware_regex, SINGLE_TLDS, SINGLE_MASK
+from sentence_splitter import SentenceSplitter
 
 # Suppress PyTorch FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
@@ -1340,43 +1344,44 @@ def _violates_grammatical_rules(current_word: str, next_word: str, language: str
     return False
 
 
-def restore_punctuation(text: str, language: str = 'en', whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[str] | None]:
+def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
     """
     Restore punctuation to transcribed text using advanced NLP techniques.
 
     Args:
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
-        whisper_boundaries (list[int] | None): Optional list of character positions where
-            Whisper segments end. These boundaries are used as hints for sentence breaks.
-        speaker_boundaries (list[int] | None): Optional list of character positions where
-            speakers change. These have highest priority for sentence breaks.
+        whisper_segments (list[dict] | None): Optional list of Whisper segments with
+            'text', 'start', 'end' fields. Used for sentence boundary hints.
         speaker_segments (list[dict] | None): Optional list of speaker segments with
-            'start_char', 'end_char', and 'speaker' fields. Used to detect when the
+            'start_word', 'end_word', and 'speaker' fields. Used to detect when the
             same speaker continues speaking.
+        whisper_boundaries (list[int] | None): DEPRECATED - Use whisper_segments instead.
+            Optional list of character positions where Whisper segments end.
+        speaker_boundaries (list[int] | None): DEPRECATED - Use speaker_segments instead.
+            Optional list of character positions where speakers change.
 
     Returns:
         tuple[str, list[str] | None]: A tuple of (processed_text, sentences_list).
             - processed_text: Text with restored punctuation as a single string
-            - sentences_list: Optional pre-split list of sentences (used when speaker
-              segments are provided to preserve speaker-aware boundaries)
+            - sentences_list: Pre-split list of sentences (always populated in v0.4.0+)
     """
     if not text.strip():
-        return text, None
+        return text, []
     
     # Clean up the text first
     text = re.sub(r'\s+', ' ', text.strip())
     
     # Use advanced punctuation restoration
     try:
-        return _advanced_punctuation_restoration(text, language, True, whisper_boundaries, speaker_boundaries, speaker_segments)
+        return _advanced_punctuation_restoration(text, language, True, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
     except Exception as e:
         logger.warning(f"Advanced punctuation restoration failed: {e}")
         logger.info("Returning original text without punctuation restoration.")
-        return text, None
+        return text, [text]
 
 
-def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[str] | None]:
+def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
 
@@ -1384,9 +1389,10 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom sentence endings and question word patterns
-        whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
-        speaker_boundaries (list[int] | None): Optional character positions where speakers change
-        speaker_segments (list[dict] | None): Optional speaker segments with character ranges and labels
+        whisper_segments (list[dict] | None): Optional Whisper segments for boundary hints
+        speaker_segments (list[dict] | None): Optional speaker segments with word ranges and labels
+        whisper_boundaries (list[int] | None): DEPRECATED - Optional character positions
+        speaker_boundaries (list[int] | None): DEPRECATED - Optional character positions
 
     Returns:
         tuple[str, list[str] | None]: (processed_text, sentences_list)
@@ -1394,55 +1400,56 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
 
     # Use SentenceTransformers for better sentence boundary detection
     if SENTENCE_TRANSFORMERS_AVAILABLE:
-        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_boundaries, speaker_boundaries, speaker_segments)
+        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
     else:
         # Simple fallback: just clean up whitespace and add basic punctuation
         text = re.sub(r'\s+', ' ', text.strip())
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), None
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [text]
 
 
-def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[str] | None]:
+def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
+    
+    Now uses unified SentenceSplitter class (v0.4.0+).
     
     Args:
         text (str): The transcribed text without proper punctuation
         language (str): Language code ('en', 'es', 'de', 'fr')
         use_custom_patterns (bool): Whether to use custom patterns
-        whisper_boundaries (list[int] | None): Optional character positions of Whisper segment boundaries
-        speaker_boundaries (list[int] | None): Optional character positions of speaker changes
-        speaker_segments (list[dict] | None): Optional speaker segments with character ranges and labels
+        whisper_segments (list[dict] | None): Optional Whisper segments with metadata
+        speaker_segments (list[dict] | None): Optional speaker segments with word ranges and labels
+        whisper_boundaries (list[int] | None): DEPRECATED - Optional character positions
+        speaker_boundaries (list[int] | None): DEPRECATED - Optional character positions
     
     Returns:
-        str: Text with restored punctuation
+        tuple[str, list[str]]: (processed_text, sentences_list)
     """
     # Initialize the model once (use multilingual model for better language support)
     model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
     if model is None:
         # Fallback path if sentence-transformers is unavailable
         text = re.sub(r'\s+', ' ', text.strip())
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [text]
 
-    # Convert character-based boundaries to word indices for fast lookup
-    whisper_word_boundaries = None
-    if whisper_boundaries:
-        whisper_word_boundaries = _char_positions_to_word_indices(text, whisper_boundaries)
-    
-    speaker_word_boundaries = None
-    if speaker_boundaries:
-        speaker_word_boundaries = _char_positions_to_word_indices(text, speaker_boundaries)
-    
-    # Convert speaker segments from character ranges to word ranges
-    speaker_word_segments = None
-    if speaker_segments:
-        speaker_word_segments = _convert_char_ranges_to_word_ranges(text, speaker_segments)
-        logger.debug(f"Converted {len(speaker_segments)} char ranges to {len(speaker_word_segments) if speaker_word_segments else 0} word ranges")
-        if speaker_word_segments and len(speaker_word_segments) > 0:
-            logger.debug(f"Sample word segments: first 3 = {speaker_word_segments[:3]}")
+    # Get language config for thresholds
+    lang_config = _get_language_config(language)
 
-    # 1) Semantic split into sentences (token-based loop with _should_end_sentence_here)
-    sentences = _semantic_split_into_sentences(text, language, model, whisper_word_boundaries, speaker_word_boundaries, speaker_word_segments)
-    # 2) Punctuate each sentence individually (preserving boundaries from semantic split)
+    # 1) Use unified SentenceSplitter for all sentence boundary decisions
+    splitter = SentenceSplitter(language, model, lang_config)
+    sentences, metadata = splitter.split(
+        text,
+        whisper_segments=whisper_segments,
+        speaker_segments=speaker_segments,
+        mode='semantic'
+    )
+    
+    # Log metadata for debugging
+    if metadata.get('removed_periods'):
+        logger.info(f"Removed {len(metadata['removed_periods'])} Whisper periods before same-speaker connectors")
+        for removal in metadata['removed_periods']:
+            logger.debug(f"  - Position {removal['position']}: {removal['connector']} (speaker: {removal['speaker']})")
+    # 2) Punctuate each sentence individually (preserving boundaries from SentenceSplitter)
     punctuated_sentences = []
     for i, sent in enumerate(sentences):
         if sent.strip():
@@ -1451,18 +1458,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Apply Spanish-specific formatting
     if language == 'es':
-        # CRITICAL: Use the punctuated sentences from semantic split directly
-        # Do NOT re-split by punctuation marks - that would ignore our speaker segment logic
+        # CRITICAL: Use the punctuated sentences from SentenceSplitter directly
+        # Do NOT re-split by punctuation marks - SentenceSplitter has already handled all boundaries
         sentences_list = punctuated_sentences
-        trailing_fragment = ""
-        if trailing_fragment:
-            cleaned = re.sub(r'^[",\s]+', '', trailing_fragment)
-            cleaned = _should_add_terminal_punctuation(cleaned, language, PunctuationContext.TRAILING)
-            if cleaned:
-                sentences_list.append(cleaned)
 
-        # CRITICAL: Format each sentence individually WITHOUT re-splitting by punctuation
-        # Re-splitting would undo our speaker segment logic
+        # Format each sentence individually WITHOUT re-splitting by punctuation
         formatted_sentences = []
         for s in sentences_list:
             sentence = (s or '').strip()
@@ -1472,7 +1472,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             # Capitalize first letter (but not for domains)
             if sentence and sentence[0].isalpha():
                 # Don't capitalize if this looks like a domain name
-                # Updated pattern to include accented characters for domains like sinónimosonline.com
                 if not re.match(r'^[a-zA-Z0-9\u00C0-\u017F\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', sentence.lower()):
                     sentence = sentence[0].upper() + sentence[1:]
 
@@ -1510,17 +1509,15 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Join sentences with proper spacing (no re-splitting!)
         result = ' '.join(formatted_sentences)
         
-        # CRITICAL: When speaker segments are provided, skip all post-processing that would re-split
-        # Return the sentences list directly to preserve speaker-aware boundaries
-        if speaker_segments:
-            # Clean up double/mixed punctuation
-            result = _normalize_mixed_terminal_punctuation(result)
-            # Fix location appositive punctuation
-            result = _fix_location_appositive_punctuation(result, language)
-            # Final universal cleanup
-            result = _finalize_text_common(result)
-            # Return both the text AND the sentences list
-            return result, formatted_sentences
+        # Apply cleanup and formatting (same for all paths now)
+        # Clean up double/mixed punctuation
+        result = _normalize_mixed_terminal_punctuation(result)
+        # Fix location appositive punctuation
+        result = _fix_location_appositive_punctuation(result, language)
+        # Final universal cleanup
+        result = _finalize_text_common(result)
+        # ALWAYS return both the text AND the sentences list (v0.4.0+)
+        return result, formatted_sentences
         
         # Original post-processing for non-diarization cases
         # Clean up double/mixed punctuation in one place
@@ -1767,7 +1764,17 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                        lambda m: f"www.{m.group(1).lower()}.{m.group(2)}", result)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
-        result = _format_non_spanish_text(result, language)
+        # Format each sentence individually
+        formatted_sentences = []
+        for s in punctuated_sentences:
+            sentence = (s or '').strip()
+            if not sentence:
+                continue
+            
+            sentence = _format_non_spanish_text(sentence, language)
+            formatted_sentences.append(sentence)
+        
+        result = ' '.join(formatted_sentences)
 
         # SpaCy capitalization pass (always applied)
         # Mask domains before spaCy to prevent it from capitalizing domain names as proper nouns
@@ -1782,8 +1789,16 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     result = _finalize_text_common(result)
     
     # Return tuple: (processed_text, sentences_list)
-    # sentences_list is None unless we used speaker segment logic above
-    return result, None
+    # v0.4.0+: ALWAYS return sentences_list (never None)
+    # For Spanish, we already have formatted_sentences
+    # For non-Spanish, we need to re-split from result or use formatted_sentences
+    if language != 'es':
+        # Use the formatted_sentences we created above
+        final_sentences = formatted_sentences if 'formatted_sentences' in locals() else [result]
+        return result, final_sentences
+    
+    # Spanish path already returned above, but add fallback just in case
+    return result, [result]
 
 
 from typing import List

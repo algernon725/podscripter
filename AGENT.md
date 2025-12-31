@@ -380,39 +380,30 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Open Issues / Work In Progress
 
-#### Period Before Same-Speaker Connectors (Open Issue - v0.3.1)
-**Problem**: When the same speaker continues speaking with a connector word ("Y", "and", "et", "und"), Whisper-added periods remain in the text even though our logic prevents starting a new sentence with the connector.
+#### Period Before Same-Speaker Connectors (RESOLVED - v0.4.0)
+**Problem**: When the same speaker continues speaking with a connector word ("Y", "and", "et", "und"), Whisper-added periods remained in the text even though our logic prevented starting a new sentence with the connector.
 - Spanish example: `"...es importante tener una estructura como un trabajo. Y este meta es tu trabajo cada día."` (incorrect - same speaker, period shouldn't be there)
 - Should be: `"...es importante tener una estructura como un trabajo y este meta es tu trabajo cada día."` (correct)
 - English example: `"I work from home. And I enjoy it."` when same speaker → should be `"I work from home and I enjoy it."`
-- Occurs across ALL supported languages (ES/EN/FR/DE) when diarization is enabled
+- Occurred across ALL supported languages (ES/EN/FR/DE) when diarization was enabled
 
 **Root Cause**: 
 1. **Whisper** adds terminal punctuation to its raw segment outputs (e.g., "trabajo." at end of segment)
-2. Our v0.3.1 fix prevents sentences from **starting** with connectors when same speaker continues
-3. BUT the fix doesn't **remove** the Whisper-added periods that are already in the text before those connectors
-4. Result: Period stays, but connector doesn't start new sentence → unnatural mid-sentence period
+2. Our v0.3.1 fix prevented sentences from **starting** with connectors when same speaker continues
+3. BUT the fix didn't **remove** the Whisper-added periods that were already in the text before those connectors
+4. Result: Period stayed, but connector didn't start new sentence → unnatural mid-sentence period
 
-**Why It's Complex**:
-The punctuation restoration pipeline is scattered across 5+ stages (Whisper output, semantic splitting, punctuation application, Spanish post-processing, TXT writing). Whisper adds periods BEFORE our pipeline runs, but speaker continuity decisions happen DURING the pipeline. No single stage has visibility into both.
+**Why It Was Complex**:
+The punctuation restoration pipeline was scattered across 5+ stages (Whisper output, semantic splitting, punctuation application, Spanish post-processing, TXT writing). Whisper added periods BEFORE our pipeline ran, but speaker continuity decisions happened DURING the pipeline. No single stage had visibility into both.
 
-**Workaround (Not Yet Implemented)**:
-Could add `_remove_periods_before_same_speaker_connectors()` post-processing function to strip periods when:
-1. Sentence ends with period
-2. Next sentence starts with connector word
-3. Same speaker continues
-4. But this is another band-aid on the scattered architecture
+**Solution Implemented (v0.4.0)**: 
+Implemented the sentence splitting consolidation refactor. The new `SentenceSplitter` class:
+- ✅ Tracks which periods came from Whisper segments
+- ✅ Evaluates speaker continuity during boundary decisions
+- ✅ Removes Whisper periods before same-speaker connectors
+- ✅ All in one unified location (`sentence_splitter.py`)
 
-**Proper Solution**: 
-Implement the sentence splitting consolidation refactor (documented below in "Future Refactoring Plans"). The `SentenceSplitter` class would:
-- Track which periods came from Whisper segments
-- Evaluate speaker continuity during boundary decisions
-- Remove Whisper periods before same-speaker connectors
-- All in one unified location
-
-**Impact**: Affects diarization-enabled transcriptions across all languages. Makes output slightly unnatural with mid-sentence periods before connectors when same speaker is talking.
-
-**Related Issue**: This perfectly illustrates why the refactor is needed - punctuation decisions can't properly coordinate with speaker context when logic is scattered across 5+ stages.
+**Status**: RESOLVED. The unified `SentenceSplitter` class now intelligently manages Whisper punctuation based on speaker context. Periods are automatically removed when the same speaker continues with a connector word.
 
 #### Person Initials Normalization (WIP - Partial)
 **Problem**: Names with initials like "C.S. Lewis" or "J.K. Rowling" in non-English transcriptions (especially Spanish) are incorrectly split into separate sentences.
@@ -478,11 +469,11 @@ The punctuation restoration pipeline has multiple phases. Whisper's periods are 
 
 **Workaround**: For critical transcriptions, manually review and merge sentences where short phrases like Bible verse references are split from their context.
 
-## Future Refactoring Plans
+## Recent Refactors
 
-### Sentence Splitting Consolidation (High Priority)
+### Sentence Splitting Consolidation (Completed - v0.4.0)
 
-**Problem Identified**: Working on the connector word bug revealed that sentence splitting logic is scattered across multiple locations in the codebase:
+**Problem Identified**: Working on the connector word bug revealed that sentence splitting logic was scattered across multiple locations in the codebase:
 
 1. **`_semantic_split_into_sentences()`** in `punctuation_restorer.py` (~line 1775)
    - Primary semantic splitter using transformer embeddings
@@ -526,9 +517,9 @@ The punctuation restoration pipeline has multiple phases. Whisper's periods are 
   - Workaround needed: Post-processing to strip periods before same-speaker connectors
   - **With refactor**: This becomes a simple rule in `SentenceSplitter` - "Don't preserve Whisper periods before same-speaker connectors"
 
-**Recommended Refactor**:
+**Solution Implemented (v0.4.0)**:
 
-**Phase 1: Consolidate Splitting Logic** (Breaking change - v0.4.0)
+**Phase 1: Consolidate Splitting Logic** (Completed - Breaking change)
 1. Create single `SentenceSplitter` class in new file `sentence_splitter.py`:
    ```python
    class SentenceSplitter:
@@ -619,9 +610,24 @@ The punctuation restoration pipeline has multiple phases. Whisper's periods are 
 - Phase 3: ~12 hours (metadata and debugging features)
 - **Total**: ~60 hours for complete refactor
 
-**Priority**: High - This refactor would significantly improve maintainability and make future features (like custom split rules, ML-based boundary detection, intelligent Whisper punctuation handling) much easier to implement.
+**Status**: COMPLETED (v0.4.0)
 
-**Immediate Benefit**: Solves the period-before-same-speaker-connector issue without needing post-processing workarounds. Currently: "trabajo. Y este" (wrong) → After refactor: "trabajo y este" (correct).
+**Results Achieved**:
+- ✅ All sentence splitting logic consolidated into single `SentenceSplitter` class
+- ✅ Period-before-same-speaker-connector bug RESOLVED
+- ✅ Punctuation provenance tracking implemented
+- ✅ Comprehensive unit tests created (`tests/test_sentence_splitter_unit.py`)
+- ✅ Maintainability significantly improved
+- ✅ Future features (custom split rules, ML-based boundary detection) now much easier to implement
+
+**Immediate Benefit Delivered**: Solved the period-before-same-speaker-connector issue. Now: "trabajo y este" (correct) instead of "trabajo. Y este" (wrong).
+
+**Breaking Changes**:
+- `restore_punctuation()` signature changed (accepts `whisper_segments` instead of `whisper_boundaries`)
+- `restore_punctuation()` now ALWAYS returns tuple `(text, sentences_list)`
+- Internal functions moved to `SentenceSplitter` class
+
+**Migration**: Old parameters still accepted for backward compatibility but are deprecated.
 
 ## Documentation Standards
 

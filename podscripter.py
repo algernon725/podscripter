@@ -273,82 +273,29 @@ def _split_audio_with_overlap(media_file: str, chunk_length_sec: int = DEFAULT_C
             break
     return chunk_infos
 
-def _write_txt(sentences, output_file, language: str | None = None, skip_resplit: bool = False):
+def _write_txt(sentences, output_file, language: str | None = None):
+    """
+    Write sentences to TXT file.
+    
+    v0.4.0: Simplified - no longer splits sentences since SentenceSplitter handles all boundaries.
+    
+    Args:
+        sentences: List of sentences (already split by SentenceSplitter)
+        output_file: Path to output file
+        language: Language code for domain fixing
+    """
     with open(output_file, "w") as f:
         for sentence in sentences:
             s = (sentence or "").strip()
             if not s:
                 continue
             
-            # CRITICAL: Fix broken domains with spaces before any processing
+            # Fix broken domains with spaces
             # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
-            # Support both single TLDs and compound TLDs like co.uk, com.ar
-            # Exclude common Spanish words to avoid false positives like "uno.de"
             s = fix_spaced_domains(s, use_exclusions=True, language=language)
             
-            # Final safeguard: if a string still contains multiple sentences, split them
-            # But protect domains during the split to prevent breaking label.tld (single and compound)
-            s_masked = mask_domains(s, use_exclusions=True, language=language)
-            
-            # For all languages: don't split on periods that are part of location descriptions
-            # Pattern: ", <preposition> <Location>. <Location>" should not be split
-            # This applies to multiple languages:
-            # - Spanish: ", de Texas. Estados Unidos"
-            # - English: ", from Texas. United States"  
-            # - French: ", de Texas. États-Unis"
-            # - German: ", aus Texas. Vereinigte Staaten"
-            
-            # Define common location prepositions by language
-            location_prepositions = {
-                'es': r'de',
-                'en': r'from|in',
-                'fr': r'de|du|des',
-                'de': r'aus|von|in'
-            }
-            
-            lang_code = language.lower() if language else 'en'
-            prepositions = location_prepositions.get(lang_code, r'de|from|aus|von|in|du|des')
-            
-            # Protect location appositives by temporarily masking them
-            # Pattern 1: comma + preposition + proper noun + period + proper noun
-            location_pattern = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
-            s_protected = re.sub(location_pattern, r'\1__LOCATION_DOT__\2', s_masked, flags=re.IGNORECASE)
-            
-            # Pattern 2: Direct comma-separated locations like "Austin, Texas. Y"
-            direct_location_pattern = r'(\b[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*,\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑa-záéíóúñ])'
-            s_protected = re.sub(direct_location_pattern, r'\1__LOCATION_DOT__\2', s_protected, flags=re.IGNORECASE)
-            
-            # Pattern 3: Number lists with conjunctions - don't split after final number
-            # Protects patterns like "147, 151, 156, 164, 170, 177 [conjunction] 184. Next sentence"
-            # from being split after "184."
-            # Multilingual support for conjunctions:
-            # - Spanish: y, o
-            # - English: and, or
-            # - French: et, ou
-            # - German: und, oder
-            # This is a general fix for any number list ending with "conjunction NUMBER"
-            # where the list contains commas (indicating multiple items)
-            number_list_pattern = r'(\d+(?:,\s*\d+)+(?:,?\s+(?:y|o|and|or|et|ou|und|oder))\s+\d+)\.\s+([A-ZÁÉÍÓÚÑ¿¡])'
-            s_protected = re.sub(number_list_pattern, r'\1__NUMBER_LIST_DOT__\2', s_protected, flags=re.IGNORECASE)
-            
-            # CRITICAL: Skip re-splitting when speaker segments were used to create sentences
-            # Re-splitting would undo the speaker-aware sentence boundaries
-            if skip_resplit:
-                # Write sentence as-is, without re-splitting
-                s = (s or "").strip()
-                if s:
-                    f.write(f"{s}\n\n")
-            else:
-                # Original behavior: split by punctuation marks
-                parts = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', s_protected)
-                # Restore the protected periods
-                parts = [p.replace('__LOCATION_DOT__', '. ').replace('__NUMBER_LIST_DOT__', '. ') for p in parts]
-                for p in parts:
-                    p = (p or "").strip()
-                    if p:
-                        # Unmask domains before writing
-                        p = unmask_domains(p)
-                        f.write(f"{p}\n\n")
+            # Write sentence (SentenceSplitter has already handled all boundaries)
+            f.write(f"{s}\n\n")
 
 def _write_srt(segments, output_file):
     def format_timestamp(seconds):
@@ -853,69 +800,41 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     from punctuation_restorer import _normalize_initials_and_acronyms
     all_text = _normalize_initials_and_acronyms(all_text)
     
-    # Extract Whisper segment boundaries to inform sentence splitting
-    # These boundaries represent acoustic pauses and are useful hints for sentence breaks
-    from punctuation_restorer import _extract_segment_boundaries
-    whisper_boundaries = _extract_segment_boundaries(all_text, all_segments) if all_segments else None
-    
-    # Convert speaker timestamps to character positions if available
-    # IMPORTANT: Speaker boundaries are timestamps (seconds), but we need character positions.
-    # Speaker boundaries are passed SEPARATELY to restore_punctuation so they can use a lower
-    # minimum word threshold (speaker changes should break sentences even for short phrases)
-    speaker_char_positions = None
-    if speaker_boundaries and all_segments:
-        speaker_char_positions = _convert_speaker_timestamps_to_char_positions(
-            speaker_boundaries, all_segments, all_text
-        )
-        if speaker_char_positions and not quiet:
-            logger.debug(f"Converted {len(speaker_boundaries)} speaker boundaries to {len(speaker_char_positions)} char positions")
-    
-    # NEW: Convert speaker segments to character ranges
-    # This allows the punctuation logic to know WHO is speaking at each position,
-    # not just WHERE speakers change. This prevents breaking on connector words when
-    # the same speaker continues.
-    speaker_char_ranges = None
+    # v0.4.0: Convert speaker segments to word ranges for SentenceSplitter
+    # SentenceSplitter now handles all boundary logic using full segment information
+    speaker_word_ranges = None
     if speaker_segments and all_segments:
+        # First convert to character ranges
         speaker_char_ranges = _convert_speaker_segments_to_char_ranges(
             speaker_segments, all_segments, all_text
         )
         if speaker_char_ranges and not quiet:
             logger.debug(f"Converted {len(speaker_segments)} speaker segments to {len(speaker_char_ranges)} char ranges")
-            if len(speaker_char_ranges) > 0:
-                logger.debug(f"First speaker range: {speaker_char_ranges[0]}")
-                logger.debug(f"Last speaker range: {speaker_char_ranges[-1]}")
-                logger.debug(f"Text length: {len(all_text)} chars")
+        
+        # Then convert character ranges to word indices
+        if speaker_char_ranges:
+            from punctuation_restorer import _convert_char_ranges_to_word_ranges
+            speaker_word_ranges = _convert_char_ranges_to_word_ranges(all_text, speaker_char_ranges)
+            if speaker_word_ranges and not quiet:
+                logger.debug(f"Converted {len(speaker_char_ranges)} char ranges to {len(speaker_word_ranges)} word ranges")
+                if len(speaker_word_ranges) > 0:
+                    logger.debug(f"First word range: {speaker_word_ranges[0]}")
+                    logger.debug(f"Last word range: {speaker_word_ranges[-1]}")
     
-    # Process the entire text as one block to allow proper sentence formation across Whisper segments
-    # The punctuation restoration will add punctuation and split into sentences intelligently
-    # Pass speaker boundaries separately so they use a lower threshold for breaking
+    # Process the entire text using unified SentenceSplitter (v0.4.0+)
+    # Pass full Whisper segments and speaker segments (not just boundaries)
+    # SentenceSplitter handles all boundary evaluation and punctuation tracking
     from punctuation_restorer import restore_punctuation
     processed_text, pre_split_sentences = restore_punctuation(
         all_text, 
         lang_for_punctuation, 
-        whisper_boundaries=whisper_boundaries,
-        speaker_boundaries=speaker_char_positions,
-        speaker_segments=speaker_char_ranges
+        whisper_segments=all_segments,  # Pass full segments, not boundaries
+        speaker_segments=speaker_word_ranges  # Word-indexed segments for speaker tracking
     )
     
-    # CRITICAL: If restore_punctuation provided a pre-split sentences list (when speaker segments
-    # are used), use that directly to preserve speaker-aware sentence boundaries.
-    # Otherwise, split the processed text by punctuation marks.
-    if pre_split_sentences:
-        sentences = pre_split_sentences
-        trailing = ""
-    else:
-        # Split the processed text into sentences
-        from punctuation_restorer import assemble_sentences_from_processed
-        sentences, trailing = assemble_sentences_from_processed(processed_text, (lang_for_punctuation or '').lower())
-    
-    # Handle any trailing fragment
-    if trailing:
-        cleaned = re.sub(r'^[",\s]+', '', trailing)
-        if cleaned:
-            from punctuation_restorer import _should_add_terminal_punctuation, PunctuationContext
-            cleaned = _should_add_terminal_punctuation(cleaned, lang_for_punctuation, PunctuationContext.TRAILING)
-            sentences.append(_sanitize_sentence_output(cleaned, (lang_for_punctuation or '').lower()))
+    # v0.4.0: restore_punctuation() ALWAYS returns sentences (never None)
+    # SentenceSplitter has already handled all boundary decisions
+    sentences = pre_split_sentences if pre_split_sentences else [processed_text]
     
     # Sanitize all sentences
     sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
@@ -1315,9 +1234,8 @@ def _transcribe_with_sentences(
         if write_output and out_dir is not None:
             output_file = Path(out_dir) / f"{base_name}.txt"
             try:
-                # Skip re-splitting if we used speaker segments
-                skip_resplit = (speaker_segments_list is not None and len(speaker_segments_list) > 0)
-                _write_txt(sentences, str(output_file), language=lang_for_punctuation, skip_resplit=skip_resplit)
+                # v0.4.0: No longer need skip_resplit - SentenceSplitter handles all boundaries
+                _write_txt(sentences, str(output_file), language=lang_for_punctuation)
             except Exception as e:
                 raise OutputWriteError(f"Failed to write TXT: {e}")
             output_path_txt = str(output_file)

@@ -124,13 +124,21 @@ flowchart TD
   - Boundaries represent high-confidence sentence break hints
   - Debug dump (`--dump-diarization`) aids troubleshooting when speaker changes don't trigger sentence breaks
 
-- **Punctuation and sentence assembly** (`punctuation_restorer.py`)
-  - `restore_punctuation(...)` → `advanced_punctuation_restoration(...)` for complete text
+- **Sentence Splitting** (`sentence_splitter.py`) - NEW in v0.4.0
+  - **Unified `SentenceSplitter` class**: Consolidates all sentence boundary logic
+  - Tracks punctuation provenance (Whisper vs our logic)
+  - Coordinates speaker context with punctuation decisions
+  - Supports multiple splitting modes (semantic, punctuation, hybrid, preserve)
+  - **Intelligent Whisper period removal**: Removes periods before same-speaker connectors
+  - Priority hierarchy: Grammatical guards → Speaker continuity → Speaker boundaries → Whisper boundaries → Semantic splitting
+  - Enables comprehensive debugging with split metadata
+
+- **Punctuation and formatting** (`punctuation_restorer.py`)
+  - `restore_punctuation(...)` → Uses `SentenceSplitter` for boundary decisions (v0.4.0+)
   - `restore_punctuation_segment(...)` → segment-aware processing for individual Whisper segments
   - **Centralized punctuation system**: `_should_add_terminal_punctuation()` with context-aware processing
   - **Context types**: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`
   - Sentence-Transformers semantic cues + curated regex rules
-  - Accepts merged Whisper + speaker boundaries for improved sentence splitting
   - Language-specific formatting (ES/EN/FR/DE)
   - Comma spacing normalization is centralized in `_normalize_comma_spacing(text)` and must not be duplicated inline at call sites. This helper removes spaces before commas, deduplicates multiple commas, and ensures a single space after commas. Trade-off: thousands separators like `1,000` will appear as `1, 000` to guarantee correct spacing for common number lists.
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
@@ -239,11 +247,23 @@ flowchart TD
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
 - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
 - **WIP**: Person initials (e.g., "C.S. Lewis", "J.K. Rowling") in non-English transcriptions may still split into separate sentences. Infrastructure is in place (`_normalize_initials_and_acronyms()`) but requires additional masking to protect initials through spaCy processing. See AGENT.md "Known Open Issues" for details.
-- **Technical debt**: Sentence splitting logic is scattered across 4+ locations in the codebase (semantic splitter, Spanish post-processing, `assemble_sentences_from_processed`, `_write_txt`). This makes debugging and maintenance difficult. A refactoring plan to consolidate all splitting logic into a single `SentenceSplitter` class is documented in AGENT.md "Future Refactoring Plans". Current workaround uses bypass flags and pre-split sentence lists for speaker diarization mode.
 
 ## Recent architectural improvements
 
-### Centralized Punctuation System (2025)
+### Unified Sentence Splitting (2025 - v0.4.0)
+- **Problem solved**: Sentence splitting logic was scattered across 5+ locations in the codebase, making debugging and maintenance extremely difficult. The period-before-same-speaker-connector bug couldn't be solved without architectural change.
+- **Solution**: Created unified `SentenceSplitter` class in `sentence_splitter.py` that consolidates ALL splitting logic
+- **Benefits**:
+  - Single source of truth for all sentence boundary decisions
+  - Tracks punctuation provenance (Whisper vs our logic)
+  - Coordinates speaker context with punctuation decisions
+  - Intelligently removes Whisper periods before same-speaker connectors
+  - Enables comprehensive debugging with split metadata
+  - Future splitting features only require changes to one class
+- **Implementation**: `SentenceSplitter` class with priority hierarchy: Grammatical guards → Speaker continuity → Speaker boundaries → Whisper boundaries → Semantic splitting
+- **Impact**: Solved the period-before-same-speaker-connector bug across all languages (ES/EN/FR/DE)
+
+### Centralized Punctuation System (2025 - v0.3.0)
 - **Problem solved**: Previously, period insertion logic was scattered across 14+ locations in the codebase, making bugs like "Ve a" → "Ve a." difficult to fix and maintain
 - **Solution**: Centralized all punctuation decisions into `_should_add_terminal_punctuation()` with context-aware processing
 - **Benefits**: 
@@ -346,7 +366,8 @@ Debugging:
 ## Key files
 
 - `podscripter.py`: orchestration, chunking, ASR, output
-- `punctuation_restorer.py`: punctuation, language formatting, capitalization
+- `sentence_splitter.py`: unified sentence splitting with punctuation provenance tracking (v0.4.0+)
+- `punctuation_restorer.py`: punctuation restoration, language formatting, capitalization
 - `domain_utils.py`: centralized domain detection, masking, and Spanish false domain prevention
 - `speaker_diarization.py`: speaker change detection and boundary extraction (optional feature)
 - `Dockerfile`: runtime and dependency setup

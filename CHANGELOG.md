@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-12-30
+
+### Added
+- **Unified `SentenceSplitter` class**: All sentence splitting logic consolidated into single `sentence_splitter.py` module
+  - Tracks punctuation provenance (Whisper vs our logic)
+  - Coordinates speaker context with punctuation decisions
+  - Supports multiple splitting modes (semantic, punctuation, hybrid, preserve)
+  - Enables comprehensive debugging with split metadata
+- **Whisper punctuation tracking**: System now tracks which periods came from Whisper segment ends
+- **Intelligent period removal**: Automatically removes Whisper-added periods before same-speaker connectors
+- **Split provenance metadata**: Each split now includes reason, confidence, speaker info, and punctuation tracking
+
+### Fixed
+- **Period-before-same-speaker-connector bug (Critical)**: Whisper-added periods are now removed when the same speaker continues with a connector word
+  - **Impact**: Affects all diarization-enabled transcriptions in all supported languages (ES/EN/FR/DE)
+  - **Example fix**: `"trabajo. Y este meta"` → `"trabajo y este meta"` (same speaker continues)
+  - **Root cause**: Periods came from Whisper transcription, but speaker continuity decisions happened later in scattered pipeline
+  - **Solution**: Unified `SentenceSplitter` tracks punctuation sources and removes periods intelligently based on speaker context
+
+### Changed
+- **Breaking**: `restore_punctuation()` signature changed - now accepts `whisper_segments` and `speaker_segments` instead of `whisper_boundaries` and `speaker_boundaries`
+- **Breaking**: `restore_punctuation()` now ALWAYS returns tuple `(text, sentences_list)` - sentences_list is never None
+- **Breaking**: Internal functions `_semantic_split_into_sentences()` and `_should_end_sentence_here()` moved to `SentenceSplitter` class
+- **Simplified**: `_write_txt()` no longer performs sentence splitting - `SentenceSplitter` handles all boundaries
+- **Simplified**: `_assemble_sentences()` passes full Whisper segments instead of just boundaries
+- **Removed**: `skip_resplit` parameter from `_write_txt()` - no longer needed with unified splitting
+
+### Removed
+- Sentence splitting logic from Spanish post-processing (no more `_split_sentences_preserving_delims` call)
+- Sentence splitting logic from `assemble_sentences_from_processed()` (keeps only ellipsis/domain logic)
+- Final re-splitting from `_write_txt()` (no more location appositive protection needed)
+
+### Technical Details
+- **Files created**:
+  - `sentence_splitter.py`: New module (~900 lines) with unified splitting logic
+  - `tests/test_sentence_splitter_unit.py`: Comprehensive unit tests for `SentenceSplitter`
+- **Files modified**:
+  - `punctuation_restorer.py`: Updated to use `SentenceSplitter`, removed old splitting functions
+  - `podscripter.py`: Updated `_assemble_sentences()` and simplified `_write_txt()`
+- **Architecture**: Sentence splitting now happens in ONE place instead of 5+ scattered locations
+- **Maintainability**: Future splitting features only require changes to `SentenceSplitter` class
+- **Debugging**: Split provenance enables understanding exactly why each sentence was split
+
+### Migration Notes
+- Old `whisper_boundaries` and `speaker_boundaries` parameters are deprecated but still accepted for backward compatibility
+- Tests should be updated to use new `whisper_segments` and `speaker_segments` parameters
+- Any code extending the splitting logic should now extend `SentenceSplitter` class
+
 ## [0.3.1] - 2025-12-27
 
 ### Added
