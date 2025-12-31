@@ -387,6 +387,37 @@ class SentenceSplitter:
                         f"should_end={should_end}, chunk_len={len(current_chunk)}"
                     )
             
+            # CRITICAL FIX: Remove Whisper period before same-speaker connectors
+            # If we decided NOT to split here, but the word has a Whisper period,
+            # and next word is a connector, remove the period AND lowercase the connector
+            if not should_end and i + 1 < len(words):
+                next_word_clean = words[i + 1].lower().strip('.,;:!?¿¡')
+                if next_word_clean in self.CONNECTOR_WORDS and word.rstrip().endswith(('.', '!', '?')):
+                    # Check if same speaker continues
+                    speaker_at_current = None
+                    speaker_at_next = None
+                    if speaker_word_segments:
+                        speaker_at_current = self._get_speaker_at_word(i, speaker_word_segments)
+                        speaker_at_next = self._get_speaker_at_word(i + 1, speaker_word_segments)
+                    
+                    # Remove period if same speaker OR if no speaker info
+                    if speaker_at_current == speaker_at_next or (speaker_at_current is None and speaker_at_next is None):
+                        # Remove the period from the current word in the chunk
+                        current_chunk[-1] = current_chunk[-1].rstrip('.!?')
+                        # Also lowercase the connector in the next iteration
+                        # We need to modify the words list directly
+                        words[i + 1] = next_word_clean
+                        self.logger.info(
+                            f"REMOVED Whisper period before same-speaker connector: "
+                            f"word={i} ('{word}'), connector='{next_word_clean}' (lowercased)"
+                        )
+                        self.removed_periods.append({
+                            'position': i,
+                            'reason': 'same_speaker_connector_inline',
+                            'speaker': speaker_at_current,
+                            'connector': next_word_clean
+                        })
+            
             if should_end:
                 sentence_text = ' '.join(current_chunk).strip()
                 if sentence_text:
@@ -436,26 +467,15 @@ class SentenceSplitter:
         Returns:
             True if sentence should end here
         """
-        # Don't end sentence if we're at the beginning or very end
-        if current_index < 2 or current_index >= len(words) - 1:
-            return False
-        
         # Get thresholds from config
         thresholds = self.config.thresholds
-        
-        # If the entire input is very short, don't split
-        if len(words) <= thresholds.get('min_total_words_no_split', 25):
-            return False
         
         current_word = words[current_index]
         next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
         
-        # PRIORITY 1: Grammatical guards (NEVER break)
-        if self._violates_grammatical_rules(current_word, next_word):
-            return False
-        
-        # PRIORITY 2: Speaker boundaries (HIGHEST PRIORITY)
-        # Speaker changes almost always indicate sentence breaks
+        # PRIORITY 1: Speaker boundaries (HIGHEST PRIORITY - check first!)
+        # Speaker changes almost always indicate sentence breaks, even in short texts
+        # Check this BEFORE other guards to allow breaking at speaker changes
         if speaker_word_boundaries and current_index in speaker_word_boundaries:
             min_words_speaker = 2  # Very low threshold for speaker changes
             
@@ -466,7 +486,20 @@ class SentenceSplitter:
                 if next_word_clean not in self.CONNECTOR_WORDS:
                     # Speaker change and not a connector - break here
                     return True
-                # If connector, fall through to Whisper check
+                # If connector, fall through to other checks
+        
+        # Don't end sentence if we're at the very beginning or very end
+        # (Allow index 1 for speaker boundaries with 2-word minimum)
+        if current_index < 1 or current_index >= len(words) - 1:
+            return False
+        
+        # PRIORITY 2: Grammatical guards (NEVER break)
+        if self._violates_grammatical_rules(current_word, next_word):
+            return False
+        
+        # If the entire input is very short, don't split (UNLESS speaker boundary above)
+        if len(words) <= thresholds.get('min_total_words_no_split', 25):
+            return False
         
         # PRIORITY 3: Whisper boundaries (MEDIUM-HIGH PRIORITY)
         # Whisper boundaries represent acoustic pauses
@@ -749,13 +782,22 @@ class SentenceSplitter:
             # Without speaker info, we can't safely remove periods
             return sentences
         
+        self.logger.debug(f"_process_whisper_punctuation: Processing {len(sentences)} sentences")
+        
         processed = []
         words = original_text.split()
         current_word_idx = 0
+        skip_next = False
         
         for i, sentence in enumerate(sentences):
+            if skip_next:
+                skip_next = False
+                continue
+                
             sentence_words = sentence.split()
             sentence_word_count = len(sentence_words)
+            
+            self.logger.debug(f"  Sentence {i}: words={sentence_word_count}, start_idx={current_word_idx}, text='{sentence[:60]}...')")
             
             if i + 1 < len(sentences):
                 next_sentence = sentences[i + 1]
@@ -770,6 +812,8 @@ class SentenceSplitter:
                 next_first_word = next_words[0]
                 next_word_clean = next_first_word.lower().strip('.,;:!?¿¡')
                 
+                self.logger.debug(f"    Next word: '{next_first_word}', clean: '{next_word_clean}', is_connector: {next_word_clean in self.CONNECTOR_WORDS}")
+                
                 if next_word_clean in self.CONNECTOR_WORDS:
                     # Check if same speaker continues
                     sentence_end_word_idx = current_word_idx + sentence_word_count - 1
@@ -777,6 +821,12 @@ class SentenceSplitter:
                     
                     speaker_at_end = self._get_speaker_at_word(sentence_end_word_idx, speaker_word_segments)
                     speaker_at_next = self._get_speaker_at_word(next_start_word_idx, speaker_word_segments)
+                    
+                    self.logger.debug(
+                        f"    Connector detected: '{next_word_clean}', "
+                        f"speaker_at_end={speaker_at_end} (word {sentence_end_word_idx}), "
+                        f"speaker_at_next={speaker_at_next} (word {next_start_word_idx})"
+                    )
                     
                     if speaker_at_end == speaker_at_next and speaker_at_end is not None:
                         # Same speaker continues - remove period and merge with lowercased connector
@@ -801,16 +851,14 @@ class SentenceSplitter:
                             'connector': next_word_clean
                         })
                         
-                        self.logger.debug(
-                            f"Removed Whisper period before same-speaker connector: "
-                            f"speaker={speaker_at_end}, connector='{next_word_clean}'"
+                        self.logger.info(
+                            f"MERGED: Removed period before same-speaker connector '{next_word_clean}' "
+                            f"(speaker={speaker_at_end})"
                         )
                         
                         # Skip the next sentence since we merged it
                         current_word_idx += sentence_word_count + len(next_words)
-                        # Mark that we should skip next iteration
-                        if i + 1 < len(sentences):
-                            sentences[i + 1] = ''  # Mark as processed
+                        skip_next = True
                         continue
             
             # Normal case: no merging needed
@@ -818,8 +866,8 @@ class SentenceSplitter:
                 processed.append(sentence)
             current_word_idx += sentence_word_count
         
-        # Filter out empty sentences (those that were merged)
-        return [s for s in processed if s.strip()]
+        self.logger.debug(f"_process_whisper_punctuation: Returned {len(processed)} sentences (merged {len(sentences) - len(processed)})")
+        return processed
     
     def _build_metadata(self) -> Dict:
         """

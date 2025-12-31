@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2025-12-30
+
+### Fixed
+- **Period-before-connector inline removal (Critical)**: Fixed bug where v0.4.0 refactor didn't remove periods in all code paths
+  - **Issue**: `_evaluate_boundaries()` correctly decided NOT to split before connectors, but period remained in text
+  - **Example**: `"Ama a tu prójimo como a ti mismo. Y también..."` still had unwanted period before "Y"
+  - **Solution**: Added inline period removal when deciding not to split + connector lowercasing
+  - **Impact**: Completes the period-before-same-speaker-connector fix introduced in v0.4.0
+- **Trailing comma before terminal punctuation (Spanish)**: Fixed `", ?"` appearing at sentence ends
+  - **Root cause**: Whisper's trailing commas weren't stripped before adding terminal punctuation
+  - **Solution**: Added `.rstrip(',;: ')` before applying terminal punctuation in `_should_add_terminal_punctuation()`
+  - **Example**: `"Sin importar si crees en Dios o no, ?"` → `"Sin importar si crees en Dios o no?"`
+- **False question marks in Spanish**: Fixed sentences incorrectly ending with `?` without `¿`
+  - **Root cause**: Aggressive word-based fallback overrode accurate semantic question detection
+  - **Solution**: Prioritize semantic analysis, only use word-based heuristics when sentence-transformers unavailable
+  - **Example**: `"...tal y como quieren que ellos los traten a ustedes?"` → `"...tal y como quieren que ellos los traten a ustedes."`
+- **Speaker boundary priority in short texts**: Fixed speaker changes not being respected in texts < 25 words
+  - **Solution**: Check speaker boundaries BEFORE min_total_words_no_split guard
+  - **Impact**: Ensures speaker changes create sentence breaks even in short transcriptions
+
+### Changed
+- `SentenceSplitter._evaluate_boundaries()`: Now removes Whisper periods inline when deciding not to split at connectors
+- `SentenceSplitter._should_end_sentence_here()`: Speaker boundaries now checked first, before length guards
+- `_should_add_terminal_punctuation()`: Semantic question detection now takes priority over word-based fallback
+
+### Added
+- `tests/test_trailing_comma_bug.py`: Test suite to prevent regression of trailing comma bug
+- Enhanced debug logging in `SentenceSplitter` to track period removal decisions
+
 ## [0.4.0] - 2025-12-30
 
 ### Added

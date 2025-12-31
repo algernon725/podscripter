@@ -1477,6 +1477,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
 
             # Ensure sentence ends with single terminal punctuation
             if not sentence.endswith(('.', '!', '?')):
+                # Strip trailing commas before adding terminal punctuation
+                sentence = sentence.rstrip(',;: ')
+                
                 question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
                 sentence_lower = sentence.lower()
                 if any(word in sentence_lower for word in question_words):
@@ -2600,15 +2603,24 @@ def _should_add_terminal_punctuation(text: str, language: str, context: str = No
     # Check for questions using semantic analysis if model is available
     if model and context != PunctuationContext.FRAGMENT:
         if is_question_semantic(text, model, language):
+            # Strip trailing commas/semicolons before adding question mark
+            text = text.rstrip(',;: ')
             return text + '?'
         if is_exclamation_semantic(text, model, language):
+            # Strip trailing commas/semicolons before adding exclamation mark
+            text = text.rstrip(',;: ')
             return text + '!'
-    
-    # Language-specific question detection fallback
-    if language == 'es':
+        # If semantic analysis is available, trust it and skip word-based fallback
+        # Semantic analysis correctly identified this as NOT a question/exclamation
+        # Don't override with simplistic word matching
+    elif language == 'es':
+        # Language-specific question detection fallback (only when semantic analysis unavailable)
+        # This is less accurate and prone to false positives
         question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
         text_lower = text.lower()
         if any(word in text_lower for word in question_words):
+            # Strip trailing commas/semicolons before adding question mark
+            text = text.rstrip(',;: ')
             return text + '?'
     
     # Special handling for short Spanish phrases
@@ -2616,6 +2628,8 @@ def _should_add_terminal_punctuation(text: str, language: str, context: str = No
         return text + '.'
     
     # Default to period for complete sentences
+    # Strip trailing commas/semicolons before adding period
+    text = text.rstrip(',;: ')
     return text + '.'
 
 

@@ -6,3 +6,6 @@
 # Python
 __pycache__/
 *.pyc
+
+# Temporary commit message files
+COMMIT_MESSAGE.txt
