@@ -407,7 +407,7 @@ class SentenceSplitter:
                         # Also lowercase the connector in the next iteration
                         # We need to modify the words list directly
                         words[i + 1] = next_word_clean
-                        self.logger.info(
+                        self.logger.debug(
                             f"REMOVED Whisper period before same-speaker connector: "
                             f"word={i} ('{word}'), connector='{next_word_clean}' (lowercased)"
                         )
@@ -851,7 +851,7 @@ class SentenceSplitter:
                             'connector': next_word_clean
                         })
                         
-                        self.logger.info(
+                        self.logger.debug(
                             f"MERGED: Removed period before same-speaker connector '{next_word_clean}' "
                             f"(speaker={speaker_at_end})"
                         )
