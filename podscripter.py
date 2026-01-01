@@ -631,9 +631,11 @@ def _convert_speaker_segments_to_char_ranges(
         spk_label = spk_seg.get('speaker', 'UNKNOWN')
         spk_duration = spk_end_time - spk_start_time
         
-        # Skip very short segments that might be noise or overlap artifacts
-        if spk_duration < 1.5:  # Less than 1.5 seconds - likely noise
-            logger.debug(f"Skipping short speaker segment {spk_idx} ({spk_label}): duration {spk_duration:.2f}s")
+        # Skip EXTREMELY short segments that are likely noise or overlap artifacts
+        # Note: Diarization already filters segments < 2.0s, so we only filter out
+        # very brief segments (< 0.5s) that might be cross-talk or noise
+        if spk_duration < 0.5:  # Less than 0.5 seconds - likely noise
+            logger.debug(f"Skipping very short speaker segment {spk_idx} ({spk_label}): duration {spk_duration:.2f}s")
             continue
         
         # Find the Whisper segments that overlap with this speaker segment
