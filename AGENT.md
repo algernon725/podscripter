@@ -378,7 +378,27 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: Verified with Episodio212.mp3 (33-minute Spanish podcast with 3 speakers, 86 speaker changes). Result: Zero sentences starting with connector words. All 34+ connector word boundaries correctly merged when same speaker continues.
 
-### 5. Known Open Issues / Work In Progress
+### 5. Known Resolved Issues (Recent)
+
+#### Whisper-Added Periods at Skipped Boundaries (RESOLVED - v0.4.2)
+**Problem**: When a Whisper segment boundary was skipped (because a speaker boundary was nearby), Whisper's period at that segment end remained in the text and caused an unwanted sentence split.
+- Example: Whisper segment 10 ends with "ustedes." and segment 11 is "Mateo 712"
+- Speaker boundary at 69.47s falls WITHIN segment 11 (67.89s-69.89s)
+- We correctly skipped the Whisper boundary at "ustedes" (since speaker boundary was 2 words away)
+- But the period after "ustedes." remained, causing: "...ustedes." | "Mateo 712." instead of "...ustedes Mateo 712."
+- The actual speaker change happened AFTER "Mateo 712", so both should be in the same sentence
+
+**Root Cause**: Whisper adds terminal punctuation to segments in its raw transcription. Even though we skipped Whisper boundaries during semantic splitting, the punctuation remained in the concatenated text.
+
+**Solution Implemented (v0.4.2)**:
+1. **Track skipped boundaries**: When a Whisper boundary is skipped (speaker boundary within 15 words), record the word index in `skipped_whisper_boundaries` set
+2. **Remove periods at skipped positions**: In `_evaluate_boundaries`, after calling `_should_end_sentence_here` (which populates the skipped set), immediately check if the current word is at a skipped boundary and remove any trailing period
+3. **Priority fix**: Moved Whisper boundary skip detection BEFORE `min_total_words_no_split` check so skips are tracked even in short texts
+4. **Metadata tracking**: Record all removed periods with reason 'skipped_whisper_boundary' for debugging
+
+**Impact**: Edge case affecting very short segments (< 3 words) that precede speaker changes. Now correctly handles these cases.
+
+**Tests**: `test_whisper_skipped_boundary_detailed.py`, `test_whisper_boundary_debug.py`
 
 #### Period Before Same-Speaker Connectors (RESOLVED - v0.4.0)
 **Problem**: When the same speaker continues speaking with a connector word ("Y", "and", "et", "und"), Whisper-added periods remained in the text even though our logic prevented starting a new sentence with the connector.
@@ -438,36 +458,6 @@ Implemented the sentence splitting consolidation refactor. The new `SentenceSpli
 - This will protect initials throughout the entire processing pipeline
 
 **Tests**: `test_initials_normalization.py` (comprehensive coverage for EN/ES/FR/DE)
-
-#### Whisper-Added Periods at Skipped Boundaries (Known Limitation)
-**Problem**: When a Whisper segment boundary is skipped (because a speaker boundary is nearby), Whisper's period at that segment end remains in the text and can cause an unwanted sentence split.
-- Example: Whisper segment 10 ends with "ustedes." and segment 11 is "Mateo 712"
-- Speaker boundary at 69.47s falls WITHIN segment 11 (67.89s-69.89s)
-- We correctly skip the Whisper boundary at "ustedes" (since speaker boundary is 2 words away)
-- But the period after "ustedes." remains, causing: "...ustedes." | "Mateo 712." instead of "...ustedes Mateo 712."
-- The actual speaker change happens AFTER "Mateo 712", so both should be in the same sentence
-
-**Root Cause**: Whisper adds terminal punctuation to segments in its raw transcription. Even though we skip Whisper boundaries during semantic splitting, the punctuation remains in the concatenated text and causes splits during final sentence assembly.
-
-**What's Working**:
-- ✅ Speaker boundaries are correctly detected and converted to character positions
-- ✅ Whisper boundaries are skipped when speaker boundaries are nearby (within 15 words)
-- ✅ Speaker boundaries use a very low threshold (2 words) to break even short phrases
-- ✅ Grammatical guards prevent invalid breaks
-
-**What's Not Working**:
-- ❌ Whisper's periods at skipped boundaries still cause sentence splits
-- ❌ Short phrases like "Mateo 712" that should join with previous sentence may be split
-
-**Why It's Complex**:
-The punctuation restoration pipeline has multiple phases. Whisper's periods are baked into the raw transcription before our boundary logic runs. Fixing this properly would require:
-1. Selectively stripping Whisper punctuation at skipped boundaries (but this breaks other valid periods)
-2. Tracking punctuation sources throughout the pipeline (major refactor)
-3. Refactoring to not rely on Whisper's punctuation (architectural change)
-
-**Impact**: This is an edge case that primarily affects very short segments (< 3 words) that precede speaker changes. Most transcriptions work correctly.
-
-**Workaround**: For critical transcriptions, manually review and merge sentences where short phrases like Bible verse references are split from their context.
 
 ## Recent Refactors
 

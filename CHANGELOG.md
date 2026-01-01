@@ -5,9 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.1] - 2025-12-30
+## [0.4.2] - 2025-12-31
 
 ### Fixed
+- **Whisper periods at skipped boundaries (Known Limitation Resolved)**: Fixed Whisper-added periods remaining when Whisper boundaries are skipped
+  - **Issue**: When a Whisper segment boundary was skipped (because a speaker boundary was nearby), the Whisper period remained
+  - **Example**: `"ustedes."` + `"Mateo 712"` → `"ustedes. Mateo 712"` instead of `"ustedes Mateo 712"`
+  - **Root cause**: Whisper adds periods to segment ends. Even though we skipped the boundary (no split), we didn't remove the period
+  - **Solution**: Track skipped Whisper boundaries in `skipped_whisper_boundaries` set, then remove periods at those positions
+  - **Implementation**: 
+    - Moved Whisper boundary skip detection BEFORE `min_total_words_no_split` check (works in short texts now)
+    - After `_should_end_sentence_here` returns, check if current word is at a skipped boundary
+    - Remove trailing `.!?` from words at skipped boundary positions
+    - Track removal with reason `'skipped_whisper_boundary'` for debugging
+  - **Impact**: Resolves known limitation documented in AGENT.md lines 442-470. Affects short segments (< 3 words) preceding speaker changes
+  - **Tests**: `test_whisper_skipped_boundary_detailed.py`, `test_whisper_boundary_debug.py`
 - **Period-before-connector inline removal (Critical)**: Fixed bug where v0.4.0 refactor didn't remove periods in all code paths
   - **Issue**: `_evaluate_boundaries()` correctly decided NOT to split before connectors, but period remained in text
   - **Example**: `"Ama a tu prójimo como a ti mismo. Y también..."` still had unwanted period before "Y"

@@ -138,6 +138,7 @@ class SentenceSplitter:
         self.split_metadata: List[SentenceMetadata] = []
         self.removed_periods: List[Dict] = []
         self.added_periods: List[Dict] = []
+        self.skipped_whisper_boundaries: Set[int] = set()  # Track skipped Whisper word boundaries
     
     def split(
         self,
@@ -165,6 +166,7 @@ class SentenceSplitter:
         self.split_metadata = []
         self.removed_periods = []
         self.added_periods = []
+        self.skipped_whisper_boundaries = set()
         
         # 1. Parse and track Whisper punctuation
         whisper_periods = self._extract_whisper_punctuation(text, whisper_segments)
@@ -370,12 +372,39 @@ class SentenceSplitter:
         
         for i, word in enumerate(words):
             current_chunk.append(word)
+            
             should_end = self._should_end_sentence_here(
                 words, i, current_chunk,
                 whisper_word_boundaries,
                 speaker_word_boundaries,
                 speaker_word_segments
             )
+            
+            # NEW FIX: Remove Whisper periods at skipped boundaries
+            # If this word index was just marked as a skipped Whisper boundary, remove any trailing period
+            if i in self.skipped_whisper_boundaries:
+                if current_chunk[-1].rstrip().endswith(('.', '!', '?')):
+                    # Get speaker info for logging
+                    speaker_at_pos = None
+                    if speaker_word_segments:
+                        speaker_at_pos = self._get_speaker_at_word(i, speaker_word_segments)
+                    
+                    # Remove the period from the word in the chunk
+                    original_word = current_chunk[-1]
+                    current_chunk[-1] = current_chunk[-1].rstrip('.!?')
+                    
+                    self.logger.debug(
+                        f"REMOVED Whisper period at skipped boundary: "
+                        f"word={i} ('{original_word}' → '{current_chunk[-1]}'), speaker={speaker_at_pos}"
+                    )
+                    self.removed_periods.append({
+                        'position': i,
+                        'reason': 'skipped_whisper_boundary',
+                        'speaker': speaker_at_pos,
+                        'original': original_word,
+                        'modified': current_chunk[-1]
+                    })
+
             
             # DEBUG: Log sentence endings around connectors
             if i + 1 < len(words):
@@ -497,12 +526,8 @@ class SentenceSplitter:
         if self._violates_grammatical_rules(current_word, next_word):
             return False
         
-        # If the entire input is very short, don't split (UNLESS speaker boundary above)
-        if len(words) <= thresholds.get('min_total_words_no_split', 25):
-            return False
-        
-        # PRIORITY 3: Whisper boundaries (MEDIUM-HIGH PRIORITY)
-        # Whisper boundaries represent acoustic pauses
+        # PRIORITY 3: Check for Whisper boundaries that should be skipped (TRACK EARLY)
+        # Do this BEFORE min_total_words check so we track skips even in short texts
         if whisper_word_boundaries and current_index in whisper_word_boundaries:
             self.logger.debug(
                 f"At Whisper boundary: word {current_index}, "
@@ -518,7 +543,21 @@ class SentenceSplitter:
                 )
                 if upcoming_speaker_boundary:
                     # Skip and let speaker boundary handle the split
+                    # TRACK THIS: We skipped a Whisper boundary, so we should remove its period
+                    self.skipped_whisper_boundaries.add(current_index)
+                    self.logger.debug(
+                        f"SKIPPED Whisper boundary at word {current_index} "
+                        f"(speaker boundary within 15 words)"
+                    )
                     return False
+        
+        # If the entire input is very short, don't split (UNLESS speaker boundary above)
+        if len(words) <= thresholds.get('min_total_words_no_split', 25):
+            return False
+        
+        # PRIORITY 4: Whisper boundaries - process split decision (MEDIUM-HIGH PRIORITY)
+        # Whisper boundaries represent acoustic pauses
+        if whisper_word_boundaries and current_index in whisper_word_boundaries:
             
             min_words_whisper = thresholds.get('min_words_whisper_break', 10)
             
