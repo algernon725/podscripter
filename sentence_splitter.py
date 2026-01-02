@@ -264,12 +264,16 @@ class SentenceSplitter:
         boundaries = set()
         words = text.split()
         
-        # For speaker segments, boundaries are already in word format
+        # For speaker segments, extract boundaries where speaker CHANGES
         if is_speaker:
-            for seg in segments:
-                # Speaker segments have start_word and end_word
-                if 'end_word' in seg:
-                    boundaries.add(seg['end_word'])
+            for i in range(len(segments) - 1):
+                current_seg = segments[i]
+                next_seg = segments[i + 1]
+                
+                # Only add boundary if speaker changes
+                if current_seg.get('speaker') != next_seg.get('speaker'):
+                    if 'end_word' in current_seg:
+                        boundaries.add(current_seg['end_word'])
         else:
             # For Whisper segments, we need to calculate word positions
             # This is done by tracking cumulative text length
@@ -514,8 +518,22 @@ class SentenceSplitter:
                 
                 if next_word_clean not in self.CONNECTOR_WORDS:
                     # Speaker change and not a connector - break here
+                    self.logger.debug(
+                        f"SPLIT at speaker boundary: word {current_index} '{current_word}', "
+                        f"next='{next_word}', chunk_len={len(current_chunk)}"
+                    )
                     return True
+                else:
+                    self.logger.debug(
+                        f"SKIP speaker boundary: word {current_index} '{current_word}', "
+                        f"next connector='{next_word_clean}'"
+                    )
                 # If connector, fall through to other checks
+            else:
+                self.logger.debug(
+                    f"SKIP speaker boundary: word {current_index}, chunk too short "
+                    f"({len(current_chunk)} < {min_words_speaker})"
+                )
         
         # Don't end sentence if we're at the very beginning or very end
         # (Allow index 1 for speaker boundaries with 2-word minimum)

@@ -57,7 +57,7 @@ logger = logging.getLogger("podscripter")
 # Default settings
 DEFAULT_DIARIZATION_DEVICE = "cpu"
 SPEAKER_BOUNDARY_EPSILON_SEC = 1.0  # Merge boundaries within 1 second
-MIN_SPEAKER_SEGMENT_SEC = 2.0  # Ignore very short speaker segments
+MIN_SPEAKER_SEGMENT_SEC = 0.5  # Ignore very short speaker segments (< 0.5s likely noise)
 
 # Priority weights for boundary merging
 SPEAKER_BOUNDARY_PRIORITY = 10

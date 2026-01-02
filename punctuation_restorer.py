@@ -1446,9 +1446,10 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Log metadata for debugging
     if metadata.get('removed_periods'):
-        logger.debug(f"Removed {len(metadata['removed_periods'])} Whisper periods before same-speaker connectors")
+        logger.debug(f"Removed {len(metadata['removed_periods'])} Whisper periods")
         for removal in metadata['removed_periods']:
-            logger.debug(f"  - Position {removal['position']}: {removal['connector']} (speaker: {removal['speaker']})")
+            connector_info = f" connector='{removal['connector']}'" if 'connector' in removal else ""
+            logger.debug(f"  - Position {removal['position']}: {removal['reason']}{connector_info} (speaker: {removal.get('speaker', 'unknown')})")
     # 2) Punctuate each sentence individually (preserving boundaries from SentenceSplitter)
     punctuated_sentences = []
     for i, sent in enumerate(sentences):

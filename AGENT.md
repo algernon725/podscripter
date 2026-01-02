@@ -400,6 +400,31 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: `test_whisper_skipped_boundary_detailed.py`, `test_whisper_boundary_debug.py`
 
+#### Speaker Change Separation (RESOLVED - v0.4.2)
+**Problem**: When speaker boundaries fell within Whisper segments (not at segment boundaries), sentences from different speakers were not separated by blank lines in the output.
+- Example: "Estoy mejorando cada día con tu instrucción." (Nate speaking) followed by "¡Nate! Este año..." (Andrea speaking) appeared in the same paragraph
+- The user's preference: Keep multiple short sentences from the SAME speaker together (no blank line), but ALWAYS separate different speakers with blank lines
+
+**Root Causes**: Three compounding issues:
+1. **Boundary extraction bug**: `SentenceSplitter._convert_segments_to_word_boundaries()` extracted `end_word` from ALL speaker segments, not just where speakers changed. This created false boundaries within a single speaker's utterance.
+2. **Segment filtering**: `MIN_SPEAKER_SEGMENT_SEC` threshold in `speaker_diarization.py` was 2.0s, filtering out short but legitimate utterances like "¡Uy, Nate!" (Andrea's brief interjection).
+3. **Misalignment handling**: `_convert_speaker_segments_to_char_ranges()` in `podscripter.py` used duration-based sorting that assigned entire Whisper segments to speakers. When a speaker boundary fell WITHIN a Whisper segment (e.g., speaker changes at 118.78s within Whisper segment 115.58s-119.08s), the entire segment was incorrectly assigned to one speaker.
+
+**Solution Implemented (v0.4.2)**:
+1. **Fixed boundary extraction** (`sentence_splitter.py` lines 269-276): Loop through speaker segments pairwise, only add `end_word` boundary when `current_seg['speaker'] != next_seg['speaker']`
+2. **Lowered segment threshold** (`speaker_diarization.py` line 60): Changed `MIN_SPEAKER_SEGMENT_SEC` from 2.0s to 0.5s to capture brief speaker changes while still filtering noise
+3. **Rewrote speaker assignment** (`podscripter.py` lines 613-703): New algorithm:
+   - For each Whisper segment, calculate temporal overlap with all speaker segments
+   - Assign Whisper segment to speaker with **most overlap duration**
+   - Group consecutive Whisper segments with same speaker into character ranges
+   - Accurately handles cases where diarization boundaries don't align with Whisper boundaries
+
+**Key Insight**: Speaker boundaries don't always align with Whisper segment boundaries. The diarization model detects speaker changes at arbitrary time points (e.g., 118.78s), while Whisper segments have their own boundaries (e.g., 115.58s-119.08s, 119.08s-127.08s). The old algorithm couldn't handle this misalignment.
+
+**Impact**: All diarization-enabled transcriptions now correctly separate different speakers' utterances with blank lines, while preserving the desired behavior of keeping same-speaker multi-sentence groups together.
+
+**Tests**: Verified with Episodio212.mp3 (33-minute Spanish podcast, 3 speakers, 117 speaker changes after fix). Both reported examples now correctly separated.
+
 #### Period Before Same-Speaker Connectors (RESOLVED - v0.4.0)
 **Problem**: When the same speaker continues speaking with a connector word ("Y", "and", "et", "und"), Whisper-added periods remained in the text even though our logic prevented starting a new sentence with the connector.
 - Spanish example: `"...es importante tener una estructura como un trabajo. Y este meta es tu trabajo cada día."` (incorrect - same speaker, period shouldn't be there)

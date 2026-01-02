@@ -293,10 +293,12 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 
 **Integration**: Full speaker segment information (with labels and ranges) is threaded through the entire punctuation pipeline to enable speaker-aware sentence splitting.
 
-**Speaker Segment Tracking** (v0.3.1):
+**Speaker Segment Tracking** (v0.3.1, enhanced in v0.4.2):
 - **Full speaker context**: Instead of just boundary timestamps, entire speaker segments (with labels and ranges) are tracked
 - **Conversion pipeline**:
   1. `_convert_speaker_segments_to_char_ranges()`: Time-based segments → character positions in text
+     - **v0.4.2**: Uses overlap-based assignment algorithm. Each Whisper segment is assigned to the speaker with the most temporal overlap, then consecutive segments with same speaker are grouped into character ranges.
+     - **Handles misalignment**: Speaker boundaries often fall within Whisper segments (not at boundaries). Old duration-based sorting failed; new algorithm calculates overlap for each Whisper-speaker pair.
   2. `_convert_char_ranges_to_word_ranges()`: Character positions → word indices
   3. `_get_speaker_at_word()`: Query speaker label at any word position
 - **Connector word handling**: When a sentence would start with a connector word ("Y", "O", "and", "et", "und"), check if the same speaker is continuing. If yes, merge into previous sentence. If no (different speaker), allow the break.
@@ -304,17 +306,19 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 
 **Priority hierarchy** (in `_should_end_sentence_here`):
 1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
-2. **Speaker continuity check (NEW)**: At connector words, prevent break if same speaker continues
+2. **Speaker continuity check**: At connector words, prevent break if same speaker continues
 3. Speaker boundaries (highest priority - break even for very short phrases, min 2 words)
+   - **v0.4.2**: `SentenceSplitter` only extracts boundaries where speaker changes (not from all segments)
 4. Whisper boundaries (medium priority - min 10 words)
    - **Whisper boundary skipping**: If a speaker boundary is within the next 15 words, skip the Whisper boundary check to avoid splitting when the same speaker continues across Whisper segments
+   - **v0.4.2**: Periods at skipped boundaries are now automatically removed
 5. General min_chunk_before_split check (20 words for Spanish, 15 for others)
 6. Semantic coherence (fallback)
 
 **Critical implementation details**: 
 - Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes
 - Whisper boundaries are skipped when a speaker boundary is nearby to prevent breaking when a speaker continues across acoustic pauses
-- Known limitation: Whisper-added periods at skipped boundaries may still cause unwanted sentence splits (see AGENT.md "Known Open Issues")
+- **v0.4.2**: Whisper-added periods at skipped boundaries are now tracked and removed automatically
 
 **Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
 
@@ -342,7 +346,7 @@ Threading through pipeline:
 Configuration:
 - `DEFAULT_DIARIZATION_DEVICE = "cpu"` (can use GPU if available)
 - `SPEAKER_BOUNDARY_EPSILON_SEC = 1.0` (merge boundaries within 1s)
-- `MIN_SPEAKER_SEGMENT_SEC = 2.0` (ignore very short speaker segments)
+- `MIN_SPEAKER_SEGMENT_SEC = 0.5` (v0.4.2: lowered from 2.0s to capture brief speaker changes while filtering noise)
 
 Debugging:
 - Use `--dump-diarization` to write `<basename>_diarization.txt` with:

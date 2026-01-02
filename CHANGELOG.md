@@ -5,9 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.2] - 2025-12-31
+## [0.4.2] - 2025-01-01
 
 ### Fixed
+- **Speaker change separation (Critical)**: Fixed sentences from different speakers not being separated by blank lines
+  - **Issue**: When speaker boundaries fell within Whisper segments (not at boundaries), the entire segment was assigned to one speaker
+  - **Example**: "Estoy mejorando cada día con tu instrucción." (Nate) followed by "¡Nate! Este año..." (Andrea) appeared in same paragraph
+  - **Root causes**:
+    1. `SentenceSplitter._convert_segments_to_word_boundaries()` extracted boundaries from ALL speaker segments, not just where speaker changes
+    2. `MIN_SPEAKER_SEGMENT_SEC` threshold in `speaker_diarization.py` was 2.0s, filtering out short utterances like "¡Uy, Nate!"
+    3. `_convert_speaker_segments_to_char_ranges()` in `podscripter.py` used duration-based sorting that failed when speaker boundaries fell within Whisper segments
+  - **Solution**: 
+    - Modified `SentenceSplitter._convert_segments_to_word_boundaries()` to only extract boundaries where `speaker` label changes between consecutive segments
+    - Lowered `MIN_SPEAKER_SEGMENT_SEC` from 2.0s to 0.5s to capture brief speaker changes
+    - Rewrote speaker-to-Whisper assignment algorithm to assign each Whisper segment to the speaker with most **temporal overlap**, then group consecutive segments with same speaker
+  - **Implementation**:
+    - `sentence_splitter.py` (line 269-276): Loop through segments pairwise, only add `end_word` boundary if speakers differ
+    - `speaker_diarization.py` (line 60): Changed threshold to 0.5s (filters only noise/artifacts)
+    - `podscripter.py` (lines 613-703): New algorithm calculates overlap duration for each Whisper-speaker pair, assigns to best match, groups into ranges
+  - **Impact**: All diarization-enabled transcriptions now correctly separate different speakers' utterances, while preserving same-speaker multi-sentence grouping
+  - **Debug**: Added logging for speaker boundary split/skip decisions
 - **Whisper periods at skipped boundaries (Known Limitation Resolved)**: Fixed Whisper-added periods remaining when Whisper boundaries are skipped
   - **Issue**: When a Whisper segment boundary was skipped (because a speaker boundary was nearby), the Whisper period remained
   - **Example**: `"ustedes."` + `"Mateo 712"` → `"ustedes. Mateo 712"` instead of `"ustedes Mateo 712"`
@@ -36,11 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Speaker boundary priority in short texts**: Fixed speaker changes not being respected in texts < 25 words
   - **Solution**: Check speaker boundaries BEFORE min_total_words_no_split guard
   - **Impact**: Ensures speaker changes create sentence breaks even in short transcriptions
+- **Metadata logging crash**: Fixed KeyError when logging removed periods that don't have 'connector' key
+  - **Root cause**: Some removed period entries (e.g., 'skipped_whisper_boundary') don't include connector information
+  - **Solution**: Made connector logging conditional in `punctuation_restorer.py` line 1449
 
 ### Changed
+- `SentenceSplitter._convert_segments_to_word_boundaries()`: Now only extracts boundaries where speaker actually changes (not from all segments)
+- `SentenceSplitter._should_end_sentence_here()`: Added debug logging for speaker boundary split/skip decisions
+- `speaker_diarization.py`: Lowered `MIN_SPEAKER_SEGMENT_SEC` from 2.0s to 0.5s to capture brief speaker changes
+- `podscripter.py._convert_speaker_segments_to_char_ranges()`: Completely rewritten to use overlap-based assignment instead of duration-based sorting
 - `SentenceSplitter._evaluate_boundaries()`: Now removes Whisper periods inline when deciding not to split at connectors
-- `SentenceSplitter._should_end_sentence_here()`: Speaker boundaries now checked first, before length guards
 - `_should_add_terminal_punctuation()`: Semantic question detection now takes priority over word-based fallback
+- `punctuation_restorer.py`: Made metadata logging safer by checking for 'connector' key presence
 
 ### Added
 - `tests/test_trailing_comma_bug.py`: Test suite to prevent regression of trailing comma bug

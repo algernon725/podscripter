@@ -612,62 +612,87 @@ def _convert_speaker_segments_to_char_ranges(
     
     logger.debug(f"Built {len(whisper_char_positions)} Whisper char positions, total text length: {position}")
     
-    # Sort speaker segments by duration (longest first) to handle overlaps
-    # When segments overlap, we prefer the longer segment as it's more reliable
-    sorted_speaker_segs = sorted(
-        speaker_segments,
-        key=lambda s: (s.get('end', 0) - s.get('start', 0)),
-        reverse=True
-    )
+    # Assign each Whisper segment to the speaker with the most overlap
+    # This ensures accurate speaker labeling even when boundaries fall within segments
+    whisper_to_speaker = {}  # whisper_idx -> speaker_label
     
-    # Track which character ranges have been assigned to avoid conflicts from overlapping segments
-    assigned_chars = set()
-    
-    # For each speaker segment (longest first), map it to character positions
-    speaker_char_ranges = []
-    for spk_idx, spk_seg in enumerate(sorted_speaker_segs):
-        spk_start_time = spk_seg.get('start', 0)
-        spk_end_time = spk_seg.get('end', 0)
-        spk_label = spk_seg.get('speaker', 'UNKNOWN')
-        spk_duration = spk_end_time - spk_start_time
+    for whisp_info in whisper_char_positions:
+        whisp_idx = whisp_info['whisper_idx']
+        whisp_start = whisp_info['start']
+        whisp_end = whisp_info['end']
+        whisp_duration = whisp_end - whisp_start
         
-        # Skip EXTREMELY short segments that are likely noise or overlap artifacts
-        # Note: Diarization already filters segments < 2.0s, so we only filter out
-        # very brief segments (< 0.5s) that might be cross-talk or noise
-        if spk_duration < 0.5:  # Less than 0.5 seconds - likely noise
-            logger.debug(f"Skipping very short speaker segment {spk_idx} ({spk_label}): duration {spk_duration:.2f}s")
+        # Find all speaker segments that overlap with this Whisper segment
+        best_speaker = None
+        best_overlap = 0
+        
+        for spk_seg in speaker_segments:
+            spk_start = spk_seg.get('start', 0)
+            spk_end = spk_seg.get('end', 0)
+            spk_label = spk_seg.get('speaker', 'UNKNOWN')
+            spk_duration = spk_end - spk_start
+            
+            # Skip very short speaker segments (likely noise)
+            if spk_duration < 0.5:
+                continue
+            
+            # Calculate overlap duration
+            overlap_start = max(whisp_start, spk_start)
+            overlap_end = min(whisp_end, spk_end)
+            overlap_duration = max(0, overlap_end - overlap_start)
+            
+            # Track speaker with most overlap
+            if overlap_duration > best_overlap:
+                best_overlap = overlap_duration
+                best_speaker = spk_label
+        
+        if best_speaker and best_overlap > 0:
+            whisper_to_speaker[whisp_idx] = best_speaker
+            logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: assigned to {best_speaker} (overlap: {best_overlap:.2f}s / {whisp_duration:.2f}s)")
+    
+    # Group consecutive Whisper segments with the same speaker into ranges
+    speaker_char_ranges = []
+    current_speaker = None
+    current_start_char = None
+    current_end_char = None
+    
+    for whisp_info in whisper_char_positions:
+        whisp_idx = whisp_info['whisper_idx']
+        whisp_speaker = whisper_to_speaker.get(whisp_idx)
+        
+        if whisp_speaker is None:
+            # No speaker assigned - finish current range if any
+            if current_speaker is not None:
+                speaker_char_ranges.append({
+                    'start_char': current_start_char,
+                    'end_char': current_end_char,
+                    'speaker': current_speaker
+                })
+                current_speaker = None
             continue
         
-        # Find the Whisper segments that overlap with this speaker segment
-        overlapping_whisper = []
-        for whisp_info in whisper_char_positions:
-            whisp_start = whisp_info['start']
-            whisp_end = whisp_info['end']
-            
-            # Check if there's any overlap between speaker and whisper segment
-            if not (whisp_end < spk_start_time or whisp_start > spk_end_time):
-                # Check if this character range hasn't been assigned yet
-                whisp_range = set(range(whisp_info['char_start'], whisp_info['char_end']))
-                if not whisp_range.issubset(assigned_chars):
-                    overlapping_whisper.append(whisp_info)
-        
-        if overlapping_whisper:
-            # Character range spans from first to last overlapping Whisper segment
-            char_start = overlapping_whisper[0]['char_start']
-            char_end = overlapping_whisper[-1]['char_end']
-            
-            # Mark these characters as assigned
-            assigned_chars.update(range(char_start, char_end))
-            
-            logger.debug(f"Speaker seg ({spk_label}): time [{spk_start_time:.2f}s:{spk_end_time:.2f}s] → chars [{char_start}:{char_end}], {len(overlapping_whisper)} Whisper segs")
-            
-            speaker_char_ranges.append({
-                'start_char': char_start,
-                'end_char': char_end,
-                'speaker': spk_label
-            })
+        if whisp_speaker == current_speaker:
+            # Same speaker - extend current range
+            current_end_char = whisp_info['char_end']
         else:
-            logger.debug(f"Speaker seg ({spk_label}): time [{spk_start_time:.2f}s:{spk_end_time:.2f}s] has NO unassigned overlapping Whisper segments")
+            # Different speaker - finish previous range and start new one
+            if current_speaker is not None:
+                speaker_char_ranges.append({
+                    'start_char': current_start_char,
+                    'end_char': current_end_char,
+                    'speaker': current_speaker
+                })
+            current_speaker = whisp_speaker
+            current_start_char = whisp_info['char_start']
+            current_end_char = whisp_info['char_end']
+    
+    # Don't forget the last range
+    if current_speaker is not None:
+        speaker_char_ranges.append({
+            'start_char': current_start_char,
+            'end_char': current_end_char,
+            'speaker': current_speaker
+        })
     
     # Sort by character position for easier processing downstream
     speaker_char_ranges.sort(key=lambda r: r['start_char'])
