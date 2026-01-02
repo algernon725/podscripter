@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2025-01-02
+
+### Fixed
+- **Missing periods after Whisper segments (Critical)**: Fixed periods being incorrectly removed when speaker changes occurred many words later
+  - **Issue**: Legitimate sentence-ending periods were removed if a speaker change occurred within the next 15 words
+  - **Example**: "Dile adiós a todos esos momentos incómodos Entonces, empecemos." (missing period after "incómodos")
+  - **Root cause**: `sentence_splitter.py` line 558 used a 15-word lookahead window to skip Whisper boundaries when speaker changes were nearby. This was too aggressive and removed periods from legitimate sentence endings
+  - **Solution**: 
+    - Reduced lookahead window from 15 words to 3 words (only skip for true misalignment)
+    - Added checks: only skip if next word is a connector OR starts lowercase (indicates continuation)
+    - If next word is capitalized and not a connector, preserve the Whisper boundary and period
+  - **Impact**: Affects all diarization-enabled transcriptions where Whisper segment boundaries don't align perfectly with speaker boundaries
+  - **Tests**: All 35 tests pass
+
+- **Speaker changes with connector words not separated (Critical)**: Fixed different speakers' sentences being merged when next sentence starts with connector
+  - **Issue**: When a speaker change occurred and the next speaker's sentence started with a connector word ("Y", "and", "et", "und"), the two sentences were merged into one paragraph
+  - **Example**: "Yo soy Andrea de Santander, Colombia. Y yo soy Nate de Texas, Estados Unidos." (Andrea and Nate on same line despite being different speakers)
+  - **Root cause**: `sentence_splitter.py` line 519-531 skipped speaker boundaries when the next word was a connector, assuming same-speaker continuation
+  - **Solution**: Speaker boundaries now ALWAYS create splits, regardless of whether next word is a connector. Connector merging only applies when the SAME speaker continues
+  - **Impact**: All diarization-enabled transcriptions now correctly separate different speakers even when one starts with a connector word
+  - **Tests**: All 35 tests pass
+
 ## [0.4.2] - 2025-01-01
 
 ### Fixed

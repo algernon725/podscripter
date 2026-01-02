@@ -507,28 +507,19 @@ class SentenceSplitter:
         next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
         
         # PRIORITY 1: Speaker boundaries (HIGHEST PRIORITY - check first!)
-        # Speaker changes almost always indicate sentence breaks, even in short texts
-        # Check this BEFORE other guards to allow breaking at speaker changes
+        # Speaker changes ALWAYS indicate sentence breaks, even if next word is a connector
+        # Different speakers should NEVER have their sentences merged, even with connectors
         if speaker_word_boundaries and current_index in speaker_word_boundaries:
             min_words_speaker = 2  # Very low threshold for speaker changes
             
             if len(current_chunk) >= min_words_speaker:
-                # Check if next word is a connector
-                next_word_clean = next_word.lower().strip('.,;:!?¿¡')
-                
-                if next_word_clean not in self.CONNECTOR_WORDS:
-                    # Speaker change and not a connector - break here
-                    self.logger.debug(
-                        f"SPLIT at speaker boundary: word {current_index} '{current_word}', "
-                        f"next='{next_word}', chunk_len={len(current_chunk)}"
-                    )
-                    return True
-                else:
-                    self.logger.debug(
-                        f"SKIP speaker boundary: word {current_index} '{current_word}', "
-                        f"next connector='{next_word_clean}'"
-                    )
-                # If connector, fall through to other checks
+                # Speaker change - ALWAYS break here
+                # Even if next word is a connector, different speakers should be separated
+                self.logger.debug(
+                    f"SPLIT at speaker boundary: word {current_index} '{current_word}', "
+                    f"next='{next_word}', chunk_len={len(current_chunk)}"
+                )
+                return True
             else:
                 self.logger.debug(
                     f"SKIP speaker boundary: word {current_index}, chunk too short "
@@ -552,22 +543,41 @@ class SentenceSplitter:
                 f"has_speaker_boundaries={speaker_word_boundaries is not None}"
             )
             
-            # Skip this Whisper boundary if there's a speaker boundary coming soon
-            # This prevents splitting when a speaker continues across Whisper segments
-            if speaker_word_boundaries:
-                upcoming_speaker_boundary = any(
-                    current_index < boundary_idx <= current_index + 15
-                    for boundary_idx in speaker_word_boundaries
-                )
-                if upcoming_speaker_boundary:
-                    # Skip and let speaker boundary handle the split
-                    # TRACK THIS: We skipped a Whisper boundary, so we should remove its period
-                    self.skipped_whisper_boundaries.add(current_index)
-                    self.logger.debug(
-                        f"SKIPPED Whisper boundary at word {current_index} "
-                        f"(speaker boundary within 15 words)"
-                    )
-                    return False
+            # Skip this Whisper boundary if there's a speaker boundary coming VERY soon
+            # AND the next word suggests continuation (connector or lowercase)
+            # This prevents splitting when speaker boundaries are misaligned by 1-3 words
+            if speaker_word_boundaries and current_index + 1 < len(words):
+                # Find closest upcoming speaker boundary
+                closest_boundary = None
+                for boundary_idx in speaker_word_boundaries:
+                    if current_index < boundary_idx <= current_index + 3:
+                        if closest_boundary is None or boundary_idx < closest_boundary:
+                            closest_boundary = boundary_idx
+                
+                if closest_boundary is not None:
+                    # Check if next word suggests continuation (not a new sentence)
+                    next_word = words[current_index + 1]
+                    next_word_clean = next_word.strip('.,;:!?¿¡').lower()
+                    
+                    # Skip only if next word is a connector OR starts lowercase (continuation)
+                    is_connector = next_word_clean in self.CONNECTOR_WORDS
+                    starts_lowercase = next_word[0].islower() if next_word else False
+                    
+                    if is_connector or starts_lowercase:
+                        # Skip and let speaker boundary handle the split
+                        # TRACK THIS: We skipped a Whisper boundary, so we should remove its period
+                        self.skipped_whisper_boundaries.add(current_index)
+                        self.logger.debug(
+                            f"SKIPPED Whisper boundary at word {current_index} "
+                            f"(speaker boundary {closest_boundary - current_index} words away, "
+                            f"next_word='{next_word}', is_connector={is_connector}, starts_lowercase={starts_lowercase})"
+                        )
+                        return False
+                    else:
+                        self.logger.debug(
+                            f"NOT SKIPPING Whisper boundary at word {current_index} "
+                            f"(speaker boundary close but next word '{next_word}' suggests new sentence)"
+                        )
         
         # If the entire input is very short, don't split (UNLESS speaker boundary above)
         if len(words) <= thresholds.get('min_total_words_no_split', 25):

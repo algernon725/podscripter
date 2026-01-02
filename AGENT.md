@@ -380,6 +380,48 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Resolved Issues (Recent)
 
+#### Whisper Boundary Skipping Too Aggressive (RESOLVED - v0.4.3)
+**Problem**: Legitimate sentence-ending periods were being removed when speaker changes occurred many words later in the text.
+- Example: "Dile adiós a todos esos momentos incómodos Entonces, empecemos." (missing period after "incómodos")
+- Whisper correctly added period after "incómodos" (end of segment)
+- Speaker change occurred 11 words later at "Y yo soy Nate..."
+- The 15-word lookahead window incorrectly marked the "incómodos" boundary as "skipped" and removed its period
+
+**Root Cause**: In `sentence_splitter.py` line 558, the logic checked if ANY speaker boundary existed within the next 15 words and would skip the Whisper boundary. This was too aggressive - it assumed that if a speaker change was coming "soon", the current Whisper boundary must be a false split. But 15 words is far enough that there can be multiple legitimate sentences in between.
+
+**Solution Implemented (v0.4.3)**:
+1. **Reduced lookahead window**: Changed from 15 words to 3 words (only skip for true misalignment, not distant speaker changes)
+2. **Added continuation checks**: Only skip Whisper boundary if BOTH conditions are met:
+   - Speaker boundary is within 3 words
+   - Next word is a connector (y, and, et, und) OR starts lowercase (indicates continuation)
+3. **Preserve legitimate endings**: If next word is capitalized and not a connector, keep the Whisper boundary and period
+
+**Key Insight**: The 15-word window was designed to handle cases where speaker boundaries are misaligned by 1-2 words from Whisper boundaries. But 15 words is too large - it can span multiple complete sentences. A 3-word window is sufficient for misalignment while preserving legitimate sentence endings.
+
+**Impact**: All diarization-enabled transcriptions now correctly preserve periods at Whisper segment boundaries when they represent legitimate sentence endings.
+
+**Tests**: All 35 tests pass. Verified with Episodio212-trim.mp3.
+
+#### Speaker Changes with Connector Words (RESOLVED - v0.4.3)
+**Problem**: When a speaker change occurred and the next speaker's sentence started with a connector word, the two different speakers' sentences were merged into one paragraph.
+- Example: "Yo soy Andrea de Santander, Colombia. Y yo soy Nate de Texas, Estados Unidos." (Andrea and Nate on same line)
+- Andrea's sentence ends with "Colombia."
+- Nate's sentence starts with "Y yo soy Nate..."
+- Despite being different speakers, they appeared in the same paragraph
+
+**Root Cause**: In `sentence_splitter.py` lines 519-531, when a speaker boundary was detected, the code checked if the next word was a connector. If it was, it would SKIP the speaker boundary and fall through to other checks. This logic assumed that connectors always indicate same-speaker continuation, but it didn't verify that the speakers were actually the same.
+
+**Solution Implemented (v0.4.3)**:
+- **Simplified speaker boundary logic**: Speaker boundaries now ALWAYS create splits, regardless of whether the next word is a connector
+- **Removed connector check**: Deleted the conditional that skipped speaker boundaries when next word was a connector
+- **Rationale**: If there's a speaker change, the sentences should ALWAYS be separated, even if one happens to start with "and", "y", "et", or "und". The connector merging logic in `_process_whisper_punctuation()` already checks speaker continuity before merging, so it won't incorrectly merge different speakers.
+
+**Key Insight**: Speaker boundaries are definitive - they represent actual speaker changes detected by the diarization model. They should never be skipped based on the next word. Connector words should only prevent splits when the SAME speaker continues, not when speakers change.
+
+**Impact**: All diarization-enabled transcriptions now correctly separate different speakers' sentences with blank lines, even when one speaker starts with a connector word.
+
+**Tests**: All 35 tests pass. Verified with Episodio212-trim.mp3 (Andrea and Nate now on separate lines).
+
 #### Whisper-Added Periods at Skipped Boundaries (RESOLVED - v0.4.2)
 **Problem**: When a Whisper segment boundary was skipped (because a speaker boundary was nearby), Whisper's period at that segment end remained in the text and caused an unwanted sentence split.
 - Example: Whisper segment 10 ends with "ustedes." and segment 11 is "Mateo 712"
@@ -390,8 +432,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Root Cause**: Whisper adds terminal punctuation to segments in its raw transcription. Even though we skipped Whisper boundaries during semantic splitting, the punctuation remained in the concatenated text.
 
-**Solution Implemented (v0.4.2)**:
-1. **Track skipped boundaries**: When a Whisper boundary is skipped (speaker boundary within 15 words), record the word index in `skipped_whisper_boundaries` set
+**Solution Implemented (v0.4.2, refined in v0.4.3)**:
+1. **Track skipped boundaries**: When a Whisper boundary is skipped (speaker boundary within 3 words AND next word is connector/lowercase), record the word index in `skipped_whisper_boundaries` set
 2. **Remove periods at skipped positions**: In `_evaluate_boundaries`, after calling `_should_end_sentence_here` (which populates the skipped set), immediately check if the current word is at a skipped boundary and remove any trailing period
 3. **Priority fix**: Moved Whisper boundary skip detection BEFORE `min_total_words_no_split` check so skips are tracked even in short texts
 4. **Metadata tracking**: Record all removed periods with reason 'skipped_whisper_boundary' for debugging
