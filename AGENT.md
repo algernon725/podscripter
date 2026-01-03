@@ -380,6 +380,34 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Resolved Issues (Recent)
 
+#### False Domain Merge in Natural Language (RESOLVED - v0.4.4)
+**Problem**: Domain merge logic was incorrectly merging sentences when the word before a period matched a TLD in the domain list.
+- Example: "...pero jugar tenis juntos, bueno, si es que yo aprendo y soy capaz de jugar. Es que vamos a tratar de tener lecciones de tenis en Colombia."
+- Andrea's sentence ends with "jugar." (Spanish for "to play")
+- Nate's sentence starts with "Es que vamos..." ("Es" starts sentence)
+- Domain merge logic saw "jugar." + "Es..." and treated it as "jugar.es" (Spanish TLD)
+- Result: Two different speakers' sentences merged into one paragraph
+
+**Root Cause**: In `podscripter.py` lines 949-988, the domain merge logic uses regex `([A-Za-z0-9\-]+)\.$` to match any word ending with a period, then checks if the next sentence starts with a TLD pattern (com|net|org|co|**es**|io|...). Since "es" is the Spanish TLD and also a common Spanish word meaning "is", natural language like "jugar." + "Es que..." was matching as a broken domain.
+
+**Solution Implemented (v0.4.4)**:
+1. **Added natural language guards** (lines 962-972): Only merge if EITHER condition is true:
+   - Current sentence is short (< 50 characters) - indicates standalone domain mention
+   - Label before period is capitalized - indicates proper noun/brand name (e.g., "Google.Com")
+2. **Preserves legitimate domain merges**: Short mentions like "Visit example.com" or capitalized "Check out Google.Com" still merge correctly
+3. **Prevents false positives**: Long natural language sentences ending with lowercase words are excluded from domain merging
+
+**Key Insight**: Domain names in transcriptions have distinct characteristics:
+- **Short**: Standalone mentions like "Check out example.com"
+- **Capitalized**: Brand names like "Google.Com" or "GitHub.Io"
+- **URL context**: Part of explicit URL mentions
+
+Long natural language sentences (> 50 chars) ending with lowercase words that happen to match TLDs are almost never actual domains. The 50-character threshold provides a generous buffer while catching nearly all false positives.
+
+**Impact**: All transcriptions where sentences end with words matching TLD patterns (especially "es", "de", "co", "io" in Spanish/German/Portuguese contexts). Critical for diarization-enabled transcriptions where this bug could merge different speakers.
+
+**Tests**: Verified with Episodio212.mp3 (Andrea and Nate sentences now properly separated).
+
 #### Whisper Boundary Skipping Too Aggressive (RESOLVED - v0.4.3)
 **Problem**: Legitimate sentence-ending periods were being removed when speaker changes occurred many words later in the text.
 - Example: "Dile adiós a todos esos momentos incómodos Entonces, empecemos." (missing period after "incómodos")
@@ -851,6 +879,149 @@ Before submitting any changes, ensure:
   - Early input/output validation via `_validate_paths`
   - Constants hoisted (e.g., `DEFAULT_CHUNK_SEC`, `DEFAULT_OVERLAP_SEC`, `DEDUPE_EPSILON_SEC`, `PROMPT_TAIL_CHARS`)
   - Prefer `pathlib.Path` over `os.path`/`glob`; keep orchestration helpers private
+
+## Future Refactoring Opportunities
+
+### Post-Processing Merge Consolidation (Priority: Medium-High)
+
+**Problem Identified (v0.4.4)**: During troubleshooting of the false domain merge bug, we discovered that sentences are split by the `SentenceSplitter` and then merged back together in multiple post-processing steps. This "split then merge" pattern creates several issues:
+
+**Current Architecture Issues**:
+
+1. **Debugging Difficulty**: 
+   - When a bug occurs in the final output, it's hard to trace whether the issue is in the splitting phase or one of the merge phases
+   - Example: The "jugar. Es que vamos..." bug required adding debug logging at multiple points to track where sentences were being merged
+   - No visibility into which merge operation affected which sentences
+
+2. **Multiple Post-Processing Merge Operations** (all in `podscripter.py` lines 879-998):
+   - **Spanish appositive location merge** (lines 879-884): Merges `"..., de <Proper>. <Proper> ..."` → `"..., de <Proper>, <Proper> ..."`
+   - **Emphatic word merge** (lines 886-922): Merges repeated single-word emphatics like `"No. No. No."` → `"No, no, no."`
+   - **Domain merge** (lines 923-975): Merges split domains like `"example." + "com"` → `"example.com"`
+   - **Decimal merge** (lines 976-998): Merges split decimals like `"99." + "9%"` → `"99.9%"`
+
+3. **Conflicting Logic**:
+   - The `SentenceSplitter` correctly identifies a speaker boundary and creates a split
+   - But a post-processing merge (e.g., domain merge) might undo this split
+   - No coordination between splitting decisions and merging decisions
+   - Speaker context is lost by the time post-processing merges run
+
+4. **Performance**: 
+   - Split then immediately merge is wasteful
+   - Text is tokenized multiple times (once for splitting, then for each merge operation)
+
+5. **Maintenance**:
+   - Logic is scattered across multiple locations (`punctuation_restorer.py`, `podscripter.py`)
+   - Each merge operation has its own loop and regex patterns
+   - Hard to ensure all merge operations respect speaker boundaries
+
+**Proposed Solution**: Consolidate merge logic into the `SentenceSplitter` (v0.4.0+)
+
+The v0.4.0 refactor successfully consolidated all splitting logic into the `SentenceSplitter` class. However, post-processing merges were left in `podscripter.py` to maintain backward compatibility. Now that we have a mature `SentenceSplitter`, we should complete the consolidation.
+
+**Approach**:
+
+1. **Move merge patterns into `SentenceSplitter`**:
+   - Add domain pattern awareness to avoid splitting domains in the first place
+   - Add decimal pattern awareness to avoid splitting numbers
+   - Add location appositive awareness for Spanish
+   - Add emphatic word detection for merge decisions
+
+2. **Add "should_merge_sentences()" method**:
+   ```python
+   def should_merge_sentences(self, sentence1: str, sentence2: str, 
+                             speaker1: str | None, speaker2: str | None) -> bool:
+       """
+       Determine if two sentences should be merged.
+       
+       CRITICAL: Never merge if speakers differ.
+       Then check for:
+       - Domain patterns (example. + com)
+       - Decimal patterns (99. + 9%)
+       - Location appositives (ES: ", de <Proper>. <Proper>")
+       - Emphatic word repeats (No. No. No.)
+       """
+       # Rule 0: NEVER merge different speakers
+       if speaker1 and speaker2 and speaker1 != speaker2:
+           return False
+       
+       # Rule 1: Check for domain patterns
+       if self._is_domain_split(sentence1, sentence2):
+           return self._should_merge_domain(sentence1, sentence2)
+       
+       # Rule 2: Check for decimal patterns
+       if self._is_decimal_split(sentence1, sentence2):
+           return True
+       
+       # Rule 3: Check for location appositives (Spanish)
+       if self.language == 'es' and self._is_location_appositive(sentence1, sentence2):
+           return True
+       
+       # Rule 4: Check for emphatic repeats
+       if self._is_emphatic_repeat(sentence1, sentence2):
+           return True
+       
+       return False
+   ```
+
+3. **Add merge provenance tracking** (similar to split provenance):
+   - Track WHY sentences were merged
+   - Include in debug output and metadata
+   - Helps troubleshooting and understanding decisions
+
+4. **Benefits**:
+   - ✅ All split/merge decisions in one place (`sentence_splitter.py`)
+   - ✅ Speaker context available for all merge decisions
+   - ✅ Easier debugging with single decision point
+   - ✅ Better performance (one pass instead of multiple)
+   - ✅ Merge provenance tracking for transparency
+   - ✅ Easier to add new merge patterns (just extend `should_merge_sentences()`)
+   - ✅ Consistent with v0.4.0 architecture vision
+
+**Implementation Plan**:
+
+**Phase 1: Add merge detection to SentenceSplitter** (~8 hours)
+1. Add helper methods for pattern detection:
+   - `_is_domain_split(s1, s2)` - detect domain patterns
+   - `_is_decimal_split(s1, s2)` - detect decimal patterns
+   - `_is_location_appositive(s1, s2)` - detect location patterns (ES)
+   - `_is_emphatic_repeat(s1, s2)` - detect emphatic word repeats
+2. Add `should_merge_sentences()` method with speaker-aware logic
+3. Add tests for merge detection
+
+**Phase 2: Integrate merge logic into splitting** (~12 hours)
+1. After splitting, run merge pass within `SentenceSplitter`
+2. Track merge provenance similar to split provenance
+3. Remove post-processing merge loops from `podscripter.py`
+4. Add comprehensive tests for split-then-merge scenarios
+5. Verify all existing tests still pass
+
+**Phase 3: Add merge provenance and debugging** (~4 hours)
+1. Track which sentences were merged and why
+2. Add to debug output and metadata
+3. Update `--debug` flag output to show merge decisions
+4. Document new architecture in `ARCHITECTURE.md`
+
+**Estimated Total Effort**: ~24 hours
+
+**Breaking Changes**: Minimal
+- API remains the same (input/output unchanged)
+- Merge logic moves location but behavior stays identical
+- Metadata structure enhanced (additive change)
+
+**Backward Compatibility**: High
+- All existing tests should pass
+- Output should be identical (just produced differently)
+- If discrepancies found, they're likely bug fixes
+
+**Priority**: Medium-High
+- Not urgent (current system works)
+- But significantly improves maintainability
+- Makes future debugging much easier
+- Completes the v0.4.0 consolidation vision
+
+**Status**: PROPOSED (v0.4.4+)
+- Document created based on v0.4.4 troubleshooting experience
+- Awaiting prioritization for implementation
 
 ### Whisper Segment Boundary Integration (2025)
 

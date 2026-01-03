@@ -678,15 +678,20 @@ def _es_merge_appositive_location_breaks(sentences: list[str]) -> list[str]:
 
     This operates at assembly time to fix boundary artifacts that slipped past the splitter.
     """
+    import logging
+    logger = logging.getLogger("podscripter")
+    
     merged: list[str] = []
     i = 0
     while i < len(sentences):
         if i + 1 < len(sentences):
             prev = (sentences[i] or '').strip()
             curr = (sentences[i + 1] or '').strip()
+            
             # prev ends with ", de Proper[,.]?" optionally with a trailing period
             m_prev = re.search(r"^(.*?,\s*de\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)\.?$", prev)
             m_curr = re.match(r"^([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]+)([\s\S]*)$", curr)
+            
             if m_prev and m_curr:
                 # CRITICAL: Only merge if the second sentence is just a location name with minimal trailing content
                 # Don't merge if it contains additional sentences (indicated by sentence terminators like ., !, ?)
@@ -699,7 +704,8 @@ def _es_merge_appositive_location_breaks(sentences: list[str]) -> list[str]:
                     if not base.endswith(','):
                         base = base + ','
                     cont = m_curr.group(1) + (m_curr.group(2) or '')
-                    merged.append(f"{base} {cont}".strip())
+                    merged_text = f"{base} {cont}".strip()
+                    merged.append(merged_text)
                     i += 2
                     continue
         merged.append(sentences[i])
@@ -1369,8 +1375,10 @@ def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[
     if not text.strip():
         return text, []
     
-    # Clean up the text first
-    text = re.sub(r'\s+', ' ', text.strip())
+    # NOTE: Text normalization (whitespace cleanup) is now done in podscripter.py
+    # BEFORE speaker_word_ranges are calculated (v0.4.3 fix). Do NOT normalize here
+    # as it would invalidate the word indices in speaker_segments.
+    # The text passed here should already be normalized.
     
     # Use advanced punctuation restoration
     try:
@@ -1402,8 +1410,7 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
     if SENTENCE_TRANSFORMERS_AVAILABLE:
         return _transformer_based_restoration(text, language, use_custom_patterns, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
     else:
-        # Simple fallback: just clean up whitespace and add basic punctuation
-        text = re.sub(r'\s+', ' ', text.strip())
+        # Simple fallback: text is already normalized in podscripter.py (v0.4.3)
         return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [text]
 
 
@@ -1429,7 +1436,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
     if model is None:
         # Fallback path if sentence-transformers is unavailable
-        text = re.sub(r'\s+', ' ', text.strip())
+        # Text is already normalized in podscripter.py (v0.4.3)
         return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [text]
 
     # Get language config for thresholds

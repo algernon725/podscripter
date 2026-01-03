@@ -827,6 +827,14 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     from punctuation_restorer import _normalize_initials_and_acronyms
     all_text = _normalize_initials_and_acronyms(all_text)
     
+    # CRITICAL FIX (v0.4.3): Normalize whitespace BEFORE calculating speaker_word_ranges
+    # This ensures word indices in speaker_word_ranges match the normalized text
+    # that will be used by restore_punctuation(). Without this, speaker boundaries
+    # are calculated on text with inconsistent spacing, then the text is normalized
+    # inside restore_punctuation(), causing word index misalignment.
+    # Bug: Speaker boundaries not triggering splits (e.g., Andrea/Nate in Episodio212)
+    all_text = re.sub(r'\s+', ' ', all_text.strip())
+    
     # v0.4.0: Convert speaker segments to word ranges for SentenceSplitter
     # SentenceSplitter now handles all boundary logic using full segment information
     speaker_word_ranges = None
@@ -865,6 +873,7 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     
     # Sanitize all sentences
     sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
+    
     # Merge appositive location breaks across segments (Spanish): 
     # "..., de <Proper>. <Proper> ..." -> "..., de <Proper>, <Proper> ..."
     if sentences and (lang_for_punctuation or '').lower() == 'es':
@@ -927,6 +936,19 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
                     tld = m2.group(1).lower()
                     remainder = (m2.group(3) or '')
                     remainder = remainder.lstrip()
+                    
+                    # v0.4.3: Prevent false domain merges in natural language
+                    # Only merge if the current sentence is short (< 50 chars) OR the label is capitalized
+                    # This prevents "jugar." + "Es que..." from being merged as "jugar.es" domain
+                    is_short_sentence = len(cur) < 50
+                    is_capitalized_label = label[0].isupper() if label else False
+                    
+                    if not (is_short_sentence or is_capitalized_label):
+                        # Skip this merge - it's likely natural language, not a domain
+                        merged.append(cur)
+                        i += 1
+                        continue
+                    
                     merged_sentence = cur[:-1] + "." + tld
                     
                     # Check if there's a third sentence to merge (for triple merge)

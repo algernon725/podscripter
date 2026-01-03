@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2025-01-03
+
+### Fixed
+- **False domain merge in natural language (Critical)**: Fixed domain merge logic incorrectly merging sentences when word before period matched a TLD
+  - **Issue**: When a sentence ended with a word that matched a TLD in the domain list (e.g., "jugar." followed by "Es que vamos..."), the two sentences were incorrectly merged as if they were a broken domain name (e.g., "jugar.es")
+  - **Example**: "Eso lo seguiremos haciendo, pero jugar tenis juntos, bueno, si es que yo aprendo y soy capaz de jugar. Es que vamos a tratar de tener lecciones de tenis en Colombia." (Andrea's sentence + Nate's sentence merged despite being different speakers)
+  - **Root cause**: `podscripter.py` lines 949-988 domain merge logic used regex `([A-Za-z0-9\-]+)\.$` to match any word ending with period, then checked if next sentence starts with a TLD pattern. The TLD list includes "es" (Spanish TLD), so "jugar." + "Es que..." matched as "jugar.es" domain
+  - **Solution**: Added natural language guards (lines 962-972) to prevent false domain merges:
+    - Only merge if current sentence is short (< 50 characters) OR the label before the period is capitalized
+    - Long natural language sentences like "pero jugar tenis juntos..." are now excluded from domain merging
+    - Capitalized labels like "Google." + "Com ..." still merge correctly as "Google.Com"
+  - **Impact**: Affects all transcriptions where a sentence ends with a common word that happens to match a TLD in the list (e.g., "es", "de", "co", "io"). Particularly important for diarization-enabled transcriptions where different speakers' sentences were being incorrectly merged
+  - **Rationale**: Domain names in transcriptions are typically short standalone mentions (e.g., "Visit example.com") or capitalized (e.g., "Check out Google.Com"). Long natural language sentences ending with lowercase words are almost never domain names
+  - **Tests**: Verified with Episodio212.mp3 - Andrea's "jugar." sentence and Nate's "Es que vamos..." sentence now correctly separated
+
 ## [0.4.3] - 2025-01-02
 
 ### Fixed

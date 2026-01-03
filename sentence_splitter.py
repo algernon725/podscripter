@@ -273,7 +273,12 @@ class SentenceSplitter:
                 # Only add boundary if speaker changes
                 if current_seg.get('speaker') != next_seg.get('speaker'):
                     if 'end_word' in current_seg:
-                        boundaries.add(current_seg['end_word'])
+                        boundary_word = current_seg['end_word']
+                        boundaries.add(boundary_word)
+                        # DEBUG: Log boundaries around word 1841
+                        if 1835 <= boundary_word <= 1850:
+                            self.logger.info(f"DEBUG: Speaker boundary detected at word {boundary_word}")
+                            self.logger.info(f"  {current_seg.get('speaker')} → {next_seg.get('speaker')}")
         else:
             # For Whisper segments, we need to calculate word positions
             # This is done by tracking cumulative text length
@@ -525,6 +530,9 @@ class SentenceSplitter:
                     f"SKIP speaker boundary: word {current_index}, chunk too short "
                     f"({len(current_chunk)} < {min_words_speaker})"
                 )
+                # DEBUG
+                if 1835 <= current_index <= 1850:
+                    self.logger.info(f"DEBUG: RETURNING FALSE - chunk too short")
         
         # Don't end sentence if we're at the very beginning or very end
         # (Allow index 1 for speaker boundaries with 2-word minimum)
