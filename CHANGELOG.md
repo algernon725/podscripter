@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-01-04
+
+### Added
+- **Unified `SentenceFormatter` class**: Consolidated all post-processing merge operations (domains, decimals, Spanish appositives, emphatic words) into single `sentence_formatter.py` module
+  - All merge logic now in ONE location for easier maintenance and debugging
+  - Speaker-aware merge decisions: NEVER merges different speakers (prevents bugs like "jugar. Es que..." cross-speaker merge)
+  - Merge provenance tracking for debugging
+  - Comprehensive unit tests (`tests/test_sentence_formatter.py`)
+- **`--dump-merge-metadata` CLI flag**: Writes merge provenance to `<basename>_merges.txt` for debugging
+  - Shows which sentences were merged and why
+  - Shows which merges were skipped due to speaker boundaries
+  - Includes detailed before/after text and speaker information
+
+### Changed
+- **Breaking (Internal)**: Post-processing merge operations moved from `podscripter.py` to `sentence_formatter.py`
+  - Public API unchanged (input/output identical)
+  - `_assemble_sentences()` now returns tuple `(sentences, merge_metadata)`
+- **Improved**: Natural language guards prevent false domain merges (already in v0.4.4, now consolidated)
+- **Improved**: All merge types (domain, decimal, appositive, emphatic) now respect speaker boundaries
+
+### Fixed
+- **Speaker boundary enforcement for merges**: Different speakers' sentences are never merged, even when patterns match
+  - Example: "jugar." (Speaker A) + "Es que vamos..." (Speaker B) no longer incorrectly merges as "jugar.es"
+  - Applies to all merge types: domains, decimals, appositives, emphatic words
+
+### Benefits
+- **Maintainability**: All post-processing in ONE place (`sentence_formatter.py`)
+- **Correctness**: Speaker boundaries enforced for ALL merges
+- **Debuggability**: Merge provenance tracks WHY each merge happened
+- **Testing**: Isolated unit tests for each merge type
+- **Architecture**: Clear separation - `SentenceSplitter` handles splitting, `SentenceFormatter` handles formatting
+
+### Backward Compatibility
+- **100% backward compatible for non-diarization mode**: When `--enable-diarization` is not used, all merges work identically to v0.4.4
+- Speaker boundary checks are an opt-in safety feature that only activates when speaker data is available
+- All existing tests pass with same output (or better due to speaker boundary fixes)
+
 ## [0.4.4] - 2025-01-03
 
 ### Fixed

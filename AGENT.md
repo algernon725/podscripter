@@ -39,7 +39,30 @@
 - SpaCy capitalization is always enabled, with models baked into the image (see Docker Best Practices)
 - Sentence-Transformers loader: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` to avoid the "Creating a new one with mean pooling" message while still using caches. Also sets `HF_HOME` and may set `HF_HUB_OFFLINE=1` when a local model directory is used.
 
-### 2a. Transcription Orchestration (Whisper usage)
+### 2a. Post-Processing Formatting (SentenceFormatter)
+- **`SentenceFormatter`**: Unified class for all post-processing merge operations (v0.5.0+)
+- Consolidates domain, decimal, appositive, and emphatic word merges in one location
+- Speaker-aware merge decisions: NEVER merges different speakers
+- Merge provenance tracking for debugging
+- Usage:
+  ```python
+  from sentence_formatter import SentenceFormatter
+  
+  formatter = SentenceFormatter(
+      language='es',
+      speaker_segments=speaker_word_ranges  # None when diarization disabled
+  )
+  formatted_sentences, merge_metadata = formatter.format(sentences)
+  ```
+- Merge types:
+  - **Domain merges**: "example." + "com" → "example.com" (with natural language guards)
+  - **Decimal merges**: "99." + "9%" → "99.9%"
+  - **Spanish appositive merges**: ", de Texas. Estados Unidos" → ", de Texas, Estados Unidos"
+  - **Emphatic word merges**: "No. No. No." → "No, no, no." (ES/FR/DE)
+- Debug flag: `--dump-merge-metadata` writes merge provenance to `<basename>_merges.txt`
+- Backward compatible: When `speaker_segments=None`, all merges work identically to pre-v0.5.0 behavior
+
+### 2b. Transcription Orchestration (Whisper usage)
 - Two supported modes:
   - Single-call transcription (recommended when resources allow): process full file in one call so Whisper maintains context. Enabled via `--single` flag in `podscripter.py`.
   - Overlapped-chunk transcription (fallback): default path with 480s chunks and 3s overlap.
@@ -880,11 +903,11 @@ Before submitting any changes, ensure:
   - Constants hoisted (e.g., `DEFAULT_CHUNK_SEC`, `DEFAULT_OVERLAP_SEC`, `DEDUPE_EPSILON_SEC`, `PROMPT_TAIL_CHARS`)
   - Prefer `pathlib.Path` over `os.path`/`glob`; keep orchestration helpers private
 
-## Future Refactoring Opportunities
+## Recent Refactors (Continued)
 
-### Post-Processing Merge Consolidation (Priority: Medium-High)
+### Post-Processing Merge Consolidation (Completed - v0.5.0)
 
-**Problem Identified (v0.4.4)**: During troubleshooting of the false domain merge bug, we discovered that sentences are split by the `SentenceSplitter` and then merged back together in multiple post-processing steps. This "split then merge" pattern creates several issues:
+**Problem Identified (v0.4.4)**: During troubleshooting of the false domain merge bug, we discovered that sentences are split by the `SentenceSplitter` and then merged back together in multiple post-processing steps. This "split then merge" pattern created several issues:
 
 **Current Architecture Issues**:
 
@@ -1019,9 +1042,19 @@ The v0.4.0 refactor successfully consolidated all splitting logic into the `Sent
 - Makes future debugging much easier
 - Completes the v0.4.0 consolidation vision
 
-**Status**: PROPOSED (v0.4.4+)
-- Document created based on v0.4.4 troubleshooting experience
-- Awaiting prioritization for implementation
+**Status**: COMPLETED (v0.5.0)
+
+**Results Achieved**:
+- ✅ All merge logic consolidated into single `SentenceFormatter` class in `sentence_formatter.py`
+- ✅ Speaker boundary checks enforce "never merge different speakers" across ALL merge types
+- ✅ Merge provenance tracking implemented with `MergeMetadata` dataclass
+- ✅ Natural language guards prevent false domain merges (e.g., "jugar. Es que..." stays separate)
+- ✅ Comprehensive unit tests created (`tests/test_sentence_formatter.py` - 15/15 passing)
+- ✅ `--dump-merge-metadata` CLI flag for debugging merge decisions
+- ✅ 100% backward compatible for non-diarization mode
+- ✅ Clear separation: `SentenceSplitter` = boundaries, `SentenceFormatter` = formatting
+
+**Immediate Benefit Delivered**: Solved cross-speaker merge bugs. Different speakers' sentences are never merged, even when patterns match (e.g., domain, decimal, emphatic patterns).
 
 ### Whisper Segment Boundary Integration (2025)
 

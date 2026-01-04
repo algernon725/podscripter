@@ -102,6 +102,7 @@ flowchart TD
   - Manage model load, model selection, translation task, VAD settings, continuity prompts
   - Write outputs (TXT/SRT)
   - Optional raw debug dump when `--dump-raw` is set: writes `<basename>_raw.txt` containing detected language (if auto), task, segment count, and per-segment timings/text
+  - Optional merge metadata dump when `--dump-merge-metadata` is set: writes `<basename>_merges.txt` with merge provenance (v0.5.0+)
 
 - **Chunking**
   - `_split_audio_with_overlap(media_file, chunk_length_sec=480, overlap_sec=3)` using pydub
@@ -132,6 +133,15 @@ flowchart TD
   - **Intelligent Whisper period removal**: Removes periods before same-speaker connectors
   - Priority hierarchy: Grammatical guards → Speaker continuity → Speaker boundaries → Whisper boundaries → Semantic splitting
   - Enables comprehensive debugging with split metadata
+
+- **Sentence Formatting** (`sentence_formatter.py`) - NEW in v0.5.0
+  - **Unified `SentenceFormatter` class**: Consolidates all post-processing merge operations
+  - Handles domain, decimal, appositive, and emphatic word merges in one location
+  - **Speaker-aware merge decisions**: NEVER merges different speakers (prevents cross-speaker bugs)
+  - Merge provenance tracking with `MergeMetadata` dataclass
+  - Natural language guards prevent false domain merges (e.g., "jugar. Es que..." stays separate)
+  - 100% backward compatible when speaker data not available (non-diarization mode)
+  - Debug support via `--dump-merge-metadata` flag
 
 - **Punctuation and formatting** (`punctuation_restorer.py`)
   - `restore_punctuation(...)` → Uses `SentenceSplitter` for boundary decisions (v0.4.0+)
@@ -264,6 +274,19 @@ flowchart TD
 - **Implementation**: `SentenceSplitter` class with priority hierarchy: Grammatical guards → Speaker continuity → Speaker boundaries → Whisper boundaries → Semantic splitting
 - **Impact**: Solved the period-before-same-speaker-connector bug across all languages (ES/EN/FR/DE)
 
+### Unified Sentence Formatting (2025 - v0.5.0)
+- **Problem solved**: Post-processing merge operations were scattered across `podscripter.py` with no coordination with speaker boundaries, causing cross-speaker merge bugs (e.g., "jugar. Es que..." incorrectly merging as "jugar.es" across different speakers).
+- **Solution**: Created unified `SentenceFormatter` class in `sentence_formatter.py` that consolidates ALL post-processing merges
+- **Benefits**:
+  - Single source of truth for all merge operations (domain, decimal, appositive, emphatic)
+  - Speaker-aware merge decisions: NEVER merges different speakers
+  - Merge provenance tracking for debugging
+  - Natural language guards prevent false domain merges
+  - 100% backward compatible for non-diarization mode
+  - Future merge patterns only require extending `SentenceFormatter`
+- **Implementation**: `SentenceFormatter` class with speaker boundary checks before every merge operation
+- **Impact**: Solved cross-speaker merge bugs across all merge types; improved debuggability with `--dump-merge-metadata` flag
+
 ### Centralized Punctuation System (2025 - v0.3.0)
 - **Problem solved**: Previously, period insertion logic was scattered across 14+ locations in the codebase, making bugs like "Ve a" → "Ve a." difficult to fix and maintain
 - **Solution**: Centralized all punctuation decisions into `_should_add_terminal_punctuation()` with context-aware processing
@@ -375,6 +398,7 @@ Debugging:
 
 - `podscripter.py`: orchestration, chunking, ASR, output
 - `sentence_splitter.py`: unified sentence splitting with punctuation provenance tracking (v0.4.0+)
+- `sentence_formatter.py`: unified post-processing merge operations with speaker-aware decisions (v0.5.0+)
 - `punctuation_restorer.py`: punctuation restoration, language formatting, capitalization
 - `domain_utils.py`: centralized domain detection, masking, and Spanish false domain prevention
 - `speaker_diarization.py`: speaker change detection and boundary extraction (optional feature)

@@ -159,6 +159,7 @@ def transcribe(
     min_speakers: int | None = None,
     max_speakers: int | None = None,
     hf_token: str | None = None,
+    dump_merge_metadata: bool = False,
 ) -> TranscriptionResult:
     """
     Transcribe an audio/video file and optionally write the result to disk.
@@ -272,6 +273,78 @@ def _split_audio_with_overlap(media_file: str, chunk_length_sec: int = DEFAULT_C
         if end_ms >= len(audio):
             break
     return chunk_infos
+
+def _write_merge_metadata_dump(merge_metadata, output_file: str):
+    """
+    Write merge metadata debug dump to file.
+    
+    Args:
+        merge_metadata: List of MergeMetadata objects
+        output_file: Path to output file
+    """
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("Sentence Merge Metadata Report\n")
+        f.write("=" * 60 + "\n\n")
+        
+        # Count merges by type
+        merge_counts = {}
+        skipped_counts = {}
+        for m in merge_metadata:
+            if m.reason.startswith('skipped:'):
+                skipped_counts[m.merge_type] = skipped_counts.get(m.merge_type, 0) + 1
+            else:
+                merge_counts[m.merge_type] = merge_counts.get(m.merge_type, 0) + 1
+        
+        # Summary
+        total_merges = sum(merge_counts.values())
+        total_skipped = sum(skipped_counts.values())
+        f.write(f"Total merges applied: {total_merges}\n")
+        f.write(f"Total merges skipped: {total_skipped}\n\n")
+        
+        if merge_counts:
+            f.write("Merges by type:\n")
+            for mtype, count in sorted(merge_counts.items()):
+                f.write(f"  - {mtype}: {count}\n")
+            f.write("\n")
+        
+        if skipped_counts:
+            f.write("Skipped merges by type:\n")
+            for mtype, count in sorted(skipped_counts.items()):
+                f.write(f"  - {mtype}: {count}\n")
+            f.write("\n")
+        
+        # Detailed merge information
+        f.write("=" * 60 + "\n")
+        f.write("Detailed Merge Information\n")
+        f.write("=" * 60 + "\n\n")
+        
+        merge_num = 1
+        skip_num = 1
+        
+        for m in merge_metadata:
+            if m.reason.startswith('skipped:'):
+                f.write(f"Skipped Merge #{skip_num}: {m.merge_type}\n")
+                f.write(f"  Sentences: {m.sentence1_idx} + {m.sentence2_idx}\n")
+                f.write(f"  Reason: {m.reason}\n")
+                f.write(f"  Before (sent1): \"{m.before_text1}\"\n")
+                f.write(f"  Before (sent2): \"{m.before_text2}\"\n")
+                if m.speaker1 or m.speaker2:
+                    f.write(f"  Speakers: {m.speaker1} vs {m.speaker2}\n")
+                f.write("\n")
+                skip_num += 1
+            else:
+                f.write(f"Merge #{merge_num}: {m.merge_type}\n")
+                f.write(f"  Sentences: {m.sentence1_idx} + {m.sentence2_idx}\n")
+                f.write(f"  Reason: {m.reason}\n")
+                f.write(f"  Before (sent1): \"{m.before_text1}\"\n")
+                f.write(f"  Before (sent2): \"{m.before_text2}\"\n")
+                f.write(f"  After: \"{m.after_text}\"\n")
+                if m.speaker1 or m.speaker2:
+                    speaker_info = f"{m.speaker1}" if m.speaker1 == m.speaker2 else f"{m.speaker1} + {m.speaker2}"
+                    f.write(f"  Speakers: {speaker_info}\n")
+                f.write("\n")
+                merge_num += 1
+
 
 def _write_txt(sentences, output_file, language: str | None = None):
     """
@@ -700,7 +773,7 @@ def _convert_speaker_segments_to_char_ranges(
     return speaker_char_ranges
 
 
-def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None, speaker_segments: list[dict] | None = None) -> list[str]:
+def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None, speaker_segments: list[dict] | None = None) -> tuple[list[str], list]:
     def _sanitize_sentence_output(s: str, language: str) -> str:
         try:
             if (language or '').lower() != 'es' or not s:
@@ -874,209 +947,36 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     # Sanitize all sentences
     sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
     
-    # Merge appositive location breaks across segments (Spanish): 
-    # "..., de <Proper>. <Proper> ..." -> "..., de <Proper>, <Proper> ..."
-    if sentences and (lang_for_punctuation or '').lower() == 'es':
-        try:
-            from punctuation_restorer import _es_merge_appositive_location_breaks as es_merge_appos
-            sentences = es_merge_appos(sentences)
-        except Exception:
-            pass
-
-    # Merge repeated emphatic single-word sentences per language
-    lang_lower = (lang_for_punctuation or '').lower()
-    if sentences:
-        merged_emph: list[str] = []
-        i = 0
-        emph_map = {
-            'es': {'no', 'si', 'sí'},
-            'fr': {'non', 'oui'},
-            'de': {'nein', 'ja'},
-        }
-        def _is_emphatic(word: str) -> bool:
-            w = word.strip().strip('.!?').lower()
-            allowed = emph_map.get(lang_lower, set())
-            return w in allowed
-        while i < len(sentences):
-            cur = (sentences[i] or '').strip()
-            if _is_emphatic(cur):
-                words = []
-                while i < len(sentences) and _is_emphatic((sentences[i] or '').strip()):
-                    words.append((sentences[i] or '').strip().strip('.!?'))
-                    i += 1
-                if words:
-                    # Normalize accents for Spanish
-                    if lang_lower == 'es':
-                        norm = ['sí' if w.lower() in {'si', 'sí'} else 'no' for w in words]
-                    else:
-                        norm = [w.lower() for w in words]
-                    out = norm[0].capitalize()
-                    if len(norm) > 1:
-                        out += ', ' + ', '.join(norm[1:])
-                    if not out.endswith(('.', '!', '?')):
-                        out += '.'
-                    merged_emph.append(out)
-                    continue
-            merged_emph.append(cur)
-            i += 1
-        sentences = merged_emph
-    # Merge domain splits that accidentally became separate sentences: "Label." + "Com ..."
-    if sentences:
-        merged: list[str] = []
-        i = 0
-        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
-        while i < len(sentences):
-            cur = (sentences[i] or '').strip()
-            if i + 1 < len(sentences):
-                nxt = (sentences[i + 1] or '').strip()
-                m1 = re.search(r"([A-Za-z0-9\-]+)\.$", cur)
-                m2 = re.match(rf"^({tlds})(\b|\W)(.*)$", nxt, flags=re.IGNORECASE)
-                if m1 and m2:
-                    label = m1.group(1)
-                    tld = m2.group(1).lower()
-                    remainder = (m2.group(3) or '')
-                    remainder = remainder.lstrip()
-                    
-                    # v0.4.3: Prevent false domain merges in natural language
-                    # Only merge if the current sentence is short (< 50 chars) OR the label is capitalized
-                    # This prevents "jugar." + "Es que..." from being merged as "jugar.es" domain
-                    is_short_sentence = len(cur) < 50
-                    is_capitalized_label = label[0].isupper() if label else False
-                    
-                    if not (is_short_sentence or is_capitalized_label):
-                        # Skip this merge - it's likely natural language, not a domain
-                        merged.append(cur)
-                        i += 1
-                        continue
-                    
-                    merged_sentence = cur[:-1] + "." + tld
-                    
-                    # Check if there's a third sentence to merge (for triple merge)
-                    # Allow if remainder is empty or just punctuation
-                    if (not remainder or remainder in ('.', '!', '?')) and i + 2 < len(sentences):
-                        third = (sentences[i + 2] or '').strip()
-                        if third:
-                            merged_sentence = merged_sentence + " " + third
-                            merged.append(merged_sentence)
-                            i += 3
-                            continue
-                    
-                    if remainder:
-                        # Don't add space before punctuation
-                        if remainder.startswith(('.', '!', '?')):
-                            merged_sentence = merged_sentence + remainder
-                        else:
-                            merged_sentence = (merged_sentence + " " + remainder).strip()
-                    merged.append(merged_sentence)
-                    i += 2
-                    continue
-            merged.append(cur)
-            i += 1
-        sentences = merged
-    # Merge decimal splits that accidentally became separate sentences: "99." + "9% de ..." or "121." + "73 ..."
-    if sentences:
-        merged: list[str] = []
-        i = 0
-        while i < len(sentences):
-            cur = (sentences[i] or '').strip()
-            if i + 1 < len(sentences):
-                nxt = (sentences[i + 1] or '').strip()
-                m1 = re.search(r"(\d{1,3})\.$", cur)
-                m2 = re.match(r"^(\d{1,3})(%?)(\b.*)$", nxt)
-                if m1 and m2:
-                    frac = m2.group(1)
-                    percent = m2.group(2) or ''
-                    remainder = (m2.group(3) or '').lstrip()
-                    merged_sentence = cur[:-1] + "." + frac + percent
-                    if remainder:
-                        merged_sentence = (merged_sentence + " " + remainder).strip()
-                    merged.append(merged_sentence)
-                    i += 2
-                    continue
-            merged.append(cur)
-            i += 1
-        sentences = merged
+    # v0.5.0: Apply unified SentenceFormatter for all post-processing merges
+    # Consolidates domain, decimal, appositive, and emphatic word merges in one place
+    # with speaker-aware merge decisions (never merge different speakers)
+    from sentence_formatter import SentenceFormatter
     
-    # Additional comprehensive domain merge for any remaining splits
-    # This handles cases like "www." + "domain.com" or "label." + "Com." + "Y ..."
-    # Run multiple passes until no more merges are possible
-    if sentences:
-        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
-        max_passes = 5  # Prevent infinite loops
-        pass_count = 0
+    formatter = SentenceFormatter(
+        language=lang_for_punctuation or 'en',
+        speaker_segments=speaker_word_ranges  # None when diarization disabled (backward compatible)
+    )
+    sentences, merge_metadata = formatter.format(sentences)
+    
+    # Log merge summary
+    if merge_metadata and not quiet:
+        merge_counts = {}
+        skipped_counts = {}
+        for m in merge_metadata:
+            if m.reason.startswith('skipped:'):
+                skipped_counts[m.merge_type] = skipped_counts.get(m.merge_type, 0) + 1
+            else:
+                merge_counts[m.merge_type] = merge_counts.get(m.merge_type, 0) + 1
         
-        while pass_count < max_passes:
-            merged: list[str] = []
-            i = 0
-            merge_happened = False
-            
-            while i < len(sentences):
-                cur = (sentences[i] or '').strip()
-                
-                # Handle subdomain cases: "www." + "domain.com" -> "www.domain.com"
-                if i + 1 < len(sentences):
-                    nxt = (sentences[i + 1] or '').strip()
-                    # Check for subdomain prefix + domain.tld pattern
-                    subdomain_match = re.search(r"\b((?:www|ftp|mail|blog|shop|app|api|cdn|static|news|support|help|docs|admin|secure|login|m|mobile|store|sub|dev|test|staging|prod|beta|alpha)\.)\s*$", cur, re.IGNORECASE)
-                    domain_match = re.match(rf"^([a-z0-9\-]+)\.({tlds})\b", nxt, re.IGNORECASE)
-                    if subdomain_match and domain_match:
-                        subdomain = subdomain_match.group(1)
-                        domain = domain_match.group(1)
-                        tld = domain_match.group(2).lower()
-                        rest = nxt[domain_match.end():].strip()
-                        # Reconstruct the full domain
-                        full_domain = f"{subdomain}{domain}.{tld}"
-                        merged_sentence = cur[:-len(subdomain)].strip() + f" {full_domain}"
-                        if rest:
-                            merged_sentence += f" {rest}"
-                        merged.append(merged_sentence.strip())
-                        merge_happened = True
-                        i += 2
-                        continue
-                
-                # Try triple merge: "label." + "Com." + "Y ..." -> "label.com y ..."
-                if i + 2 < len(sentences):
-                    mid = (sentences[i + 1] or '').strip()
-                    nxt = (sentences[i + 2] or '').strip()
-                    # Check if current ends with domain label, middle is bare TLD, next is continuation
-                    # Look for domain label followed by period anywhere in the sentence
-                    m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
-                    m2 = re.match(rf"^({tlds})\.?$", mid, flags=re.IGNORECASE)
-                    if m1 and m2 and nxt:
-                        label = m1.group(1)
-                        tld = m2.group(1).lower()
-                        # Merge all three parts into one sentence
-                        if "Debes ir a" in cur or "asegúrate de ir a" in cur:
-                            merged_sentence = f"{cur[:-1]}.{tld} {nxt.lstrip()}"
-                        else:
-                            merged_sentence = f"{cur[:-1]}.{tld} {nxt.lstrip()}"
-                        merged.append(merged_sentence.strip())
-                        merge_happened = True
-                        i += 3
-                        continue
-                # Try simple merge: "label." + "Com." -> "label.com."
-                if i + 1 < len(sentences):
-                    nxt = (sentences[i + 1] or '').strip()
-                    # Look for domain label followed by period anywhere in the sentence
-                    m1 = re.search(r"\b([A-Za-z0-9\-]+)\.$", cur)
-                    m2 = re.match(rf"^({tlds})\.?$", nxt, flags=re.IGNORECASE)
-                    if m1 and m2:
-                        label = m1.group(1)
-                        tld = m2.group(1).lower()
-                        merged_sentence = f"{cur[:-1]}.{tld}."
-                        merged.append(merged_sentence)
-                        merge_happened = True
-                        i += 2
-                        continue
-                merged.append(cur)
-                i += 1
-            
-            sentences = merged
-            pass_count += 1
-            
-            # If no merges happened in this pass, we're done
-            if not merge_happened:
-                break
+        if merge_counts:
+            summary = ', '.join(f"{count} {mtype}" for mtype, count in merge_counts.items())
+            logger.info(f"Applied merges: {summary}")
+        if skipped_counts:
+            summary = ', '.join(f"{count} {mtype}" for mtype, count in skipped_counts.items())
+            logger.debug(f"Skipped merges (speaker boundaries): {summary}")
+    
+    # v0.5.0: Removed additional comprehensive domain merge loops
+    # All domain merging is now handled by SentenceFormatter above
     
     if (lang_for_punctuation or '').lower() == 'fr' and sentences:
         # Already handled inside assemble_sentences_from_processed per segment; kept for safety
@@ -1090,7 +990,8 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
             final_sentences.append(_sanitize_sentence_output(sentence, (lang_for_punctuation or '').lower()))
         sentences = final_sentences
     
-    return sentences
+    # v0.5.0: Return both sentences and merge metadata
+    return sentences, merge_metadata
 def _transcribe_with_sentences(
     media_file: str,
     output_dir: str | Path | None,
@@ -1113,6 +1014,7 @@ def _transcribe_with_sentences(
     min_speakers: int | None = None,
     max_speakers: int | None = None,
     hf_token: str | None = None,
+    dump_merge_metadata: bool = False,
 ) -> TranscriptionResult:
     _t0 = time.time()
     # Validate media path
@@ -1276,7 +1178,7 @@ def _transcribe_with_sentences(
         if diarization_result:
             speaker_segments_list = diarization_result['segments']
         
-        sentences = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries, speaker_segments=speaker_segments_list)
+        sentences, merge_metadata = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries, speaker_segments=speaker_segments_list)
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
         output_path_txt: str | None = None
@@ -1288,6 +1190,16 @@ def _transcribe_with_sentences(
             except Exception as e:
                 raise OutputWriteError(f"Failed to write TXT: {e}")
             output_path_txt = str(output_file)
+            
+            # v0.5.0: Write merge metadata dump if requested
+            if dump_merge_metadata and merge_metadata:
+                merge_dump_file = Path(out_dir) / f"{base_name}_merges.txt"
+                try:
+                    _write_merge_metadata_dump(merge_metadata, str(merge_dump_file))
+                    if not quiet:
+                        logger.info(f"Merge metadata dump written to: {merge_dump_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to write merge metadata dump: {e}")
         return {
             "segments": all_segments,
             "sentences": sentences,
@@ -1330,6 +1242,7 @@ def main():
     parser.add_argument("--vad-speech-pad-ms", dest="vad_speech_pad_ms", type=int, default=DEFAULT_VAD_SPEECH_PAD_MS, help="Padding (ms) around detected speech when VAD is enabled")
     parser.add_argument("--dump-raw", dest="dump_raw", action="store_true", help="Also write raw Whisper output for debugging (filename_raw.txt)")
     parser.add_argument("--dump-diarization", dest="dump_diarization", action="store_true", help="Write speaker diarization debug dump (filename_diarization.txt)")
+    parser.add_argument("--dump-merge-metadata", dest="dump_merge_metadata", action="store_true", help="Write sentence merge metadata for debugging (filename_merges.txt)")
     # Speaker diarization controls
     parser.add_argument("--enable-diarization", dest="enable_diarization", action="store_true", help="Enable speaker diarization for improved sentence boundaries")
     parser.add_argument("--min-speakers", dest="min_speakers", type=int, default=None, help="Minimum number of speakers (optional, auto-detect if not specified)")
@@ -1391,6 +1304,7 @@ def main():
             min_speakers=args.min_speakers,
             max_speakers=args.max_speakers,
             hf_token=args.hf_token,
+            dump_merge_metadata=args.dump_merge_metadata,
         )
         if not quiet and result.get("detected_language"):
             logger.info(f"Detected language: {result['detected_language']}")
