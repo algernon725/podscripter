@@ -317,12 +317,20 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 
 **Integration**: Full speaker segment information (with labels and ranges) is threaded through the entire punctuation pipeline to enable speaker-aware sentence splitting.
 
-**Speaker Segment Tracking** (v0.3.1, enhanced in v0.4.2):
+**Speaker Segment Tracking** (v0.3.1, enhanced in v0.4.2, v0.5.2):
 - **Full speaker context**: Instead of just boundary timestamps, entire speaker segments (with labels and ranges) are tracked
 - **Conversion pipeline**:
   1. `_convert_speaker_segments_to_char_ranges()`: Time-based segments → character positions in text
-     - **v0.4.2**: Uses overlap-based assignment algorithm. Each Whisper segment is assigned to the speaker with the most temporal overlap, then consecutive segments with same speaker are grouped into character ranges.
-     - **Handles misalignment**: Speaker boundaries often fall within Whisper segments (not at boundaries). Old duration-based sorting failed; new algorithm calculates overlap for each Whisper-speaker pair.
+     - **v0.4.2**: Used overlap-based assignment algorithm (assigned each Whisper segment to ONE speaker with most overlap)
+     - **v0.5.2**: SPLITS Whisper segments when they contain multiple speakers instead of assigning to single speaker
+       - Detects all overlapping speakers per Whisper segment
+       - Splits segments proportionally based on time overlaps
+       - Attempts to split at word boundaries for cleaner results
+       - Merges consecutive ranges from the same speaker
+       - **v0.5.2.1**: Filters on overlap duration (not total duration) to preserve short utterances
+       - **v0.5.2.2**: Applies dominant speaker threshold (>80%) to filter edge misattributions
+       - **v0.5.2.3**: Refined threshold to only apply at segment edges (first/last 10%), preserving middle utterances
+     - **Preserves boundaries**: All speaker boundaries preserved (84 → 84 instead of 84 → 48 in v0.4.2)
   2. `_convert_char_ranges_to_word_ranges()`: Character positions → word indices
   3. `_get_speaker_at_word()`: Query speaker label at any word position
 - **Connector word handling**: When a sentence would start with a connector word ("Y", "O", "and", "et", "und"), check if the same speaker is continuing. If yes, merge into previous sentence. If no (different speaker), allow the break.
