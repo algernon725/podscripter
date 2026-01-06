@@ -176,6 +176,25 @@ class SentenceSplitter:
         speaker_word_boundaries = self._convert_segments_to_word_boundaries(speaker_segments, text, is_speaker=True)
         speaker_word_segments = self._create_speaker_word_ranges(speaker_segments, text)
         
+        # Debug logging
+        if speaker_word_boundaries:
+            self.logger.info(f"SentenceSplitter detected {len(speaker_word_boundaries)} speaker word boundaries")
+            if len(speaker_word_boundaries) > 0:
+                boundaries_list = sorted(list(speaker_word_boundaries))[:10]
+                self.logger.debug(f"First 10 speaker boundaries at words: {boundaries_list}")
+        else:
+            self.logger.warning("SentenceSplitter received NO speaker word boundaries!")
+        
+        # Debug logging for speaker boundaries
+        if speaker_word_boundaries:
+            self.logger.info(f"SentenceSplitter detected {len(speaker_word_boundaries)} speaker boundaries")
+            if len(speaker_word_boundaries) > 0:
+                sorted_boundaries = sorted(speaker_word_boundaries)
+                self.logger.debug(f"First 5 speaker boundaries: {sorted_boundaries[:5]}")
+                self.logger.debug(f"Last 5 speaker boundaries: {sorted_boundaries[-5:]}")
+        else:
+            self.logger.warning("NO speaker boundaries detected despite speaker_segments being provided!")
+        
         # 3. Evaluate boundaries with full context
         sentences = self._evaluate_boundaries(
             text, 
@@ -520,14 +539,14 @@ class SentenceSplitter:
             if len(current_chunk) >= min_words_speaker:
                 # Speaker change - ALWAYS break here
                 # Even if next word is a connector, different speakers should be separated
-                self.logger.debug(
-                    f"SPLIT at speaker boundary: word {current_index} '{current_word}', "
+                self.logger.info(
+                    f"✓ SPLIT at speaker boundary: word {current_index} '{current_word}', "
                     f"next='{next_word}', chunk_len={len(current_chunk)}"
                 )
                 return True
             else:
-                self.logger.debug(
-                    f"SKIP speaker boundary: word {current_index}, chunk too short "
+                self.logger.warning(
+                    f"✗ SKIP speaker boundary: word {current_index} '{current_word}', chunk too short "
                     f"({len(current_chunk)} < {min_words_speaker})"
                 )
                 # DEBUG

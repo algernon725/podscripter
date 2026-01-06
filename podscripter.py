@@ -662,12 +662,24 @@ def _convert_speaker_segments_to_char_ranges(
     
     # Build a mapping of Whisper segments to character positions
     # This mirrors the logic in _convert_speaker_timestamps_to_char_positions
+    # CRITICAL FIX (v0.5.1): Must normalize segment text the same way all_text was normalized
+    # Otherwise character positions won't align with the normalized text
+    from punctuation_restorer import _normalize_initials_and_acronyms
+    
     whisper_char_positions = []
     position = 0
     for idx, seg in enumerate(whisper_segments):
         seg_text = seg.get('text', '').strip()
         if not seg_text:
             continue
+        
+        # CRITICAL: Apply EXACT same normalizations that were applied to all_text
+        # 1. Normalize initials and acronyms (e.g., "C. S. Lewis" -> "C.S. Lewis")
+        seg_text = _normalize_initials_and_acronyms(seg_text)
+        # 2. Normalize whitespace (multiple spaces/tabs/newlines -> single space)
+        import re
+        seg_text = re.sub(r'\s+', ' ', seg_text.strip())
+        
         char_start = position
         position += len(seg_text)
         whisper_char_positions.append({
@@ -684,91 +696,183 @@ def _convert_speaker_segments_to_char_ranges(
         return []
     
     logger.debug(f"Built {len(whisper_char_positions)} Whisper char positions, total text length: {position}")
+    logger.debug(f"Provided text length: {len(text)}, calculated position: {position}")
+    if abs(len(text) - position) > 10:
+        logger.warning(f"Text length mismatch! Provided: {len(text)}, calculated: {position}, diff: {len(text) - position}")
     
-    # Assign each Whisper segment to the speaker with the most overlap
-    # This ensures accurate speaker labeling even when boundaries fall within segments
-    whisper_to_speaker = {}  # whisper_idx -> speaker_label
+    # FIX (v0.5.2): Split Whisper segments when they contain multiple speakers
+    # Previous approach assigned each Whisper segment to ONE speaker (most overlap),
+    # losing boundaries that fell in the middle of segments.
+    # New approach: detect multi-speaker segments and split them proportionally.
+    
+    speaker_char_ranges = []
     
     for whisp_info in whisper_char_positions:
         whisp_idx = whisp_info['whisper_idx']
         whisp_start = whisp_info['start']
         whisp_end = whisp_info['end']
         whisp_duration = whisp_end - whisp_start
+        whisp_text = whisp_info['text']
+        whisp_char_start = whisp_info['char_start']
+        whisp_char_end = whisp_info['char_end']
+        whisp_char_len = whisp_char_end - whisp_char_start
         
-        # Find all speaker segments that overlap with this Whisper segment
-        best_speaker = None
-        best_overlap = 0
-        
+        # Find ALL speaker segments that overlap this Whisper segment
+        overlapping_speakers = []
         for spk_seg in speaker_segments:
             spk_start = spk_seg.get('start', 0)
             spk_end = spk_seg.get('end', 0)
             spk_label = spk_seg.get('speaker', 'UNKNOWN')
-            spk_duration = spk_end - spk_start
             
-            # Skip very short speaker segments (likely noise)
-            if spk_duration < 0.5:
-                continue
-            
-            # Calculate overlap duration
+            # Calculate overlap
             overlap_start = max(whisp_start, spk_start)
             overlap_end = min(whisp_end, spk_end)
             overlap_duration = max(0, overlap_end - overlap_start)
             
-            # Track speaker with most overlap
-            if overlap_duration > best_overlap:
-                best_overlap = overlap_duration
-                best_speaker = spk_label
+            # Skip if no overlap or overlap is too short (likely noise/gap)
+            # FIX (v0.5.2.1): Check OVERLAP duration, not total segment duration
+            # A 0.46s segment is valid if it overlaps 0.4s with this Whisper segment
+            if overlap_duration < 0.3:
+                continue
+            
+            overlapping_speakers.append({
+                'speaker': spk_label,
+                'spk_start': spk_start,
+                'spk_end': spk_end,
+                'overlap_start': overlap_start,
+                'overlap_end': overlap_end,
+                'overlap_duration': overlap_duration
+            })
         
-        if best_speaker and best_overlap > 0:
-            whisper_to_speaker[whisp_idx] = best_speaker
-            logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: assigned to {best_speaker} (overlap: {best_overlap:.2f}s / {whisp_duration:.2f}s)")
-    
-    # Group consecutive Whisper segments with the same speaker into ranges
-    speaker_char_ranges = []
-    current_speaker = None
-    current_start_char = None
-    current_end_char = None
-    
-    for whisp_info in whisper_char_positions:
-        whisp_idx = whisp_info['whisper_idx']
-        whisp_speaker = whisper_to_speaker.get(whisp_idx)
-        
-        if whisp_speaker is None:
-            # No speaker assigned - finish current range if any
-            if current_speaker is not None:
-                speaker_char_ranges.append({
-                    'start_char': current_start_char,
-                    'end_char': current_end_char,
-                    'speaker': current_speaker
-                })
-                current_speaker = None
+        if not overlapping_speakers:
+            # No speaker assigned - skip this segment
             continue
         
-        if whisp_speaker == current_speaker:
-            # Same speaker - extend current range
-            current_end_char = whisp_info['char_end']
+        # Sort by overlap start time to process in chronological order
+        overlapping_speakers.sort(key=lambda s: s['overlap_start'])
+        
+        if len(overlapping_speakers) == 1:
+            # Simple case: entire Whisper segment belongs to one speaker
+            speaker_char_ranges.append({
+                'start_char': whisp_char_start,
+                'end_char': whisp_char_end,
+                'speaker': overlapping_speakers[0]['speaker']
+            })
+            logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: single speaker {overlapping_speakers[0]['speaker']}")
         else:
-            # Different speaker - finish previous range and start new one
-            if current_speaker is not None:
+            # Complex case: Whisper segment contains MULTIPLE speakers
+            # Check if one speaker dominates (>80%) AND the minor speaker is at the EDGE
+            # This handles cases where pyannote misattributes a few words at segment boundaries
+            # But we preserve short utterances in the MIDDLE (e.g., "Ok." between two longer segments)
+            dominant_speaker = None
+            max_duration = 0
+            total_duration = sum(s['overlap_duration'] for s in overlapping_speakers)
+            
+            for spk_info in overlapping_speakers:
+                if spk_info['overlap_duration'] > max_duration:
+                    max_duration = spk_info['overlap_duration']
+                    dominant_speaker = spk_info['speaker']
+            
+            # Check if dominant speaker threshold applies
+            # Only filter if one speaker dominates AND minor speaker is at the edge (not middle)
+            dominant_ratio = max_duration / total_duration
+            is_edge_only = False
+            
+            if dominant_ratio > 0.8 and len(overlapping_speakers) == 2:
+                # Find the minor speaker
+                minor_speakers = [s for s in overlapping_speakers if s['speaker'] != dominant_speaker]
+                if len(minor_speakers) > 0:
+                    minor_speaker = minor_speakers[0]
+                    
+                    # Check if minor speaker is only at the edge (beginning or end, not middle)
+                    # Minor at beginning: overlap_start ≈ whisp_start
+                    # Minor at end: overlap_end ≈ whisp_end
+                    edge_threshold = 0.1 * whisp_duration  # Within first/last 10% of segment
+                    
+                    at_beginning = abs(minor_speaker['overlap_start'] - whisp_start) < edge_threshold
+                    at_end = abs(minor_speaker['overlap_end'] - whisp_end) < edge_threshold
+                    
+                    is_edge_only = at_beginning or at_end
+            
+            if dominant_ratio > 0.8 and is_edge_only:
+                # One speaker dominates and minor is at edge - likely diarization error
                 speaker_char_ranges.append({
-                    'start_char': current_start_char,
-                    'end_char': current_end_char,
-                    'speaker': current_speaker
+                    'start_char': whisp_char_start,
+                    'end_char': whisp_char_end,
+                    'speaker': dominant_speaker
                 })
-            current_speaker = whisp_speaker
-            current_start_char = whisp_info['char_start']
-            current_end_char = whisp_info['char_end']
+                logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: dominant speaker {dominant_speaker} ({dominant_ratio*100:.1f}%), ignoring edge overlap")
+            else:
+                # Multiple significant speakers OR minor speaker in middle - split the text proportionally
+                logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: SPLIT across {len(overlapping_speakers)} speakers")
+                
+                # Calculate character split points based on time ratios
+                char_position = whisp_char_start
+                for i, spk_info in enumerate(overlapping_speakers):
+                    # Calculate what fraction of the Whisper segment this speaker occupies
+                    time_ratio = spk_info['overlap_duration'] / whisp_duration
+                    
+                    # Calculate character range for this speaker
+                    if i == len(overlapping_speakers) - 1:
+                        # Last speaker gets remaining characters to avoid rounding errors
+                        char_end = whisp_char_end
+                    else:
+                        # Proportional split based on time
+                        char_end = whisp_char_start + int(whisp_char_len * 
+                                                          (spk_info['overlap_end'] - whisp_start) / whisp_duration)
+                        
+                        # Try to split at word boundary for cleaner splits
+                        # Look for space near the calculated split point (within ±20% of segment)
+                        search_window = max(5, int(whisp_char_len * 0.2))
+                        search_start = max(whisp_char_start, char_end - search_window)
+                        search_end = min(whisp_char_end, char_end + search_window)
+                        
+                        # Find nearest word boundary (space) within the window
+                        best_split = char_end
+                        min_distance = float('inf')
+                        for pos in range(search_start, search_end):
+                            if pos < len(text) and text[pos] == ' ':
+                                distance = abs(pos - char_end)
+                                if distance < min_distance:
+                                    min_distance = distance
+                                    best_split = pos
+                        
+                        char_end = best_split
+                    
+                    # Only create range if it has content
+                    if char_end > char_position:
+                        speaker_char_ranges.append({
+                            'start_char': char_position,
+                            'end_char': char_end,
+                            'speaker': spk_info['speaker']
+                        })
+                        logger.debug(f"  → {spk_info['speaker']}: chars {char_position}-{char_end} (time ratio: {time_ratio:.2f})")
+                        char_position = char_end
     
-    # Don't forget the last range
-    if current_speaker is not None:
-        speaker_char_ranges.append({
-            'start_char': current_start_char,
-            'end_char': current_end_char,
-            'speaker': current_speaker
-        })
-    
-    # Sort by character position for easier processing downstream
+    # Sort by character position
     speaker_char_ranges.sort(key=lambda r: r['start_char'])
+    
+    # Merge consecutive ranges from the same speaker
+    # This consolidates ranges that may have been split across Whisper segments
+    if speaker_char_ranges:
+        merged_ranges = []
+        current_range = speaker_char_ranges[0].copy()
+        
+        for next_range in speaker_char_ranges[1:]:
+            if (next_range['speaker'] == current_range['speaker'] and 
+                next_range['start_char'] <= current_range['end_char'] + 1):
+                # Same speaker and adjacent/overlapping - merge
+                current_range['end_char'] = max(current_range['end_char'], next_range['end_char'])
+            else:
+                # Different speaker or gap - save current and start new
+                merged_ranges.append(current_range)
+                current_range = next_range.copy()
+        
+        # Don't forget the last range
+        merged_ranges.append(current_range)
+        speaker_char_ranges = merged_ranges
+    
+    logger.info(f"Created {len(speaker_char_ranges)} speaker character ranges from {len(speaker_segments)} diarization segments")
     
     return speaker_char_ranges
 
@@ -923,16 +1027,28 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
         if speaker_char_ranges:
             from punctuation_restorer import _convert_char_ranges_to_word_ranges
             speaker_word_ranges = _convert_char_ranges_to_word_ranges(all_text, speaker_char_ranges)
+            
             if speaker_word_ranges and not quiet:
                 logger.debug(f"Converted {len(speaker_char_ranges)} char ranges to {len(speaker_word_ranges)} word ranges")
                 if len(speaker_word_ranges) > 0:
                     logger.debug(f"First word range: {speaker_word_ranges[0]}")
                     logger.debug(f"Last word range: {speaker_word_ranges[-1]}")
+                    # Count speaker changes
+                    speaker_changes = 0
+                    for i in range(len(speaker_word_ranges) - 1):
+                        if speaker_word_ranges[i]['speaker'] != speaker_word_ranges[i+1]['speaker']:
+                            speaker_changes += 1
+                    logger.info(f"Speaker word ranges contain {speaker_changes} speaker changes")
     
     # Process the entire text using unified SentenceSplitter (v0.4.0+)
     # Pass full Whisper segments and speaker segments (not just boundaries)
     # SentenceSplitter handles all boundary evaluation and punctuation tracking
     from punctuation_restorer import restore_punctuation
+    
+    if not quiet and speaker_word_ranges:
+        logger.debug(f"Calling restore_punctuation with {len(speaker_word_ranges)} speaker word ranges")
+        logger.debug(f"Total words in all_text: {len(all_text.split())}")
+    
     processed_text, pre_split_sentences = restore_punctuation(
         all_text, 
         lang_for_punctuation, 
@@ -944,19 +1060,32 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     # SentenceSplitter has already handled all boundary decisions
     sentences = pre_split_sentences if pre_split_sentences else [processed_text]
     
-    # Sanitize all sentences
-    sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
+    if not quiet:
+        logger.debug(f"restore_punctuation returned {len(sentences)} sentences")
     
-    # v0.5.0: Apply unified SentenceFormatter for all post-processing merges
-    # Consolidates domain, decimal, appositive, and emphatic word merges in one place
-    # with speaker-aware merge decisions (never merge different speakers)
+    # v0.5.1 FIX: Apply formatting BEFORE sanitization
+    # The sanitization process can change word counts (e.g., splitting "vendedores.ambulantes" into two words),
+    # which would cause word position misalignment with speaker_word_ranges.
+    # So we need to do speaker-aware formatting first, then sanitize after.
     from sentence_formatter import SentenceFormatter
+    
+    if not quiet:
+        logger.debug(f"About to call SentenceFormatter with {len(sentences)} sentences")
+        logger.debug(f"Speaker word ranges: {speaker_word_ranges is not None}")
+        if speaker_word_ranges:
+            logger.debug(f"Number of speaker word ranges: {len(speaker_word_ranges)}")
     
     formatter = SentenceFormatter(
         language=lang_for_punctuation or 'en',
-        speaker_segments=speaker_word_ranges  # None when diarization disabled (backward compatible)
+        speaker_segments=speaker_word_ranges  # Use original word ranges before sanitization
     )
     sentences, merge_metadata = formatter.format(sentences)
+    
+    if not quiet:
+        logger.debug(f"SentenceFormatter returned {len(sentences)} sentences and {len(merge_metadata)} merge operations")
+    
+    # Sanitize all sentences AFTER formatting
+    sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
     
     # Log merge summary
     if merge_metadata and not quiet:

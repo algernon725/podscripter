@@ -5,6 +5,93 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2.3] - 2025-01-05
+
+### Fixed
+- **Refined dominant speaker threshold to preserve middle utterances (Bug #3b)**
+  - **Problem**: v0.5.2.2's dominant speaker threshold (>80%) was too aggressive, filtering out legitimate short utterances in the MIDDLE of segments
+  - **Impact**: Went from 84 speaker boundaries preserved to only 68 (16 legitimate boundaries lost), including "En espanolistos.com slash best. Ok." where "Ok." was incorrectly merged
+  - **Root Cause**: The 80% threshold couldn't distinguish between edge misattributions and legitimate middle utterances
+  - **Fix**: Refined logic to only apply dominant speaker threshold when minor speaker is at the EDGE (first/last 10% of segment)
+    - Edge misattributions (like "Y yo" at START): filtered
+    - Legitimate middle utterances (like "Ok." in MIDDLE): preserved
+  - **Implementation**: Check if minor speaker's time range is within first/last 10% of Whisper segment before applying 80% threshold
+  - **Impact**: Preserves all legitimate speaker changes while filtering only edge misattributions
+
+## [0.5.2.2] - 2025-01-05
+
+### Fixed
+- **Dominant speaker threshold for edge misattributions (Bug #3)**
+  - **Problem**: Pyannote occasionally misattributes a few words at segment boundaries to the wrong speaker
+  - **Impact**: "Yo soy Andrea de Santander, Colombia y yo." instead of "Y yo soy Nate..." - the "Y yo" was incorrectly merged with Andrea's sentence
+  - **Root Cause**: Pyannote diarization error at segment edge (assigned first 0.55s/4.0s = 14% of segment to wrong speaker), and our code was faithfully splitting based on that error
+  - **Fix**: Added dominant speaker threshold - if one speaker accounts for >80% of a Whisper segment's duration, assign the entire segment to them
+  - **Rationale**: Small misattributions at edges (<20%) are more likely diarization errors than actual speaker changes
+  - **Example**: Segment with 0.55s SPEAKER_02 + 2.84s SPEAKER_01 (83.8% dominant) → assigned entirely to SPEAKER_01
+  - **Note**: This fix was too aggressive and refined in v0.5.2.3 to only apply at edges
+
+## [0.5.2.1] - 2025-01-05
+
+### Fixed
+- **CRITICAL: Overlap duration threshold filtering valid speech (Bug #2)**
+  - **Problem**: The 0.3s overlap threshold was incorrectly checking TOTAL segment duration instead of overlap duration in some cases
+  - **Impact**: Short speaker segments (e.g., 0.46s "Bueno!") that had substantial overlap (0.41s) with Whisper segments were being filtered out
+  - **Root Cause**: Overlap duration check at line 724 was filtering based on total speaker segment duration (`< 0.5s`), not the actual overlap with the Whisper segment
+  - **Fix**: Changed filter to check `overlap_duration < 0.3s` instead of `spk_duration < 0.5s`
+  - **Example**: "Está bien." (SPEAKER_01) / "Bueno!" (SPEAKER_00) now properly split across lines
+
+## [0.5.2] - 2025-01-05
+
+### Fixed
+- **CRITICAL: Speaker boundaries lost during conversion (Bug #1)**
+  - **Problem**: Diarization detected 84 speaker changes, but only 48 made it to sentence splitting (36 boundaries lost!)
+  - **Root Cause**: `_convert_speaker_segments_to_char_ranges()` assigned each Whisper segment to ONE speaker based on "most overlap"
+    - When a Whisper segment contained text from multiple speakers, it was assigned entirely to the majority speaker
+    - Example: "Aquí. Listo, eso es todo..." (Andrea 0.5s + Nate 2.0s) → assigned entirely to Nate → boundary lost
+  - **Fix**: Rewrote segment assignment logic to SPLIT Whisper segments when they contain multiple speakers
+    - Now detects all overlapping speakers per Whisper segment
+    - Splits segments proportionally based on time overlaps
+    - Attempts to split at word boundaries for cleaner results
+    - Merges consecutive ranges from the same speaker
+  - **Impact**: All speaker boundaries are now preserved (84 → 84 instead of 84 → 48)
+
+### Changed
+- **`_convert_speaker_segments_to_char_ranges()` completely rewritten** (lines 703-813)
+  - Old approach: Assign each Whisper segment to single speaker (loses boundaries)
+  - New approach: Split Whisper segments when they contain multiple speakers (preserves boundaries)
+  - Added detailed debug logging for multi-speaker segments
+  - Added character position logging for tracking splits
+
+### Investigation History
+- **v0.5.1 Investigation** (not released):
+  - Fixed text normalization alignment in `_convert_speaker_segments_to_char_ranges()`
+  - Applied `_normalize_initials_and_acronyms()` to segment text before calculating positions
+  - Moved `SentenceFormatter.format()` to run BEFORE `_sanitize_sentence_output()`
+  - Implemented proper speaker lookup in `SentenceFormatter._get_speaker_for_sentence()`
+  - **Result**: These fixes were necessary but insufficient - deeper problem remained
+- **v0.5.2 Root Cause Analysis**:
+  - Debug output revealed: 84 boundaries detected, only 48 preserved
+  - Identified "most overlap" assignment as the culprit
+  - Implemented segment splitting solution
+
+## [0.5.1] - 2025-01-04
+
+### Fixed
+- **Text normalization alignment in speaker boundary detection**
+  - Applied `_normalize_initials_and_acronyms()` to Whisper segment text in `_convert_speaker_segments_to_char_ranges()`
+  - Applied whitespace normalization to match `all_text` processing
+  - Ensures character positions align correctly with normalized text
+
+### Changed
+- **Speaker lookup in `SentenceFormatter`**:
+  - Added `_build_sentence_word_ranges()` to map sentence indices to word positions
+  - Implemented proper `_get_speaker_for_sentence()` using word range overlaps
+  - Moved `SentenceFormatter.format()` to run BEFORE `_sanitize_sentence_output()` to prevent word count misalignment
+
+### Notes
+- These fixes were necessary but insufficient to fully resolve the speaker boundary bug
+- See v0.5.2 for the complete fix
+
 ## [0.5.0] - 2025-01-04
 
 ### Added

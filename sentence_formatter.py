@@ -71,8 +71,8 @@ class SentenceFormatter:
         
         Args:
             language: Language code (e.g., 'es', 'en', 'fr', 'de')
-            speaker_segments: Optional speaker segment data with character ranges
-                             Format: [{'speaker': 'SPEAKER_00', 'start_char': 0, 'end_char': 100}, ...]
+            speaker_segments: Optional speaker segment data with word ranges
+                             Format: [{'speaker': 'SPEAKER_00', 'start_word': 0, 'end_word': 10}, ...]
                              When None, speaker boundary checks are bypassed (backward compatible)
         """
         self.language = language.lower() if language else 'en'
@@ -81,6 +81,9 @@ class SentenceFormatter:
         
         # Build sentence-to-speaker mapping if speaker data is available
         self._sentence_speakers: Dict[int, str] = {}
+        
+        # Will be populated in format() to map sentence_idx -> (start_word, end_word)
+        self._sentence_word_ranges: Dict[int, Tuple[int, int]] = {}
     
     def format(self, sentences: List[str]) -> Tuple[List[str], List[MergeMetadata]]:
         """
@@ -92,16 +95,78 @@ class SentenceFormatter:
         Returns:
             Tuple of (formatted_sentences, merge_metadata)
         """
+        logger.info(f"SentenceFormatter.format() called with {len(sentences)} sentences")
+        logger.debug(f"First 5 sentences: {sentences[:5]}")
+        logger.debug(f"Speaker segments available: {self.speaker_segments is not None}")
+        if self.speaker_segments:
+            logger.debug(f"Number of speaker segments: {len(self.speaker_segments)}")
+        
+        # Build word-range mapping for speaker lookups
+        self._build_sentence_word_ranges(sentences)
+        
         # Order matters: patterns (domains/decimals) first, then language-specific formatting
+        # NOTE: After each merge, we rebuild word ranges since sentence indices change
+        initial_count = len(sentences)
         sentences = self._merge_domains(sentences)
+        self._build_sentence_word_ranges(sentences)
+        logger.debug(f"After domain merge: {len(sentences)} sentences (was {initial_count})")
+        
+        initial_count = len(sentences)
         sentences = self._merge_decimals(sentences)
+        self._build_sentence_word_ranges(sentences)
+        logger.debug(f"After decimal merge: {len(sentences)} sentences (was {initial_count})")
         
         if self.language == 'es':
+            initial_count = len(sentences)
             sentences = self._merge_spanish_appositives(sentences)
+            self._build_sentence_word_ranges(sentences)
+            logger.debug(f"After appositive merge: {len(sentences)} sentences (was {initial_count})")
         
+        initial_count = len(sentences)
         sentences = self._merge_emphatic_words(sentences)
+        logger.debug(f"After emphatic merge: {len(sentences)} sentences (was {initial_count})")
+        # No need to rebuild after last merge
+        
+        logger.info(f"SentenceFormatter.format() complete: {len(self.merge_history)} merge operations recorded")
         
         return sentences, self.merge_history
+    
+    def _build_sentence_word_ranges(self, sentences: List[str]) -> None:
+        """
+        Build mapping of sentence indices to word ranges.
+        
+        This allows us to look up which speaker(s) correspond to each sentence.
+        
+        Args:
+            sentences: List of sentences
+        """
+        current_word_idx = 0
+        
+        for sent_idx, sentence in enumerate(sentences):
+            # Count words in this sentence
+            word_count = len(sentence.split())
+            
+            # Store the range
+            if word_count > 0:
+                start_word = current_word_idx
+                end_word = current_word_idx + word_count - 1
+                self._sentence_word_ranges[sent_idx] = (start_word, end_word)
+                current_word_idx += word_count
+                
+                # Debug logging for first few sentences
+                if sent_idx < 5 and self.speaker_segments:
+                    logger.debug(f"Sentence {sent_idx} words [{start_word}:{end_word}]: {sentence[:60]}...")
+            else:
+                # Empty sentence (shouldn't happen but handle gracefully)
+                self._sentence_word_ranges[sent_idx] = (current_word_idx, current_word_idx)
+        
+        # Log speaker segments info
+        if self.speaker_segments and len(sentences) > 0:
+            logger.debug(f"Total sentences: {len(sentences)}, Total word positions: {current_word_idx}")
+            logger.debug(f"Speaker segments available: {len(self.speaker_segments)}")
+            if len(self.speaker_segments) > 0:
+                logger.debug(f"First speaker segment: {self.speaker_segments[0]}")
+                logger.debug(f"Last speaker segment: {self.speaker_segments[-1]}")
     
     def _get_speaker_for_sentence(self, sentence_idx: int) -> Optional[str]:
         """
@@ -120,10 +185,43 @@ class SentenceFormatter:
         if sentence_idx in self._sentence_speakers:
             return self._sentence_speakers[sentence_idx]
         
-        # For now, return None - will be populated by caller if needed
-        # (This method is designed to be overridden or extended based on how
-        # sentence indices map to character positions in the actual implementation)
-        return None
+        # Get word range for this sentence
+        if sentence_idx not in self._sentence_word_ranges:
+            logger.warning(f"Sentence {sentence_idx} not in word ranges!")
+            return None
+        
+        start_word, end_word = self._sentence_word_ranges[sentence_idx]
+        
+        # Find which speaker segment(s) overlap with this word range
+        # speaker_segments format: [{'start_word': 0, 'end_word': 10, 'speaker': 'SPEAKER_01'}, ...]
+        speakers_in_sentence = set()
+        
+        for seg in self.speaker_segments:
+            seg_start = seg['start_word']
+            seg_end = seg['end_word']
+            
+            # Check if this speaker segment overlaps with the sentence's word range
+            if seg_start <= end_word and seg_end >= start_word:
+                speakers_in_sentence.add(seg['speaker'])
+        
+        # Determine the dominant speaker
+        if len(speakers_in_sentence) == 0:
+            # No speaker data for this sentence
+            logger.debug(f"Sentence {sentence_idx} words [{start_word}:{end_word}]: NO SPEAKER FOUND")
+            speaker = None
+        elif len(speakers_in_sentence) == 1:
+            # Single speaker - common case
+            speaker = list(speakers_in_sentence)[0]
+            logger.debug(f"Sentence {sentence_idx} words [{start_word}:{end_word}]: speaker={speaker}")
+        else:
+            # Multiple speakers in one sentence - use first speaker we found
+            # This can happen at sentence boundaries where diarization is uncertain
+            logger.debug(f"Sentence {sentence_idx} words [{start_word}:{end_word}]: multiple speakers {speakers_in_sentence}")
+            speaker = list(speakers_in_sentence)[0]
+        
+        # Cache and return
+        self._sentence_speakers[sentence_idx] = speaker
+        return speaker
     
     def _should_merge(self, sent1: str, sent2: str, idx1: int, idx2: int, merge_type: str) -> Tuple[bool, str]:
         """
