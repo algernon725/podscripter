@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0.1] - 2026-01-10
+
+### Fixed
+- **Split utterance capitalization**: Fixed issue where split utterances from different speakers were not all capitalized. Now ALL utterances are capitalized when splitting by speaker, not just the first one (e.g., "y yo soy Nate" → "Y yo soy Nate" when it's a separate paragraph)
+  - Modified `_write_txt()` in `podscripter.py` to capitalize each utterance when splitting sentences by speaker changes
+  - Each utterance becomes its own paragraph, so each should start with a capital letter
+
+### Changed
+- **Logging cleanup**: Removed duplicate log messages to reduce console clutter
+  - Removed duplicate "Detected X speakers with Y speaker changes" message from `podscripter.py` (kept the one in `speaker_diarization.py` which says "unique speakers")
+  - Removed duplicate "Speaker word ranges contain X speaker changes" message from `punctuation_restorer.py` (kept the one in `podscripter.py`)
+
 ## [0.6.0] - 2025-01-07
 
 ### Added

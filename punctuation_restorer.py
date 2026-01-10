@@ -2066,7 +2066,6 @@ def _convert_char_ranges_to_word_ranges(text: str, char_ranges: list[dict]) -> l
         # Don't forget the last range
         merged_ranges.append(current_range)
         
-        logger.info(f"Speaker word ranges contain {len(merged_ranges) - 1} speaker changes")
         return merged_ranges
     
     return word_ranges

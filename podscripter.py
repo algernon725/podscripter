@@ -463,9 +463,8 @@ def _write_txt(sentences, output_file, language: str | None = None):
                         if text:
                             text = fix_spaced_domains(text, use_exclusions=True, language=language)
                             text = _fix_mid_sentence_capitals(text)
-                            # Only capitalize the first utterance of the sentence
-                            if idx == 0:
-                                text = _capitalize_first_letter(text)
+                            # Capitalize each utterance since they become separate paragraphs
+                            text = _capitalize_first_letter(text)
                             f.write(f"{text}\n\n")
                             prev_speaker = merged['speaker']
                 else:
@@ -1316,8 +1315,6 @@ def _transcribe_with_sentences(
                 device=device,
             )
             speaker_boundaries = diarization_result['speaker_boundaries']
-            if not quiet:
-                logger.info(f"Detected {diarization_result['num_speakers']} speakers with {len(speaker_boundaries)} speaker changes")
         except Exception as e:
             logger.warning(f"Speaker diarization failed: {e}. Continuing without speaker boundaries.")
             if not quiet:
