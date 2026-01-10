@@ -317,7 +317,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 
 **Integration**: Full speaker segment information (with labels and ranges) is threaded through the entire punctuation pipeline to enable speaker-aware sentence splitting.
 
-**Speaker Segment Tracking** (v0.3.1, enhanced in v0.4.2, v0.5.2):
+**Speaker Segment Tracking** (v0.3.1, enhanced in v0.4.2, v0.5.2, v0.6.0):
 - **Full speaker context**: Instead of just boundary timestamps, entire speaker segments (with labels and ranges) are tracked
 - **Conversion pipeline**:
   1. `_convert_speaker_segments_to_char_ranges()`: Time-based segments → character positions in text
@@ -335,6 +335,15 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
   3. `_get_speaker_at_word()`: Query speaker label at any word position
 - **Connector word handling**: When a sentence would start with a connector word ("Y", "O", "and", "et", "und"), check if the same speaker is continuing. If yes, merge into previous sentence. If no (different speaker), allow the break.
 - **Example**: `"...Colombia. Y yo soy..."` stays together if same speaker, splits if different speaker starting with "Y"
+- **v0.6.0 Speaker-Aware Output**:
+  - **Utterance and Sentence dataclasses**: Speaker information flows through entire pipeline
+    - `Utterance`: Represents a single speaker's contribution (text, speaker, word range)
+    - `Sentence`: Contains text, list of utterances, and primary speaker
+  - **Speaker tracking in pipeline**:
+    - `SentenceSplitter._detect_speaker_changes_in_sentence()`: Splits sentences into utterances based on speaker segments
+    - `SentenceFormatter`: Preserves utterances when merging sentences
+    - `_write_txt()`: Adds extra paragraph break (`\n\n\n`) when speaker changes between sentences
+  - **Impact**: Visual separation of different speakers in output while preserving same-speaker grouping
 
 **Priority hierarchy** (in `_should_end_sentence_here`):
 1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)

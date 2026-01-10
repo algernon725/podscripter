@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-01-07
+
+### Added
+- **Speaker-Aware Output Formatting**: Utterances from different speakers within the same sentence are now split into separate paragraphs
+  - Introduced `Utterance` and `Sentence` dataclasses to track speaker information throughout the pipeline
+  - Speaker metadata now flows through entire transcription pipeline without loss
+  - Addresses cases where short utterances from different speakers were appearing on the same line
+  - **Architecture**: Introduced `Utterance` and `Sentence` dataclasses to track speaker information throughout the pipeline
+  - **Implementation**:
+    - `Sentence` dataclass: Contains text, list of `Utterance` objects, and primary speaker
+    - `Utterance` dataclass: Represents a single speaker's contribution within a sentence (text, speaker, word range)
+    - `SentenceSplitter.split()`: Now returns `List[Sentence]` instead of `List[str]`
+    - `SentenceSplitter._detect_speaker_changes_in_sentence()`: Creates non-overlapping utterances, ensuring each word belongs to only one speaker
+    - `SentenceSplitter._should_end_sentence_at_index()`: Prevents splitting after connector words AND before connector words (sentences shouldn't end or start with connectors/prepositions); minimum 4 words for speaker boundaries
+    - `SentenceFormatter`: Updated to preserve `Utterance` lists when merging sentences
+    - `_write_txt()`: When a sentence contains utterances from multiple speakers, merges consecutive utterances, then splits only if all utterances are ≥3 words; ensures all sentences start with capital letter
+    - `_convert_speaker_segments_to_char_ranges()`: Filters out very short diarization segments (<0.5s) that are likely artifacts
+    - `_convert_char_ranges_to_word_ranges()`: Merges consecutive word ranges from the same speaker
+  - **Backward Compatibility**: Non-diarization mode works identically (empty utterances list, no splits)
+  - **Testing**: Added `test_speaker_aware_output.py` with 5 test cases covering speaker changes, same-speaker continuation, and backward compatibility
+
+### Fixed
+- **Overlapping utterances**: Fixed issue where words appeared in multiple utterances due to overlapping speaker segments
+- **Duplicate words in output**: Fixed issue where overlapping utterances caused words to be written multiple times
+- **Spurious speaker changes**: Filter out very short diarization segments (<0.5s) that create artificial speaker boundaries
+- **Connector words at sentence ends**: Conjunctions ("y", "o", "pero") and prepositions ("de", "a", "en", etc.) now stay with following text instead of being orphaned
+- **Excessive fragmentation**: Increased minimum chunk length for speaker boundaries from 2 to 4 words to reduce 1-2 word sentence fragments
+- **Short utterance handling**: Added minimum utterance length check (≥3 words) when splitting sentences by speaker
+- **Sentence capitalization**: Sentences that start with lowercase letters (e.g., after connector word preservation) are now capitalized; preserves existing capitalization from punctuation restorer
+- **Connector word split prevention**: Prevents splitting before connector words (don't start sentences with "y", "o", "pero", etc.)
+- **Mid-sentence capitalization**: Fixed issue where words in the middle of a sentence were incorrectly capitalized (e.g., "best. Y aquí" → "best. y aquí") by:
+  - Lowercasing the first letter when merging sentences in `SentenceFormatter`
+  - Only capitalizing the first utterance when splitting sentences by speaker in `_write_txt()`
+  - Added `_fix_mid_sentence_capitals()` in `_write_txt()` to lowercase common Spanish connectors/articles after periods mid-sentence (fixes punctuation restorer over-capitalization)
+
+### Changed
+- **Logging**: Changed speaker boundary decision messages (SKIP/SPLIT) and formatter messages from INFO to DEBUG level; now only shown with `--debug` flag
+- **`sentence_splitter.py`**:
+  - Added `Utterance` and `Sentence` dataclasses (lines 54-84)
+  - Updated `SentenceSplitter.split()` return type to `List[Sentence]` (line 179)
+  - Added `_detect_speaker_changes_in_sentence()` method (lines 393-484)
+  - Updated sentence assembly loop to create `Sentence` objects with utterances (lines 517-647)
+- **`sentence_formatter.py`**:
+  - Updated `format()` to work with `List[Sentence]` (line 88)
+  - Updated all merge methods (`_merge_domains`, `_merge_decimals`, `_merge_spanish_appositives`, `_merge_emphatic_words`) to preserve utterances when merging
+  - Updated `_get_speaker_for_sentence()` to extract speaker from `Sentence.utterances` (line 178)
+  - Added `_lowercase_first_letter()` static method to fix mid-sentence capitalization when merging sentences
+  - Applied lowercase fix in `_merge_domains()` and `_merge_decimals()` when appending text
+- **`punctuation_restorer.py`**:
+  - Updated `_transformer_based_restoration()` to handle `Sentence` objects from `SentenceSplitter`
+  - Reconstructs `Sentence` objects with formatted text while preserving utterances and speaker info
+- **`podscripter.py`**:
+  - Updated `_write_txt()` to detect speaker changes and add extra paragraph breaks (lines 349-387)
+  - Maintains backward compatibility with string-based sentences
+  - Modified `_write_txt()` to only capitalize the first utterance when splitting sentences by speaker (prevents mid-sentence capitalization)
+  - Added `_fix_mid_sentence_capitals()` helper function to lowercase common Spanish words (connectors, articles) that appear capitalized after periods mid-sentence
+
+### Notes
+- This feature addresses the "Future Refactoring Opportunities" item documented in v0.5.2.3
+- Output formatting: Single blank line between all paragraphs; utterances from different speakers are split into separate paragraphs
+- Speaker separation quality depends on diarization accuracy; very short segments (<0.5s) are filtered out as likely artifacts
+- In cases where diarization produces many short, alternating speaker segments, the output may contain short utterances on separate lines
+- Speaker information is preserved for potential future features (labels, coloring, etc.)
+
 ## [0.5.2.3] - 2025-01-05
 
 ### Fixed

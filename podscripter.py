@@ -47,6 +47,7 @@ from punctuation_restorer import (
     _normalize_comma_spacing,
 )
 from domain_utils import fix_spaced_domains, mask_domains, unmask_domains
+from sentence_splitter import Sentence, Utterance
 
 FOCUS_LANGS = {"en", "es", "fr", "de"}
 
@@ -348,27 +349,147 @@ def _write_merge_metadata_dump(merge_metadata, output_file: str):
 
 def _write_txt(sentences, output_file, language: str | None = None):
     """
-    Write sentences to TXT file.
+    Write sentences to TXT file with speaker-aware paragraph breaks.
     
+    v0.6.0: Splits utterances from different speakers within the same sentence
+            into separate paragraphs. Ensures proper capitalization.
     v0.4.0: Simplified - no longer splits sentences since SentenceSplitter handles all boundaries.
     
     Args:
-        sentences: List of sentences (already split by SentenceSplitter)
+        sentences: List of Sentence objects (or strings for backward compat)
         output_file: Path to output file
         language: Language code for domain fixing
     """
+    def _capitalize_first_letter(text: str) -> str:
+        """Capitalize the first letter of a sentence if it's lowercase, handling special chars."""
+        if not text:
+            return text
+        # Find the first alphabetic character
+        for i, char in enumerate(text):
+            if char.isalpha():
+                # Only capitalize if it's currently lowercase
+                if char.islower():
+                    return text[:i] + char.upper() + text[i+1:]
+                else:
+                    # Already capitalized, return as-is
+                    return text
+        return text
+    
+    def _fix_mid_sentence_capitals(text: str) -> str:
+        """
+        Fix incorrectly capitalized words mid-sentence.
+        The punctuation restorer sometimes capitalizes common words (connectors, articles) mid-sentence.
+        Examples: 
+          - "best Y aquí" -> "best y aquí"
+          - "best. Y aquí" -> "best. y aquí"
+        
+        Strategy: Lowercase common Spanish words when preceded by space/punctuation (not hyphens).
+        _capitalize_first_letter() will re-capitalize the first word if it's truly at sentence start.
+        """
+        import re
+        # Common Spanish connectors and articles that are usually lowercase unless starting a sentence
+        common_words = ['Y', 'E', 'O', 'U', 'A', 'De', 'En', 'Por', 'Para', 'Con', 'Sin', 
+                       'Sobre', 'Entre', 'Pero', 'Ni', 'Mas', 'Sino', 'Desde', 'Hasta', 'Hacia',
+                       'La', 'El', 'Los', 'Las', 'Un', 'Una', 'Unos', 'Unas', 
+                       'Aquí', 'Ahí', 'Allí', 'También', 'Todo', 'Todos', 'Toda', 'Todas']
+        
+        # Lowercase these words only when preceded by whitespace or punctuation (not hyphens)
+        # This prevents lowercasing letters in acronyms like "B-E-S-T"
+        for word in common_words:
+            # Pattern: (space or punctuation except hyphen) + word + word boundary
+            text = re.sub(r'([\s.,;:!?¿¡])\s*' + word + r'\b', r'\1' + word.lower(), text)
+        
+        return text
+    
     with open(output_file, "w") as f:
-        for sentence in sentences:
-            s = (sentence or "").strip()
-            if not s:
+        prev_speaker = None
+        sentences_with_speaker_changes = 0
+        
+        for sentence_obj in sentences:
+            # Handle backward compatibility with string sentences
+            if not isinstance(sentence_obj, Sentence):
+                s = (sentence_obj or "").strip()
+                if s:
+                    s = fix_spaced_domains(s, use_exclusions=True, language=language)
+                    s = _fix_mid_sentence_capitals(s)
+                    s = _capitalize_first_letter(s)
+                    f.write(f"{s}\n\n")
                 continue
             
-            # Fix broken domains with spaces
-            # Convert "espanolistos. Com" back to "espanolistos.com" with lowercase TLD
-            s = fix_spaced_domains(s, use_exclusions=True, language=language)
-            
-            # Write sentence (SentenceSplitter has already handled all boundaries)
-            f.write(f"{s}\n\n")
+            # Check if this sentence contains multiple speakers
+            if sentence_obj.has_speaker_changes():
+                sentences_with_speaker_changes += 1
+                
+                # Merge consecutive utterances from the same speaker, then split by speaker changes
+                merged_utterances = []
+                current_utterance = None
+                
+                for utterance in sentence_obj.utterances:
+                    if not utterance.text or not utterance.text.strip():
+                        continue
+                    
+                    if current_utterance is None:
+                        current_utterance = {
+                            'text': utterance.text,
+                            'speaker': utterance.speaker
+                        }
+                    elif current_utterance['speaker'] == utterance.speaker:
+                        # Same speaker - merge
+                        current_utterance['text'] += ' ' + utterance.text
+                    else:
+                        # Different speaker - save current and start new
+                        merged_utterances.append(current_utterance)
+                        current_utterance = {
+                            'text': utterance.text,
+                            'speaker': utterance.speaker
+                        }
+                
+                # Don't forget the last one
+                if current_utterance:
+                    merged_utterances.append(current_utterance)
+                
+                # FIX (v0.6.0): Only split if all utterances are substantial (≥3 words)
+                # This prevents excessive fragmentation from short interjections
+                MIN_UTTERANCE_WORDS = 3
+                all_substantial = all(
+                    len(u['text'].split()) >= MIN_UTTERANCE_WORDS 
+                    for u in merged_utterances
+                )
+                
+                if all_substantial and len(merged_utterances) > 1:
+                    # All utterances are substantial - split them
+                    for idx, merged in enumerate(merged_utterances):
+                        text = merged['text'].strip()
+                        if text:
+                            text = fix_spaced_domains(text, use_exclusions=True, language=language)
+                            text = _fix_mid_sentence_capitals(text)
+                            # Only capitalize the first utterance of the sentence
+                            if idx == 0:
+                                text = _capitalize_first_letter(text)
+                            f.write(f"{text}\n\n")
+                            prev_speaker = merged['speaker']
+                else:
+                    # Some utterances are too short - keep sentence together
+                    full_text = sentence_obj.text.strip()
+                    if full_text:
+                        full_text = fix_spaced_domains(full_text, use_exclusions=True, language=language)
+                        full_text = _fix_mid_sentence_capitals(full_text)
+                        full_text = _capitalize_first_letter(full_text)
+                        f.write(f"{full_text}\n\n")
+                        prev_speaker = sentence_obj.get_first_speaker()
+            else:
+                # Single speaker sentence - write as one paragraph
+                s = (sentence_obj.text or "").strip()
+                if not s:
+                    continue
+                
+                s = fix_spaced_domains(s, use_exclusions=True, language=language)
+                s = _fix_mid_sentence_capitals(s)
+                s = _capitalize_first_letter(s)
+                f.write(f"{s}\n\n")
+                prev_speaker = sentence_obj.get_first_speaker()
+        
+        logger.debug(f"Found {sentences_with_speaker_changes} sentences with speaker changes")
 
 def _write_srt(segments, output_file):
     def format_timestamp(seconds):
@@ -704,6 +825,20 @@ def _convert_speaker_segments_to_char_ranges(
     # Previous approach assigned each Whisper segment to ONE speaker (most overlap),
     # losing boundaries that fell in the middle of segments.
     # New approach: detect multi-speaker segments and split them proportionally.
+    
+    # FIX (v0.6.0): Filter out very short speaker segments (likely diarization errors)
+    # Very short segments (<0.5s) are often artifacts and create spurious speaker changes
+    MIN_SEGMENT_DURATION = 0.5
+    filtered_speaker_segments = []
+    for spk_seg in speaker_segments:
+        duration = spk_seg.get('end', 0) - spk_seg.get('start', 0)
+        if duration >= MIN_SEGMENT_DURATION:
+            filtered_speaker_segments.append(spk_seg)
+        else:
+            logger.debug(f"Filtered out short speaker segment: {duration:.2f}s < {MIN_SEGMENT_DURATION}s")
+    
+    logger.debug(f"Filtered speaker segments: {len(speaker_segments)} -> {len(filtered_speaker_segments)}")
+    speaker_segments = filtered_speaker_segments
     
     speaker_char_ranges = []
     
@@ -1388,12 +1523,19 @@ def main():
     handler.setFormatter(formatter)
     logger.handlers.clear()
     logger.addHandler(handler)
+    
+    # Set level for all podscripter loggers
     if args.debug:
-        logger.setLevel(logging.DEBUG)
+        log_level = logging.DEBUG
     elif quiet:
-        logger.setLevel(logging.ERROR)
+        log_level = logging.ERROR
     else:
-        logger.setLevel(logging.INFO)
+        log_level = logging.INFO
+    
+    logger.setLevel(log_level)
+    # Also set level on child loggers
+    for logger_name in ['podscripter.splitter', 'podscripter.formatter']:
+        logging.getLogger(logger_name).setLevel(log_level)
     language_arg = args.language.strip().lower() if args.language else "auto"
     language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
     # CLI-only: set threads

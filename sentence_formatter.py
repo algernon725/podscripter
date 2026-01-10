@@ -45,6 +45,9 @@ import logging
 from typing import List, Optional, Tuple, Dict, Any
 from dataclasses import dataclass
 
+# Import Sentence and Utterance from sentence_splitter
+from sentence_splitter import Sentence, Utterance
+
 logger = logging.getLogger("podscripter.formatter")
 
 
@@ -85,18 +88,35 @@ class SentenceFormatter:
         # Will be populated in format() to map sentence_idx -> (start_word, end_word)
         self._sentence_word_ranges: Dict[int, Tuple[int, int]] = {}
     
-    def format(self, sentences: List[str]) -> Tuple[List[str], List[MergeMetadata]]:
+    @staticmethod
+    def _lowercase_first_letter(text: str) -> str:
+        """
+        Lowercase the first alphabetic character in text.
+        Used when merging sentences to fix mid-sentence capitalization from punctuation restorer.
+        
+        Example: "Y aquí puedes..." -> "y aquí puedes..."
+        """
+        if not text:
+            return text
+        for i, char in enumerate(text):
+            if char.isalpha():
+                return text[:i] + char.lower() + text[i+1:]
+        return text
+    
+    def format(self, sentences: List[Sentence]) -> Tuple[List[Sentence], List[MergeMetadata]]:
         """
         Apply all formatting operations in order.
         
         Args:
-            sentences: List of sentences to format
+            sentences: List of Sentence objects to format
             
         Returns:
             Tuple of (formatted_sentences, merge_metadata)
         """
-        logger.info(f"SentenceFormatter.format() called with {len(sentences)} sentences")
-        logger.debug(f"First 5 sentences: {sentences[:5]}")
+        logger.debug(f"SentenceFormatter.format() called with {len(sentences)} sentences")
+        # Extract text for logging
+        sentence_texts = [s.text if isinstance(s, Sentence) else s for s in sentences]
+        logger.debug(f"First 5 sentences: {sentence_texts[:5]}")
         logger.debug(f"Speaker segments available: {self.speaker_segments is not None}")
         if self.speaker_segments:
             logger.debug(f"Number of speaker segments: {len(self.speaker_segments)}")
@@ -127,24 +147,26 @@ class SentenceFormatter:
         logger.debug(f"After emphatic merge: {len(sentences)} sentences (was {initial_count})")
         # No need to rebuild after last merge
         
-        logger.info(f"SentenceFormatter.format() complete: {len(self.merge_history)} merge operations recorded")
+        logger.debug(f"SentenceFormatter.format() complete: {len(self.merge_history)} merge operations recorded")
         
         return sentences, self.merge_history
     
-    def _build_sentence_word_ranges(self, sentences: List[str]) -> None:
+    def _build_sentence_word_ranges(self, sentences: List[Sentence]) -> None:
         """
         Build mapping of sentence indices to word ranges.
         
         This allows us to look up which speaker(s) correspond to each sentence.
         
         Args:
-            sentences: List of sentences
+            sentences: List of Sentence objects
         """
         current_word_idx = 0
         
         for sent_idx, sentence in enumerate(sentences):
+            # Extract text from Sentence object
+            sentence_text = sentence.text if isinstance(sentence, Sentence) else sentence
             # Count words in this sentence
-            word_count = len(sentence.split())
+            word_count = len(sentence_text.split())
             
             # Store the range
             if word_count > 0:
@@ -155,7 +177,7 @@ class SentenceFormatter:
                 
                 # Debug logging for first few sentences
                 if sent_idx < 5 and self.speaker_segments:
-                    logger.debug(f"Sentence {sent_idx} words [{start_word}:{end_word}]: {sentence[:60]}...")
+                    logger.debug(f"Sentence {sent_idx} words [{start_word}:{end_word}]: {sentence_text[:60]}...")
             else:
                 # Empty sentence (shouldn't happen but handle gracefully)
                 self._sentence_word_ranges[sent_idx] = (current_word_idx, current_word_idx)
@@ -168,17 +190,27 @@ class SentenceFormatter:
                 logger.debug(f"First speaker segment: {self.speaker_segments[0]}")
                 logger.debug(f"Last speaker segment: {self.speaker_segments[-1]}")
     
-    def _get_speaker_for_sentence(self, sentence_idx: int) -> Optional[str]:
+    def _get_speaker_for_sentence(self, sentence: Sentence, sentence_idx: int = None) -> Optional[str]:
         """
-        Get the speaker for a given sentence index.
+        Get the speaker for a given sentence.
         
         Args:
-            sentence_idx: Index of the sentence
+            sentence: Sentence object
+            sentence_idx: Optional index for caching
             
         Returns:
             Speaker label or None if no speaker data available
         """
-        if not self.speaker_segments:
+        # If sentence has utterances, use first utterance's speaker
+        if isinstance(sentence, Sentence) and sentence.utterances:
+            return sentence.utterances[0].speaker if sentence.utterances else None
+        
+        # Fallback to speaker field
+        if isinstance(sentence, Sentence):
+            return sentence.speaker
+        
+        # Legacy: use word range lookup if needed
+        if not self.speaker_segments or sentence_idx is None:
             return None
         
         # Return cached result if available
@@ -223,15 +255,15 @@ class SentenceFormatter:
         self._sentence_speakers[sentence_idx] = speaker
         return speaker
     
-    def _should_merge(self, sent1: str, sent2: str, idx1: int, idx2: int, merge_type: str) -> Tuple[bool, str]:
+    def _should_merge(self, sent1: Sentence, sent2: Sentence, idx1: int, idx2: int, merge_type: str) -> Tuple[bool, str]:
         """
         Determine if two sentences should be merged.
         
         CRITICAL: Never merge different speakers.
         
         Args:
-            sent1: First sentence text
-            sent2: Second sentence text
+            sent1: First Sentence object
+            sent2: Second Sentence object
             idx1: Index of first sentence
             idx2: Index of second sentence
             merge_type: Type of merge being considered
@@ -240,8 +272,8 @@ class SentenceFormatter:
             Tuple of (should_merge, reason)
         """
         # Get speakers for both sentences
-        speaker1 = self._get_speaker_for_sentence(idx1)
-        speaker2 = self._get_speaker_for_sentence(idx2)
+        speaker1 = self._get_speaker_for_sentence(sent1, idx1)
+        speaker2 = self._get_speaker_for_sentence(sent2, idx2)
         
         # CRITICAL: If both speakers are known and they differ, never merge
         if speaker1 and speaker2 and speaker1 != speaker2:
@@ -252,7 +284,7 @@ class SentenceFormatter:
         # Allow merge - either no speaker data, or speakers match, or one/both unknown
         return True, "allowed"
     
-    def _merge_domains(self, sentences: List[str]) -> List[str]:
+    def _merge_domains(self, sentences: List[Sentence]) -> List[Sentence]:
         """
         Merge split domains: 'example.' + 'com' → 'example.com'
         
@@ -260,7 +292,7 @@ class SentenceFormatter:
         "jugar." + "Es que..." → "jugar.es" (incorrect)
         
         Args:
-            sentences: List of sentences
+            sentences: List of Sentence objects
             
         Returns:
             List with domain splits merged
@@ -268,15 +300,17 @@ class SentenceFormatter:
         if not sentences:
             return sentences
         
-        merged: List[str] = []
+        merged: List[Sentence] = []
         i = 0
         tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
         
         while i < len(sentences):
-            cur = (sentences[i] or '').strip()
+            cur_obj = sentences[i]
+            cur = (cur_obj.text if isinstance(cur_obj, Sentence) else cur_obj).strip()
             
             if i + 1 < len(sentences):
-                nxt = (sentences[i + 1] or '').strip()
+                nxt_obj = sentences[i + 1]
+                nxt = (nxt_obj.text if isinstance(nxt_obj, Sentence) else nxt_obj).strip()
                 m1 = re.search(r"([A-Za-z0-9\-]+)\.$", cur)
                 m2 = re.match(rf"^({tlds})(\b|\W)(.*)$", nxt, flags=re.IGNORECASE)
                 
@@ -294,12 +328,12 @@ class SentenceFormatter:
                     if not (is_short_sentence or is_capitalized_label):
                         # Skip this merge - likely natural language, not a domain
                         logger.debug(f"Skipping domain merge (natural language guard): '{cur}' + '{nxt}'")
-                        merged.append(cur)
+                        merged.append(cur_obj)
                         i += 1
                         continue
                     
                     # Check speaker boundaries
-                    should_merge, reason = self._should_merge(cur, nxt, i, i + 1, 'domain')
+                    should_merge, reason = self._should_merge(cur_obj, nxt_obj, i, i + 1, 'domain')
                     if not should_merge:
                         # Record skipped merge
                         self.merge_history.append(MergeMetadata(
@@ -307,24 +341,43 @@ class SentenceFormatter:
                             sentence1_idx=i,
                             sentence2_idx=i + 1,
                             reason=f'skipped: {reason}',
-                            speaker1=self._get_speaker_for_sentence(i),
-                            speaker2=self._get_speaker_for_sentence(i + 1),
+                            speaker1=self._get_speaker_for_sentence(cur_obj, i),
+                            speaker2=self._get_speaker_for_sentence(nxt_obj, i + 1),
                             before_text1=cur,
                             before_text2=nxt,
                             after_text=''
                         ))
-                        merged.append(cur)
+                        merged.append(cur_obj)
                         i += 1
                         continue
                     
                     # Perform merge
-                    merged_sentence = cur[:-1] + "." + tld
+                    merged_text = cur[:-1] + "." + tld
                     
                     # Check for triple merge (domain split across 3 sentences)
                     if (not remainder or remainder in ('.', '!', '?')) and i + 2 < len(sentences):
-                        third = (sentences[i + 2] or '').strip()
+                        third_obj = sentences[i + 2]
+                        third = (third_obj.text if isinstance(third_obj, Sentence) else third_obj).strip()
                         if third:
-                            merged_sentence = merged_sentence + " " + third
+                            # Lowercase first letter when merging mid-sentence
+                            third_lowercase = self._lowercase_first_letter(third)
+                            merged_text = merged_text + " " + third_lowercase
+                            
+                            # Combine utterances from all three sentences
+                            merged_utterances = []
+                            if isinstance(cur_obj, Sentence):
+                                merged_utterances.extend(cur_obj.utterances)
+                            if isinstance(nxt_obj, Sentence):
+                                merged_utterances.extend(nxt_obj.utterances)
+                            if isinstance(third_obj, Sentence):
+                                merged_utterances.extend(third_obj.utterances)
+                            
+                            # Create merged Sentence object
+                            merged_sentence_obj = Sentence(
+                                text=merged_text,
+                                utterances=merged_utterances,
+                                speaker=cur_obj.speaker if isinstance(cur_obj, Sentence) else None
+                            )
                             
                             # Record triple merge
                             self.merge_history.append(MergeMetadata(
@@ -332,23 +385,39 @@ class SentenceFormatter:
                                 sentence1_idx=i,
                                 sentence2_idx=i + 2,
                                 reason='triple_merge',
-                                speaker1=self._get_speaker_for_sentence(i),
-                                speaker2=self._get_speaker_for_sentence(i + 2),
+                                speaker1=self._get_speaker_for_sentence(cur_obj, i),
+                                speaker2=self._get_speaker_for_sentence(third_obj, i + 2),
                                 before_text1=f"{cur} | {nxt} | {third}",
                                 before_text2='',
-                                after_text=merged_sentence
+                                after_text=merged_text
                             ))
                             
-                            merged.append(merged_sentence)
+                            merged.append(merged_sentence_obj)
                             i += 3
                             continue
                     
                     # Regular merge (2 sentences)
                     if remainder:
                         if remainder.startswith(('.', '!', '?')):
-                            merged_sentence = merged_sentence + remainder
+                            merged_text = merged_text + remainder
                         else:
-                            merged_sentence = (merged_sentence + " " + remainder).strip()
+                            # Lowercase first letter when merging mid-sentence
+                            remainder_lowercase = self._lowercase_first_letter(remainder)
+                            merged_text = (merged_text + " " + remainder_lowercase).strip()
+                    
+                    # Combine utterances from both sentences
+                    merged_utterances = []
+                    if isinstance(cur_obj, Sentence):
+                        merged_utterances.extend(cur_obj.utterances)
+                    if isinstance(nxt_obj, Sentence):
+                        merged_utterances.extend(nxt_obj.utterances)
+                    
+                    # Create merged Sentence object
+                    merged_sentence_obj = Sentence(
+                        text=merged_text,
+                        utterances=merged_utterances,
+                        speaker=cur_obj.speaker if isinstance(cur_obj, Sentence) else None
+                    )
                     
                     # Record merge
                     self.merge_history.append(MergeMetadata(
@@ -356,23 +425,23 @@ class SentenceFormatter:
                         sentence1_idx=i,
                         sentence2_idx=i + 1,
                         reason='domain_pattern_match',
-                        speaker1=self._get_speaker_for_sentence(i),
-                        speaker2=self._get_speaker_for_sentence(i + 1),
+                        speaker1=self._get_speaker_for_sentence(cur_obj, i),
+                        speaker2=self._get_speaker_for_sentence(nxt_obj, i + 1),
                         before_text1=cur,
                         before_text2=nxt,
-                        after_text=merged_sentence
+                        after_text=merged_text
                     ))
                     
-                    merged.append(merged_sentence)
+                    merged.append(merged_sentence_obj)
                     i += 2
                     continue
             
-            merged.append(cur)
+            merged.append(cur_obj)
             i += 1
         
         return merged
     
-    def _merge_decimals(self, sentences: List[str]) -> List[str]:
+    def _merge_decimals(self, sentences: List[Sentence]) -> List[Sentence]:
         """
         Merge split decimals: '99.' + '9%' → '99.9%'
         
@@ -381,7 +450,7 @@ class SentenceFormatter:
         - "121." + "73 meters"
         
         Args:
-            sentences: List of sentences
+            sentences: List of Sentence objects
             
         Returns:
             List with decimal splits merged
@@ -389,20 +458,22 @@ class SentenceFormatter:
         if not sentences:
             return sentences
         
-        merged: List[str] = []
+        merged: List[Sentence] = []
         i = 0
         
         while i < len(sentences):
-            cur = (sentences[i] or '').strip()
+            cur_obj = sentences[i]
+            cur = (cur_obj.text if isinstance(cur_obj, Sentence) else cur_obj).strip()
             
             if i + 1 < len(sentences):
-                nxt = (sentences[i + 1] or '').strip()
+                nxt_obj = sentences[i + 1]
+                nxt = (nxt_obj.text if isinstance(nxt_obj, Sentence) else nxt_obj).strip()
                 m1 = re.search(r"(\d{1,3})\.$", cur)
                 m2 = re.match(r"^(\d{1,3})(%?)\s*(.*)$", nxt)
                 
                 if m1 and m2:
                     # Check speaker boundaries
-                    should_merge, reason = self._should_merge(cur, nxt, i, i + 1, 'decimal')
+                    should_merge, reason = self._should_merge(cur_obj, nxt_obj, i, i + 1, 'decimal')
                     if not should_merge:
                         # Record skipped merge
                         self.merge_history.append(MergeMetadata(
@@ -410,13 +481,13 @@ class SentenceFormatter:
                             sentence1_idx=i,
                             sentence2_idx=i + 1,
                             reason=f'skipped: {reason}',
-                            speaker1=self._get_speaker_for_sentence(i),
-                            speaker2=self._get_speaker_for_sentence(i + 1),
+                            speaker1=self._get_speaker_for_sentence(cur_obj, i),
+                            speaker2=self._get_speaker_for_sentence(nxt_obj, i + 1),
                             before_text1=cur,
                             before_text2=nxt,
                             after_text=''
                         ))
-                        merged.append(cur)
+                        merged.append(cur_obj)
                         i += 1
                         continue
                     
@@ -425,11 +496,26 @@ class SentenceFormatter:
                     percent = m2.group(2) or ''
                     remainder = (m2.group(3) or '').lstrip()
                     # Build merged decimal: "99." + "9%" → "99.9%"
-                    merged_sentence = cur[:-1] + "." + frac + percent
+                    merged_text = cur[:-1] + "." + frac + percent
                     
                     if remainder:
-                        # Add space before remainder text
-                        merged_sentence = merged_sentence + " " + remainder
+                        # Add space before remainder text, lowercasing first letter
+                        remainder_lowercase = self._lowercase_first_letter(remainder)
+                        merged_text = merged_text + " " + remainder_lowercase
+                    
+                    # Combine utterances from both sentences
+                    merged_utterances = []
+                    if isinstance(cur_obj, Sentence):
+                        merged_utterances.extend(cur_obj.utterances)
+                    if isinstance(nxt_obj, Sentence):
+                        merged_utterances.extend(nxt_obj.utterances)
+                    
+                    # Create merged Sentence object
+                    merged_sentence_obj = Sentence(
+                        text=merged_text,
+                        utterances=merged_utterances,
+                        speaker=cur_obj.speaker if isinstance(cur_obj, Sentence) else None
+                    )
                     
                     # Record merge
                     self.merge_history.append(MergeMetadata(
@@ -437,30 +523,30 @@ class SentenceFormatter:
                         sentence1_idx=i,
                         sentence2_idx=i + 1,
                         reason='decimal_pattern_match',
-                        speaker1=self._get_speaker_for_sentence(i),
-                        speaker2=self._get_speaker_for_sentence(i + 1),
+                        speaker1=self._get_speaker_for_sentence(cur_obj, i),
+                        speaker2=self._get_speaker_for_sentence(nxt_obj, i + 1),
                         before_text1=cur,
                         before_text2=nxt,
-                        after_text=merged_sentence
+                        after_text=merged_text
                     ))
                     
-                    merged.append(merged_sentence)
+                    merged.append(merged_sentence_obj)
                     i += 2
                     continue
             
-            merged.append(cur)
+            merged.append(cur_obj)
             i += 1
         
         return merged
     
-    def _merge_spanish_appositives(self, sentences: List[str]) -> List[str]:
+    def _merge_spanish_appositives(self, sentences: List[Sentence]) -> List[Sentence]:
         """
         Merge Spanish location appositives (ES only).
         
         Reformats: ", de Texas. Estados Unidos" → ", de Texas, Estados Unidos"
         
         Args:
-            sentences: List of sentences
+            sentences: List of Sentence objects
             
         Returns:
             List with Spanish appositives merged
@@ -471,19 +557,35 @@ class SentenceFormatter:
         try:
             from punctuation_restorer import _es_merge_appositive_location_breaks as es_merge_appos
             
-            # Call the existing helper function
-            result = es_merge_appos(sentences)
+            # Extract text for processing
+            sentence_texts = [s.text if isinstance(s, Sentence) else s for s in sentences]
             
-            # Note: The existing function doesn't provide merge metadata,
-            # so we can't track individual merges here. This is acceptable
-            # since speaker boundary checks are already done in the existing function.
+            # Call the existing helper function
+            result_texts = es_merge_appos(sentence_texts)
+            
+            # Reconstruct Sentence objects
+            # Note: This is a simplified approach - we're assuming the merge function
+            # preserves the order and we can map back to original Sentence objects
+            # For now, we'll just wrap the text results in Sentence objects
+            result = []
+            for text in result_texts:
+                # Try to find matching original sentence
+                found = False
+                for orig_sent in sentences:
+                    if isinstance(orig_sent, Sentence) and orig_sent.text == text:
+                        result.append(orig_sent)
+                        found = True
+                        break
+                if not found:
+                    # This is a merged sentence - create new Sentence object without utterances
+                    result.append(Sentence(text=text, utterances=[], speaker=None))
             
             return result
         except Exception as e:
             logger.warning(f"Failed to merge Spanish appositives: {e}")
             return sentences
     
-    def _merge_emphatic_words(self, sentences: List[str]) -> List[str]:
+    def _merge_emphatic_words(self, sentences: List[Sentence]) -> List[Sentence]:
         """
         Merge emphatic word repeats: 'No. No. No.' → 'No, no, no.'
         
@@ -493,7 +595,7 @@ class SentenceFormatter:
         - German: nein, ja
         
         Args:
-            sentences: List of sentences
+            sentences: List of Sentence objects
             
         Returns:
             List with emphatic repeats merged
@@ -515,20 +617,28 @@ class SentenceFormatter:
             w = word.strip().strip('.!?').lower()
             return w in allowed
         
-        merged: List[str] = []
+        merged: List[Sentence] = []
         i = 0
         
         while i < len(sentences):
-            cur = (sentences[i] or '').strip()
+            cur_obj = sentences[i]
+            cur = (cur_obj.text if isinstance(cur_obj, Sentence) else cur_obj).strip()
             
             if _is_emphatic(cur):
                 # Collect consecutive emphatic words
                 words = []
+                sentence_objs = []
                 start_idx = i
                 
-                while i < len(sentences) and _is_emphatic((sentences[i] or '').strip()):
-                    words.append((sentences[i] or '').strip().strip('.!?'))
-                    i += 1
+                while i < len(sentences):
+                    sent_obj = sentences[i]
+                    sent_text = (sent_obj.text if isinstance(sent_obj, Sentence) else sent_obj).strip()
+                    if _is_emphatic(sent_text):
+                        words.append(sent_text.strip('.!?'))
+                        sentence_objs.append(sent_obj)
+                        i += 1
+                    else:
+                        break
                 
                 if words:
                     # Check speaker boundaries across all collected emphatic words
@@ -536,8 +646,8 @@ class SentenceFormatter:
                     should_merge = True
                     if len(words) > 1:
                         should_merge, reason = self._should_merge(
-                            sentences[start_idx], 
-                            sentences[i - 1], 
+                            sentence_objs[0], 
+                            sentence_objs[-1], 
                             start_idx, 
                             i - 1, 
                             'emphatic'
@@ -546,8 +656,8 @@ class SentenceFormatter:
                     if not should_merge:
                         # Don't merge - add them separately
                         logger.debug(f"Skipping emphatic merge of {len(words)} words: {reason}")
-                        for word in words:
-                            merged.append(word + '.')
+                        for sent_obj in sentence_objs:
+                            merged.append(sent_obj)
                         continue
                     
                     # Normalize accents for Spanish
@@ -562,23 +672,36 @@ class SentenceFormatter:
                     if not out.endswith(('.', '!', '?')):
                         out += '.'
                     
+                    # Combine utterances from all merged sentences
+                    merged_utterances = []
+                    for sent_obj in sentence_objs:
+                        if isinstance(sent_obj, Sentence):
+                            merged_utterances.extend(sent_obj.utterances)
+                    
+                    # Create merged Sentence object
+                    merged_sentence_obj = Sentence(
+                        text=out,
+                        utterances=merged_utterances,
+                        speaker=sentence_objs[0].speaker if isinstance(sentence_objs[0], Sentence) else None
+                    )
+                    
                     # Record merge
                     self.merge_history.append(MergeMetadata(
                         merge_type='emphatic',
                         sentence1_idx=start_idx,
                         sentence2_idx=i - 1,
                         reason=f'emphatic_repeat_{len(words)}_words',
-                        speaker1=self._get_speaker_for_sentence(start_idx),
-                        speaker2=self._get_speaker_for_sentence(i - 1),
+                        speaker1=self._get_speaker_for_sentence(sentence_objs[0], start_idx),
+                        speaker2=self._get_speaker_for_sentence(sentence_objs[-1], i - 1),
                         before_text1=' | '.join(words),
                         before_text2='',
                         after_text=out
                     ))
                     
-                    merged.append(out)
+                    merged.append(merged_sentence_obj)
                     continue
             
-            merged.append(cur)
+            merged.append(cur_obj)
             i += 1
         
         return merged

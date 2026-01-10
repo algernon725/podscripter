@@ -52,6 +52,36 @@ logger = logging.getLogger("podscripter.splitter")
 
 
 @dataclass
+class Utterance:
+    """A single speaker's utterance (may be part of a sentence)."""
+    text: str
+    speaker: Optional[str]  # e.g., 'SPEAKER_01', or None if no diarization
+    start_word: int
+    end_word: int
+
+
+@dataclass
+class Sentence:
+    """A sentence that may contain utterances from multiple speakers."""
+    text: str  # Full sentence text
+    utterances: List['Utterance']  # Sub-utterances by speaker
+    speaker: Optional[str]  # Primary/dominant speaker (for simple cases)
+    
+    def has_speaker_changes(self) -> bool:
+        """Check if this sentence contains multiple speakers."""
+        if not self.utterances:
+            return False
+        speakers = {u.speaker for u in self.utterances if u.speaker}
+        return len(speakers) > 1
+    
+    def get_first_speaker(self) -> Optional[str]:
+        """Get the first speaker in this sentence."""
+        if self.utterances:
+            return self.utterances[0].speaker
+        return self.speaker
+
+
+@dataclass
 class SentenceMetadata:
     """Metadata about how a sentence was split."""
     split_reason: str  # 'speaker_change', 'whisper_boundary', 'semantic', 'grammatical'
@@ -139,6 +169,7 @@ class SentenceSplitter:
         self.removed_periods: List[Dict] = []
         self.added_periods: List[Dict] = []
         self.skipped_whisper_boundaries: Set[int] = set()  # Track skipped Whisper word boundaries
+        self.speaker_word_segments: Optional[List[Dict]] = None  # Speaker segments in word ranges
     
     def split(
         self,
@@ -146,7 +177,7 @@ class SentenceSplitter:
         whisper_segments: Optional[List[Dict]] = None,
         speaker_segments: Optional[List[Dict]] = None,
         mode: str = 'semantic'
-    ) -> Tuple[List[str], Dict]:
+    ) -> Tuple[List[Sentence], Dict]:
         """
         Single entry point for all sentence splitting.
         
@@ -176,9 +207,12 @@ class SentenceSplitter:
         speaker_word_boundaries = self._convert_segments_to_word_boundaries(speaker_segments, text, is_speaker=True)
         speaker_word_segments = self._create_speaker_word_ranges(speaker_segments, text)
         
+        # Store as instance variable for _detect_speaker_changes_in_sentence() to access
+        self.speaker_word_segments = speaker_word_segments
+        
         # Debug logging
         if speaker_word_boundaries:
-            self.logger.info(f"SentenceSplitter detected {len(speaker_word_boundaries)} speaker word boundaries")
+            self.logger.debug(f"SentenceSplitter detected {len(speaker_word_boundaries)} speaker word boundaries")
             if len(speaker_word_boundaries) > 0:
                 boundaries_list = sorted(list(speaker_word_boundaries))[:10]
                 self.logger.debug(f"First 10 speaker boundaries at words: {boundaries_list}")
@@ -187,7 +221,7 @@ class SentenceSplitter:
         
         # Debug logging for speaker boundaries
         if speaker_word_boundaries:
-            self.logger.info(f"SentenceSplitter detected {len(speaker_word_boundaries)} speaker boundaries")
+            self.logger.debug(f"SentenceSplitter detected {len(speaker_word_boundaries)} speaker boundaries")
             if len(speaker_word_boundaries) > 0:
                 sorted_boundaries = sorted(speaker_word_boundaries)
                 self.logger.debug(f"First 5 speaker boundaries: {sorted_boundaries[:5]}")
@@ -360,6 +394,124 @@ class SentenceSplitter:
         # For now, assume they're already in word format from podscripter.py conversion
         return speaker_segments
     
+    def _detect_speaker_changes_in_sentence(
+        self,
+        sentence_text: str,
+        sentence_start_word: int,
+        sentence_end_word: int
+    ) -> List[Utterance]:
+        """
+        Detect if a sentence contains speaker changes and split into utterances.
+        
+        Args:
+            sentence_text: The text of the sentence
+            sentence_start_word: Word index where sentence starts
+            sentence_end_word: Word index where sentence ends
+        
+        Returns:
+            List of Utterance objects (one per speaker segment within the sentence)
+        """
+        if not self.speaker_word_segments:
+            # No diarization - return single utterance with no speaker
+            return [Utterance(
+                text=sentence_text,
+                speaker=None,
+                start_word=sentence_start_word,
+                end_word=sentence_end_word
+            )]
+        
+        utterances = []
+        words = sentence_text.split()
+        
+        # Find all speaker segments that overlap this sentence
+        overlapping_segments = []
+        for seg in self.speaker_word_segments:
+            seg_start = seg['start_word']
+            seg_end = seg['end_word']
+            # Check for overlap
+            if seg_start < sentence_end_word and seg_end > sentence_start_word:
+                overlapping_segments.append(seg)
+        
+        if not overlapping_segments:
+            # No speaker info for this range - return single utterance
+            return [Utterance(
+                text=sentence_text,
+                speaker=None,
+                start_word=sentence_start_word,
+                end_word=sentence_end_word
+            )]
+        
+        # Sort by start position
+        overlapping_segments.sort(key=lambda s: s['start_word'])
+        
+        # Merge overlapping segments and resolve conflicts by assigning each word to one speaker
+        # When segments overlap, the segment with more overlap on that word wins
+        word_to_speaker = {}
+        for word_idx in range(sentence_start_word, sentence_end_word):
+            # Find which speaker segment this word belongs to (most overlap)
+            best_speaker = None
+            best_overlap = 0
+            
+            for seg in overlapping_segments:
+                if seg['start_word'] <= word_idx < seg['end_word']:
+                    # Calculate how much this segment "owns" this word
+                    # If multiple segments claim this word, prefer the one with longer total duration
+                    seg_duration = seg['end_word'] - seg['start_word']
+                    if seg_duration > best_overlap:
+                        best_overlap = seg_duration
+                        best_speaker = seg['speaker']
+            
+            if best_speaker:
+                word_to_speaker[word_idx] = best_speaker
+        
+        # Now create utterances by grouping consecutive words from the same speaker
+        current_speaker = None
+        current_start = None
+        current_words = []
+        
+        for word_idx in range(sentence_start_word, sentence_end_word):
+            speaker = word_to_speaker.get(word_idx)
+            word = words[word_idx - sentence_start_word]
+            
+            if speaker != current_speaker:
+                # Speaker changed - save current utterance if any
+                if current_words:
+                    utterances.append(Utterance(
+                        text=' '.join(current_words),
+                        speaker=current_speaker,
+                        start_word=current_start,
+                        end_word=word_idx
+                    ))
+                
+                # Start new utterance
+                current_speaker = speaker
+                current_start = word_idx
+                current_words = [word] if speaker else []
+            else:
+                # Same speaker - continue utterance
+                if speaker:
+                    current_words.append(word)
+        
+        # Don't forget the last utterance
+        if current_words:
+            utterances.append(Utterance(
+                text=' '.join(current_words),
+                speaker=current_speaker,
+                start_word=current_start,
+                end_word=sentence_end_word
+            ))
+        
+        if not utterances:
+            # Fallback - return single utterance
+            return [Utterance(
+                text=sentence_text,
+                speaker=None,
+                start_word=sentence_start_word,
+                end_word=sentence_end_word
+            )]
+        
+        return utterances
+    
     def _evaluate_boundaries(
         self,
         text: str,
@@ -393,10 +545,14 @@ class SentenceSplitter:
         if len(words) < 3:
             # Too short to split
             unmasked = unmask_domains(text_masked)
-            return [unmasked]
+            # Create a single Sentence object for the entire text
+            utterances = self._detect_speaker_changes_in_sentence(unmasked, 0, len(words))
+            primary_speaker = utterances[0].speaker if utterances else None
+            return [Sentence(text=unmasked, utterances=utterances, speaker=primary_speaker)]
         
-        sentences: List[str] = []
+        sentences: List[Sentence] = []
         current_chunk: List[str] = []
+        sentence_start_word: int = 0  # Track the starting word index of current sentence
         
         for i, word in enumerate(words):
             current_chunk.append(word)
@@ -480,7 +636,30 @@ class SentenceSplitter:
                 if sentence_text:
                     # Unmask domains before adding to sentences
                     sentence_text = unmask_domains(sentence_text)
-                    sentences.append(sentence_text)
+                    
+                    # Calculate sentence word range
+                    sentence_end_word = i + 1  # End is exclusive
+                    
+                    # Detect speaker changes within this sentence and create utterances
+                    utterances = self._detect_speaker_changes_in_sentence(
+                        sentence_text,
+                        sentence_start_word,
+                        sentence_end_word
+                    )
+                    
+                    # Determine primary speaker (first speaker in sentence)
+                    primary_speaker = utterances[0].speaker if utterances else None
+                    
+                    # Create Sentence object
+                    sentence_obj = Sentence(
+                        text=sentence_text,
+                        utterances=utterances,
+                        speaker=primary_speaker
+                    )
+                    sentences.append(sentence_obj)
+                    
+                    # Update start word for next sentence
+                    sentence_start_word = i + 1
                 current_chunk = []
         
         # Add remaining chunk
@@ -488,7 +667,27 @@ class SentenceSplitter:
             sentence_text = ' '.join(current_chunk).strip()
             if sentence_text:
                 sentence_text = unmask_domains(sentence_text)
-                sentences.append(sentence_text)
+                
+                # Calculate sentence word range for final sentence
+                sentence_end_word = len(words)
+                
+                # Detect speaker changes within this sentence and create utterances
+                utterances = self._detect_speaker_changes_in_sentence(
+                    sentence_text,
+                    sentence_start_word,
+                    sentence_end_word
+                )
+                
+                # Determine primary speaker (first speaker in sentence)
+                primary_speaker = utterances[0].speaker if utterances else None
+                
+                # Create Sentence object
+                sentence_obj = Sentence(
+                    text=sentence_text,
+                    utterances=utterances,
+                    speaker=primary_speaker
+                )
+                sentences.append(sentence_obj)
         
         return sentences
     
@@ -534,18 +733,45 @@ class SentenceSplitter:
         # Speaker changes ALWAYS indicate sentence breaks, even if next word is a connector
         # Different speakers should NEVER have their sentences merged, even with connectors
         if speaker_word_boundaries and current_index in speaker_word_boundaries:
-            min_words_speaker = 2  # Very low threshold for speaker changes
+            min_words_speaker = 4  # Minimum chunk length to avoid excessive fragmentation
+            
+            # FIX (v0.6.0): Don't split if current or next word is a connector or preposition
+            # Connectors like "y", "o", "pero" and prepositions like "de", "a" should stay with what follows
+            # Check both current (don't end with connector) and next (don't start with connector)
+            connector_words = {
+                # Conjunctions
+                'y', 'e', 'o', 'u', 'pero', 'ni', 'mas', 'sino',
+                # Common prepositions that should not end sentences
+                'de', 'a', 'en', 'por', 'para', 'con', 'sin', 'sobre', 'entre', 'hacia', 'desde', 'hasta'
+            }
+            current_word_lower = current_word.lower().strip('¿?¡!.,;:')
+            next_word_lower = next_word.lower().strip('¿?¡!.,;:') if next_word else ''
+            
+            if current_word_lower in connector_words:
+                self.logger.debug(
+                    f"✗ SKIP speaker boundary: word {current_index} '{current_word}' is a connector, "
+                    f"keeping with next word '{next_word}'"
+                )
+                # Don't split here - let connector stay with what follows
+                return False
+            
+            if next_word_lower in connector_words:
+                self.logger.debug(
+                    f"✗ SKIP speaker boundary: word {current_index} '{current_word}', "
+                    f"next word '{next_word}' is a connector - don't start sentence with connector"
+                )
+                # Don't split here - next sentence shouldn't start with connector
+                return False
             
             if len(current_chunk) >= min_words_speaker:
-                # Speaker change - ALWAYS break here
-                # Even if next word is a connector, different speakers should be separated
-                self.logger.info(
+                # Speaker change - split here
+                self.logger.debug(
                     f"✓ SPLIT at speaker boundary: word {current_index} '{current_word}', "
                     f"next='{next_word}', chunk_len={len(current_chunk)}"
                 )
                 return True
             else:
-                self.logger.warning(
+                self.logger.debug(
                     f"✗ SKIP speaker boundary: word {current_index} '{current_word}', chunk too short "
                     f"({len(current_chunk)} < {min_words_speaker})"
                 )
@@ -853,7 +1079,7 @@ class SentenceSplitter:
     
     def _process_whisper_punctuation(
         self,
-        sentences: List[str],
+        sentences: List[Sentence],  # Now accepts Sentence objects
         whisper_periods: Dict[int, str],
         speaker_word_segments: Optional[List[Dict]],
         original_text: str
@@ -883,10 +1109,16 @@ class SentenceSplitter:
         current_word_idx = 0
         skip_next = False
         
-        for i, sentence in enumerate(sentences):
+        for i, sentence_obj in enumerate(sentences):
             if skip_next:
                 skip_next = False
                 continue
+            
+            # Extract text from Sentence object if needed
+            if isinstance(sentence_obj, Sentence):
+                sentence = sentence_obj.text
+            else:
+                sentence = sentence_obj
                 
             sentence_words = sentence.split()
             sentence_word_count = len(sentence_words)
@@ -894,11 +1126,16 @@ class SentenceSplitter:
             self.logger.debug(f"  Sentence {i}: words={sentence_word_count}, start_idx={current_word_idx}, text='{sentence[:60]}...')")
             
             if i + 1 < len(sentences):
-                next_sentence = sentences[i + 1]
+                next_sentence_obj = sentences[i + 1]
+                # Extract text from next Sentence object if needed
+                if isinstance(next_sentence_obj, Sentence):
+                    next_sentence = next_sentence_obj.text
+                else:
+                    next_sentence = next_sentence_obj
                 next_words = next_sentence.split()
                 
                 if not next_words:
-                    processed.append(sentence)
+                    processed.append(sentence_obj)  # Append original Sentence object
                     current_word_idx += sentence_word_count
                     continue
                 
@@ -931,11 +1168,23 @@ class SentenceSplitter:
                         rest_of_next = ' '.join(next_words[1:]) if len(next_words) > 1 else ''
                         
                         if rest_of_next:
-                            merged = f"{sentence} {connector_lowercased} {rest_of_next}"
+                            merged_text = f"{sentence} {connector_lowercased} {rest_of_next}"
                         else:
-                            merged = f"{sentence} {connector_lowercased}"
+                            merged_text = f"{sentence} {connector_lowercased}"
                         
-                        processed.append(merged)
+                        # Create merged Sentence object
+                        if isinstance(sentence_obj, Sentence) and isinstance(next_sentence_obj, Sentence):
+                            # Combine utterances from both sentences
+                            merged_utterances = sentence_obj.utterances + next_sentence_obj.utterances
+                            merged_obj = Sentence(
+                                text=merged_text,
+                                utterances=merged_utterances,
+                                speaker=sentence_obj.speaker
+                            )
+                            processed.append(merged_obj)
+                        else:
+                            # Fallback for backward compatibility
+                            processed.append(merged_text)
                         
                         # Track that we removed a period
                         self.removed_periods.append({
@@ -957,7 +1206,7 @@ class SentenceSplitter:
             
             # Normal case: no merging needed
             if sentence:  # Only add non-empty sentences
-                processed.append(sentence)
+                processed.append(sentence_obj)  # Append original Sentence object
             current_word_idx += sentence_word_count
         
         self.logger.debug(f"_process_whisper_punctuation: Returned {len(processed)} sentences (merged {len(sentences) - len(processed)})")

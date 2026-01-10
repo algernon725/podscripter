@@ -1384,9 +1384,12 @@ def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[
     try:
         return _advanced_punctuation_restoration(text, language, True, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
     except Exception as e:
+        import traceback
         logger.warning(f"Advanced punctuation restoration failed: {e}")
+        logger.warning(f"Traceback: {traceback.format_exc()}")
         logger.info("Returning original text without punctuation restoration.")
-        return text, [text]
+        from sentence_splitter import Sentence
+        return text, [Sentence(text=text, utterances=[], speaker=None)]
 
 
 def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
@@ -1458,11 +1461,37 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             connector_info = f" connector='{removal['connector']}'" if 'connector' in removal else ""
             logger.debug(f"  - Position {removal['position']}: {removal['reason']}{connector_info} (speaker: {removal.get('speaker', 'unknown')})")
     # 2) Punctuate each sentence individually (preserving boundaries from SentenceSplitter)
+    # Note: sentences is now a list of Sentence objects (v0.6.0)
     punctuated_sentences = []
-    for i, sent in enumerate(sentences):
-        if sent.strip():
-            punctuated = _apply_semantic_punctuation(sent, model, language, i, len(sentences))
+    sentence_objects = []  # Keep track of Sentence objects for speaker info
+    for i, sent_obj in enumerate(sentences):
+        # Extract text from Sentence object
+        from sentence_splitter import Sentence
+        if isinstance(sent_obj, Sentence):
+            sent_text = sent_obj.text
+            sentence_objects.append(sent_obj)
+            logger.debug(f"Extracted text from Sentence object {i}: '{sent_text[:50]}...'")
+        else:
+            sent_text = sent_obj
+            sentence_objects.append(None)
+            logger.debug(f"Sentence {i} is a string: '{sent_text[:50] if isinstance(sent_text, str) else type(sent_text)}...'")
+        
+        if sent_text.strip():
+            punctuated = _apply_semantic_punctuation(sent_text, model, language, i, len(sentences))
+            logger.debug(f"Punctuated sentence {i} type: {type(punctuated)}, value: '{punctuated[:50] if isinstance(punctuated, str) else punctuated}...'")
             punctuated_sentences.append(punctuated)
+        else:
+            sentence_objects.pop()  # Remove if empty
+    
+    logger.debug(f"Total punctuated_sentences: {len(punctuated_sentences)}, types: {[type(s).__name__ for s in punctuated_sentences[:5]]}")
+    
+    # Ensure all items in punctuated_sentences are strings (defensive programming)
+    from sentence_splitter import Sentence
+    punctuated_sentences = [
+        s.text if isinstance(s, Sentence) else str(s) 
+        for s in punctuated_sentences
+    ]
+    logger.debug(f"After string conversion, punctuated_sentences types: {[type(s).__name__ for s in punctuated_sentences[:5]]}")
     
     # Apply Spanish-specific formatting
     if language == 'es':
@@ -1472,8 +1501,15 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
 
         # Format each sentence individually WITHOUT re-splitting by punctuation
         formatted_sentences = []
-        for s in sentences_list:
-            sentence = (s or '').strip()
+        formatted_sentence_objects = []
+        for idx, s in enumerate(sentences_list):
+            # Extract text if s is a Sentence object (should already be string, but be defensive)
+            from sentence_splitter import Sentence
+            if isinstance(s, Sentence):
+                sentence_text = s.text
+            else:
+                sentence_text = s
+            sentence = (sentence_text or '').strip()
             if not sentence:
                 continue
             
@@ -1516,6 +1552,21 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
             sentence = re.sub(r'¿{2,}', '¿', sentence)
             formatted_sentences.append(sentence)
+            
+            # Reconstruct Sentence object with formatted text (v0.6.0)
+            if idx < len(sentence_objects) and sentence_objects[idx] is not None:
+                from sentence_splitter import Sentence
+                orig_sent = sentence_objects[idx]
+                formatted_sent_obj = Sentence(
+                    text=sentence,
+                    utterances=orig_sent.utterances,
+                    speaker=orig_sent.speaker
+                )
+                formatted_sentence_objects.append(formatted_sent_obj)
+            else:
+                # Backward compat: create Sentence with no speaker info
+                from sentence_splitter import Sentence
+                formatted_sentence_objects.append(Sentence(text=sentence, utterances=[], speaker=None))
 
         # Join sentences with proper spacing (no re-splitting!)
         result = ' '.join(formatted_sentences)
@@ -1528,7 +1579,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Final universal cleanup
         result = _finalize_text_common(result)
         # ALWAYS return both the text AND the sentences list (v0.4.0+)
-        return result, formatted_sentences
+        # v0.6.0: Return Sentence objects instead of strings
+        return result, formatted_sentence_objects
         
         # Original post-processing for non-diarization cases
         # Clean up double/mixed punctuation in one place
@@ -1778,7 +1830,13 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Format each sentence individually
         formatted_sentences = []
         for s in punctuated_sentences:
-            sentence = (s or '').strip()
+            # Extract text if s is a Sentence object (should already be string, but be defensive)
+            from sentence_splitter import Sentence
+            if isinstance(s, Sentence):
+                sentence_text = s.text
+            else:
+                sentence_text = s
+            sentence = (sentence_text or '').strip()
             if not sentence:
                 continue
             
@@ -1801,15 +1859,29 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     
     # Return tuple: (processed_text, sentences_list)
     # v0.4.0+: ALWAYS return sentences_list (never None)
-    # For Spanish, we already have formatted_sentences
-    # For non-Spanish, we need to re-split from result or use formatted_sentences
+    # v0.6.0: Return Sentence objects instead of strings
+    # For Spanish, we already have formatted_sentence_objects
+    # For non-Spanish, we need to reconstruct Sentence objects
     if language != 'es':
-        # Use the formatted_sentences we created above
-        final_sentences = formatted_sentences if 'formatted_sentences' in locals() else [result]
-        return result, final_sentences
+        # Reconstruct Sentence objects for non-Spanish languages
+        from sentence_splitter import Sentence
+        final_sentence_objects = []
+        for idx, sent_text in enumerate(punctuated_sentences):
+            if idx < len(sentence_objects) and sentence_objects[idx] is not None:
+                orig_sent = sentence_objects[idx]
+                final_sentence_objects.append(Sentence(
+                    text=sent_text,
+                    utterances=orig_sent.utterances,
+                    speaker=orig_sent.speaker
+                ))
+            else:
+                # Backward compat: create Sentence with no speaker info
+                final_sentence_objects.append(Sentence(text=sent_text, utterances=[], speaker=None))
+        return result, final_sentence_objects
     
     # Spanish path already returned above, but add fallback just in case
-    return result, [result]
+    from sentence_splitter import Sentence
+    return result, [Sentence(text=result, utterances=[], speaker=None)]
 
 
 from typing import List
@@ -1972,9 +2044,30 @@ def _convert_char_ranges_to_word_ranges(text: str, char_ranges: list[dict]) -> l
         if start_word is not None and end_word is not None:
             word_ranges.append({
                 'start_word': start_word,
-                'end_word': end_word,
+                'end_word': end_word + 1,  # Make end_word exclusive for easier range logic
                 'speaker': speaker
             })
+    
+    # Merge consecutive ranges from the same speaker
+    if word_ranges:
+        merged_ranges = []
+        current_range = word_ranges[0].copy()
+        
+        for next_range in word_ranges[1:]:
+            if (next_range['speaker'] == current_range['speaker'] and 
+                next_range['start_word'] <= current_range['end_word']):
+                # Same speaker and adjacent/overlapping - merge
+                current_range['end_word'] = max(current_range['end_word'], next_range['end_word'])
+            else:
+                # Different speaker or gap - save current and start new
+                merged_ranges.append(current_range)
+                current_range = next_range.copy()
+        
+        # Don't forget the last range
+        merged_ranges.append(current_range)
+        
+        logger.info(f"Speaker word ranges contain {len(merged_ranges) - 1} speaker changes")
+        return merged_ranges
     
     return word_ranges
 
@@ -2764,6 +2857,15 @@ def _apply_semantic_punctuation(sentence: str, model, language: str, sentence_in
     Returns:
         str: Sentence with appropriate punctuation
     """
+    # Defensive: ensure sentence is a string
+    from sentence_splitter import Sentence
+    if isinstance(sentence, Sentence):
+        logger.warning(f"_apply_semantic_punctuation received Sentence object, extracting text")
+        sentence = sentence.text
+    elif not isinstance(sentence, str):
+        logger.warning(f"_apply_semantic_punctuation received non-string type: {type(sentence)}")
+        sentence = str(sentence)
+    
     # Check if it's a question using semantic similarity
     if is_question_semantic(sentence, model, language):
         if not sentence.endswith('?'):
@@ -2792,6 +2894,15 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
     Returns:
         bool: True if sentence is a question
     """
+    # Defensive: ensure sentence is a string
+    from sentence_splitter import Sentence
+    if isinstance(sentence, Sentence):
+        logger.warning(f"is_question_semantic received Sentence object, extracting text")
+        sentence = sentence.text
+    elif not isinstance(sentence, str):
+        logger.warning(f"is_question_semantic received non-string type: {type(sentence)}")
+        sentence = str(sentence)
+    
     # Early-accept only for explicit full-sentence cues
     # Accept if sentence starts with '¿' (proper inverted question), otherwise do not
     # blanket-accept just because '?' appears (may be embedded)
