@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0.4] - 2026-01-11
+
+### Fixed
+- **Sentence-start words incorrectly lowercased (Bug #4)**: Fixed words like "En" and "Sin" being lowercased after sentence-ending punctuation
+  - **Example**: `"método número dos. En vez de"` → incorrectly became `"método número dos. en vez de"`
+  - **Root Cause**: The `_fix_mid_sentence_capitals()` regex pattern matched words after ALL punctuation including `.!?`, but words after sentence-ending punctuation should remain capitalized
+  - **Fix**: Split into two patterns:
+    1. After mid-sentence punctuation (`,;:`) → always lowercase
+    2. After space NOT preceded by `.!?` → lowercase (uses negative lookbehind `(?<![.!?])`)
+  - Words after `.!?` now correctly stay capitalized as they start new sentences
+  - **Testing**: All 35 unit tests pass
+
 ## [0.6.0.3] - 2026-01-11
 
 ### Fixed

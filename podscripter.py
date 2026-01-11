@@ -393,12 +393,16 @@ def _write_txt(sentences, output_file, language: str | None = None):
                        'La', 'El', 'Los', 'Las', 'Un', 'Una', 'Unos', 'Unas', 
                        'Aquí', 'Ahí', 'Allí', 'También', 'Todo', 'Todos', 'Toda', 'Todas']
         
-        # Lowercase these words only when preceded by whitespace or punctuation (not hyphens)
+        # Lowercase these words only when they appear MID-SENTENCE (not at sentence starts)
+        # After sentence-ending punctuation (.!?), words should stay capitalized as they start new sentences
         # This prevents lowercasing letters in acronyms like "B-E-S-T"
         for word in common_words:
-            # Pattern: (space or punctuation except hyphen) + (optional whitespace) + word + word boundary
-            # FIX: Capture whitespace in group 2 and preserve it in replacement to avoid "yo. El" → "yo.el"
-            text = re.sub(r'([\s.,;:!?¿¡])(\s*)' + word + r'\b', r'\1\2' + word.lower(), text)
+            # Pattern 1: After mid-sentence punctuation (,;:) - always lowercase
+            text = re.sub(r'([,;:])(\s*)' + word + r'\b', r'\1\2' + word.lower(), text)
+            # Pattern 2: After space NOT preceded by sentence-ending punctuation (.!?)
+            # This handles mid-sentence cases like "café Y el agua" → "café y el agua"
+            # But preserves "dos. En vez" (En stays capitalized as sentence start)
+            text = re.sub(r'(?<![.!?])(\s)' + word + r'\b', r'\1' + word.lower(), text)
         
         return text
     
