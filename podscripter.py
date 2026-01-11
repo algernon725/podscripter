@@ -826,8 +826,9 @@ def _convert_speaker_segments_to_char_ranges(
     # New approach: detect multi-speaker segments and split them proportionally.
     
     # FIX (v0.6.0): Filter out very short speaker segments (likely diarization errors)
-    # Very short segments (<0.5s) are often artifacts and create spurious speaker changes
-    MIN_SEGMENT_DURATION = 0.5
+    # Very short segments are often artifacts and create spurious speaker changes
+    # v0.6.0.1: Increased from 0.5s to 1.3s to filter out rapid speaker flipping (e.g., 0.56s, 0.93s, 1.10s, 1.28s artifacts)
+    MIN_SEGMENT_DURATION = 1.3
     filtered_speaker_segments = []
     for spk_seg in speaker_segments:
         duration = spk_seg.get('end', 0) - spk_seg.get('start', 0)

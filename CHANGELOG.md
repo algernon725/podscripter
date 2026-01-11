@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Split utterance capitalization**: Fixed issue where split utterances from different speakers were not all capitalized. Now ALL utterances are capitalized when splitting by speaker, not just the first one (e.g., "y yo soy Nate" → "Y yo soy Nate" when it's a separate paragraph)
   - Modified `_write_txt()` in `podscripter.py` to capitalize each utterance when splitting sentences by speaker changes
   - Each utterance becomes its own paragraph, so each should start with a capital letter
+- **Rapid speaker change filtering (Bugs #1 and #2)**: Increased `MIN_SEGMENT_DURATION` from 0.5s to 1.3s to filter out diarization artifacts
+  - **Bug #1 (Missing space)**: Fixed "Métodos.pero" → "métodos pero" - Short segments (0.56s, 0.93s, 1.10s) were causing rapid speaker flipping, preventing proper sentence merging
+  - **Bug #2 (Aggressive splitting)**: Fixed "Errores en español. Entonces, yo siempre les digo," being split across speakers - 1.28s segment misattributed to wrong speaker in middle of utterance
+  - **Root Cause**: 0.5s threshold was too low; many short misattributed segments between 0.5s-1.3s were creating false speaker boundaries
+  - **Impact**: Reduces speaker changes (e.g., Episodio213-trim: 10→5 changes, 20→13 segments filtered) while preserving legitimate speaker transitions
+  - **Trade-off**: Very brief interjections (<1.3s) may be merged with adjacent speaker, but eliminates sentence fragmentation from diarization noise
+  - **Threshold choice**: 1.3s chosen to filter highest artifact (1.28s) with small safety margin while preserving potential legitimate brief segments (>1.3s)
 
 ### Changed
 - **Logging cleanup**: Removed duplicate log messages to reduce console clutter
