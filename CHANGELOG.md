@@ -5,19 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0.3] - 2026-01-11
+
+### Fixed
+- **Missing space after periods (Bug #3 - Root Cause Found)**: Fixed instances where words were concatenated without spaces after sentence-ending punctuation (e.g., "yo.el" → "yo. el", "dos.en" → "dos. en")
+  - **Root Cause**: The `_fix_mid_sentence_capitals()` function in `_write_txt()` had a regex bug that consumed whitespace without preserving it
+    - Old pattern: `r'([\s.,;:!?¿¡])\s*' + word + r'\b'` with replacement `r'\1' + word.lower()`
+    - The `\s*` matched whitespace after punctuation but didn't capture it, so the replacement discarded it
+    - Example: `"yo. El método"` → matched `. El` (group 1 = `.`, the space was consumed by `\s*`) → replaced with `.el`
+  - **Fix**: Updated regex to capture whitespace in group 2 and preserve it in the replacement
+    - New pattern: `r'([\s.,;:!?¿¡])(\s*)' + word + r'\b'` with replacement `r'\1\2' + word.lower()`
+    - Now `"yo. El método"` → matched `. El` (group 1 = `.`, group 2 = ` `) → replaced with `. el`
+  - **Testing**: All 35 unit tests pass
+  - **Note**: The safety net regex added in v0.6.0.2 was working correctly, but `_fix_mid_sentence_capitals()` was undoing it by removing the space
+  - Removed debug logging that was added during investigation
+
 ## [0.6.0.2] - 2026-01-10
 
 ### Fixed
-- **Missing space after periods (Bug #3)**: Fixed instances where words were concatenated without spaces after sentence-ending punctuation (e.g., "yo.el" → "yo. el", "dos.en" → "dos. en")
-  - **Root Cause**: Sentence text was being concatenated somewhere in the pipeline without proper spacing, despite proper joining with spaces during sentence creation
-  - **Example Cases**: 
-    - "Ella habla claro, así como yo.el método..." → "Ella habla claro, así como yo. el método..."
-    - "Ok, vamos para el método número dos.en vez de..." → "Ok, vamos para el método número dos. en vez de..."
-    - "conversación.en la opción" → "conversación. en la opción"
-  - **Solution**: Added **safety net** in `_write_txt()` that applies regex pattern `r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])` → `r'\1 \2'` right before writing each sentence to file
-  - **Scope**: Applied to all sentence writing paths (single speaker, multi-speaker split, multi-speaker merged, backward compatibility)
-  - **Why Safety Net**: The concatenation was happening late in the pipeline (possibly in sentence merging or utterance assembly), so catching it at the final output stage ensures no concatenations slip through
-  - Modified `podscripter.py` `_write_txt()` function at lines ~416, ~467, ~476, and ~487 to add spacing enforcement before writing
+- **Missing space after periods (Bug #3)**: Added safety net in `_write_txt()` to add spaces after sentence-ending punctuation
+  - Added regex pattern `r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])` → `r'\1 \2'` before writing sentences
+  - Followed by `fix_spaced_domains()` to prevent incorrectly adding spaces to domains
+  - **Note**: This was a workaround; the root cause was found and fixed in v0.6.0.3
 
 ## [0.6.0.1] - 2026-01-10
 
