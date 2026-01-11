@@ -412,6 +412,8 @@ def _write_txt(sentences, output_file, language: str | None = None):
                 if s:
                     s = fix_spaced_domains(s, use_exclusions=True, language=language)
                     s = _fix_mid_sentence_capitals(s)
+                    # FINAL SAFETY NET: Ensure space after sentence-ending punctuation
+                    s = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', s)
                     s = _capitalize_first_letter(s)
                     f.write(f"{s}\n\n")
                 continue
@@ -463,6 +465,8 @@ def _write_txt(sentences, output_file, language: str | None = None):
                         if text:
                             text = fix_spaced_domains(text, use_exclusions=True, language=language)
                             text = _fix_mid_sentence_capitals(text)
+                            # FINAL SAFETY NET: Ensure space after sentence-ending punctuation
+                            text = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', text)
                             # Capitalize each utterance since they become separate paragraphs
                             text = _capitalize_first_letter(text)
                             f.write(f"{text}\n\n")
@@ -473,6 +477,8 @@ def _write_txt(sentences, output_file, language: str | None = None):
                     if full_text:
                         full_text = fix_spaced_domains(full_text, use_exclusions=True, language=language)
                         full_text = _fix_mid_sentence_capitals(full_text)
+                        # FINAL SAFETY NET: Ensure space after sentence-ending punctuation
+                        full_text = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', full_text)
                         full_text = _capitalize_first_letter(full_text)
                         f.write(f"{full_text}\n\n")
                         prev_speaker = sentence_obj.get_first_speaker()
@@ -484,6 +490,9 @@ def _write_txt(sentences, output_file, language: str | None = None):
                 
                 s = fix_spaced_domains(s, use_exclusions=True, language=language)
                 s = _fix_mid_sentence_capitals(s)
+                # FINAL SAFETY NET: Ensure space after sentence-ending punctuation
+                # This catches any concatenations that slipped through earlier stages
+                s = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', s)
                 s = _capitalize_first_letter(s)
                 f.write(f"{s}\n\n")
                 prev_speaker = sentence_obj.get_first_speaker()
