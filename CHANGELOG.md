@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-01-18
+
+### Fixed
+- **Speaker boundary splits blocked by connector checks (v0.4.3 regression)**: Fixed issue where speaker boundaries were not creating sentence breaks when followed by connector words ("y", "o", "pero", "de", "a", etc.)
+  - **Example**: `"Malala. Sí. Bueno, Malala nació..."` was incorrectly kept as one paragraph despite "Malala." and "Sí. Bueno..." being from different speakers
+  - **Root Cause**: v0.6.0 introduced connector word checks that skipped speaker boundaries when the current or next word was a connector, violating the v0.4.3 principle that "speaker boundaries ALWAYS create splits"
+  - **Fix**: Removed connector word checks from speaker boundary handling; speaker boundaries are now unconditional
+- **Minimum chunk threshold too high for single-word utterances**: Reduced `min_words_speaker` from 4 to 1
+  - **Example**: Andrea saying just "Malala." as a prompt/question was being merged into previous sentence because chunk length (1) < threshold (4)
+  - **Fix**: Single-word utterances now correctly trigger speaker boundary splits since speaker changes are definitive signals
+- **Whisper periods removed at different-speaker boundaries**: Fixed period removal logic that was incorrectly removing periods before connector words even when the NEXT word was from a DIFFERENT speaker
+  - **Example**: "1997. ¿Y es reconocida por?" → "1997 y es reconocida por?" (period incorrectly removed before Andrea's question)
+  - **Root Cause**: The condition `speaker_at_current == speaker_at_next or (both None)` would remove periods when speaker info was missing; also didn't properly require BOTH speaker checks to be non-None
+  - **Fix**: Only remove periods when `speaker_at_current is not None AND speaker_at_next is not None AND speaker_at_current == speaker_at_next`
+- **Off-by-one error in speaker boundary calculation**: Fixed boundary placement that caused splits to occur AFTER the first word of the new speaker instead of BEFORE
+  - **Example**: Split happening after "¿Y" (word 675) instead of before it, putting Andrea's question start in Nate's sentence
+  - **Root Cause**: `end_word` in speaker segments is EXCLUSIVE (like Python slices), but boundary was set to `end_word` instead of `end_word - 1`
+  - **Fix**: Changed `boundary_word = current_seg['end_word']` to `boundary_word = current_seg['end_word'] - 1`
+- **Inclusive vs exclusive end_word mismatch in speaker lookup**: Fixed `_get_speaker_at_word()` to correctly treat `end_word` as exclusive
+  - **Root Cause**: Function used `<= segment['end_word']` but `end_word` is exclusive per `_convert_char_ranges_to_word_ranges()`
+  - **Fix**: Changed comparison from `<= segment['end_word']` to `< segment['end_word']`
+
+### Changed
+- **Speaker boundary behavior**: Speaker boundaries now unconditionally trigger sentence breaks (restored v0.4.3 behavior)
+- **Minimum speaker chunk threshold**: Reduced from 4 words to 1 word, allowing single-word utterances to be properly separated
+
 ## [0.6.0.5] - 2026-01-12
 
 ### Changed

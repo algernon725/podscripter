@@ -346,23 +346,24 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
   - **Impact**: Visual separation of different speakers in output while preserving same-speaker grouping
 
 **Priority hierarchy** (in `_should_end_sentence_here`):
-1. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
-2. **Speaker continuity check**: At connector words, prevent break if same speaker continues
-3. Speaker boundaries (highest priority - break even for very short phrases, min 2 words)
+1. **Speaker boundaries** (HIGHEST priority - min 1 word, v0.6.1)
    - **v0.4.2**: `SentenceSplitter` only extracts boundaries where speaker changes (not from all segments)
    - **v0.4.3**: Speaker boundaries ALWAYS create splits, even if next word is a connector (different speakers must be separated)
-4. Whisper boundaries (medium priority - min 10 words)
+   - **v0.6.1**: Removed connector word checks that were incorrectly blocking speaker splits; reduced threshold from 4 to 1 word
+2. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
+3. Whisper boundaries (medium priority - min 10 words)
    - **Whisper boundary skipping**: If a speaker boundary is within the next 3 words AND next word is connector/lowercase, skip the Whisper boundary to avoid splitting when the same speaker continues across Whisper segments
    - **v0.4.2**: Periods at skipped boundaries are now automatically removed
    - **v0.4.3**: Reduced lookahead window from 15 words to 3 words, added continuation checks to prevent over-aggressive skipping
-5. General min_chunk_before_split check (20 words for Spanish, 15 for others)
-6. Semantic coherence (fallback)
+4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
+5. Semantic coherence (fallback)
 
 **Critical implementation details**: 
 - Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes
 - Whisper boundaries are skipped only when a speaker boundary is very close (3 words) AND next word suggests continuation (connector or lowercase)
 - **v0.4.2**: Whisper-added periods at skipped boundaries are now tracked and removed automatically
 - **v0.4.3**: Speaker boundaries are never skipped, ensuring different speakers are always separated even with connector words
+- **v0.6.1**: Period removal before connectors only happens when SAME speaker continues (verified via `_get_speaker_at_word()`); `end_word` in speaker segments is treated as EXCLUSIVE (like Python slices)
 
 **Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
 

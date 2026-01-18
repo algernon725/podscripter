@@ -364,7 +364,7 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Solution**: 
 1. Moved speaker/Whisper boundary checks to happen BEFORE the general `min_chunk_before_split` check
-2. Speaker boundaries now use a very low threshold (2 words) since speaker changes are definitive
+2. Speaker boundaries now use a minimal threshold (1 word, v0.6.1) since speaker changes are definitive
 3. Pass speaker boundaries separately to `restore_punctuation()` (not merged with Whisper boundaries) so they can use different thresholds
 4. Added `_convert_speaker_timestamps_to_char_positions()` to properly convert speaker timestamps to character positions
 
@@ -408,6 +408,32 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 **Tests**: Verified with Episodio212.mp3 (33-minute Spanish podcast with 3 speakers, 86 speaker changes). Result: Zero sentences starting with connector words. All 34+ connector word boundaries correctly merged when same speaker continues.
 
 ### 5. Known Resolved Issues (Recent)
+
+#### Speaker Boundary Splits Blocked by Connector Checks (RESOLVED - v0.6.1)
+**Problem**: Speaker boundaries were not creating sentence breaks when followed by connector words, despite v0.4.3 establishing that "speaker boundaries ALWAYS create splits."
+- Example: `"Malala. Sí. Bueno, Malala nació el 12 de julio de 1997 y es reconocida por? Es."` kept as one paragraph
+- "Malala." was Andrea, "Sí. Bueno, Malala nació..." was Nate, "y es reconocida por?" was Andrea, "Es." was Nate
+- Despite 4 speaker changes, all utterances appeared in the same paragraph
+
+**Root Causes** (multiple compounding issues):
+1. **Connector word checks blocking speaker splits** (v0.6.0 regression): Added checks that skipped speaker boundaries when current or next word was a connector (y, o, pero, de, a, etc.), violating the v0.4.3 principle
+2. **Minimum chunk threshold too high**: `min_words_speaker` was 4, preventing single-word utterances like "Malala." from triggering splits
+3. **Period removal at different-speaker boundaries**: The period removal logic (`speaker_at_current == speaker_at_next or both None`) would remove periods even when speakers were different
+4. **Off-by-one in boundary calculation**: `boundary_word = current_seg['end_word']` placed splits AFTER the first word of the new speaker instead of BEFORE it (since `end_word` is exclusive)
+5. **Inclusive end_word comparison**: `_get_speaker_at_word()` used `<= end_word` but `end_word` is exclusive per `_convert_char_ranges_to_word_ranges()`
+
+**Solution Implemented (v0.6.1)**:
+1. **Removed connector checks**: Speaker boundaries now unconditionally create splits (restored v0.4.3 behavior)
+2. **Reduced threshold to 1**: Single-word utterances like "Malala." now properly split
+3. **Stricter period removal**: Only remove periods when `speaker_at_current is not None AND speaker_at_next is not None AND speaker_at_current == speaker_at_next`
+4. **Fixed boundary calculation**: Changed to `boundary_word = current_seg['end_word'] - 1`
+5. **Fixed speaker lookup**: Changed from `<= end_word` to `< end_word`
+
+**Key Insight**: The v0.6.0 connector checks were well-intentioned (prevent orphaned connectors) but violated a more fundamental principle: speaker boundaries are definitive signals that should never be skipped. The period removal and connector merging logic already has its own speaker continuity checks, so blocking speaker splits was redundant and harmful.
+
+**Impact**: All diarization-enabled transcriptions now correctly separate speakers even when utterances are single words or start with connector words.
+
+**Tests**: All 35 tests pass. Verified with Episodio218-trim.mp3.
 
 #### False Domain Merge in Natural Language (RESOLVED - v0.4.4)
 **Problem**: Domain merge logic was incorrectly merging sentences when the word before a period matched a TLD in the domain list.

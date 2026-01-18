@@ -2130,7 +2130,7 @@ def _should_end_sentence_here(words: List[str], current_index: int, current_chun
     
     # Check if we're at a speaker boundary (HIGHEST PRIORITY)
     # Speaker changes almost always indicate sentence breaks, even for short phrases
-    # Use a very low minimum (2 words) since speaker changes are definitive
+    # Use a minimal threshold (1 word, v0.6.1) since speaker changes are definitive
     if speaker_word_boundaries and current_index in speaker_word_boundaries:
         min_words_speaker = 2  # Very low threshold for speaker changes
 

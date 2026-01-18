@@ -699,7 +699,7 @@ class SentenceSplitter:
         Priority hierarchy:
         1. Grammatical guards (NEVER break)
         2. Speaker continuity at connectors (don't break if same speaker continues)
-        3. Speaker boundaries (highest priority, min 2 words)
+        3. Speaker boundaries (highest priority, min 1 word - v0.6.1)
         4. Whisper boundaries (medium priority, min 10 words, skip if speaker nearby)
         5. General semantic splitting (fallback, min 20 words Spanish, 15 others)
         
