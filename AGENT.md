@@ -611,6 +611,67 @@ Implemented the sentence splitting consolidation refactor. The new `SentenceSpli
 
 **Tests**: `test_initials_normalization.py` (comprehensive coverage for EN/ES/FR/DE)
 
+### 6. Known Limitations and Open Issues
+
+#### Diarization Misalignment Causing Sentence Fragments (OPEN - v0.6.1)
+**Problem**: When pyannote diarization incorrectly attributes a brief interjection to the previous speaker, the period removal logic can create sentence fragments.
+
+**Example**:
+- Raw Whisper output: Segment 69: "Ajá." (343.18s-344.18s), Segment 70: "Y ella nació, como dije, en Pakistán." (344.18s-348.18s)
+- Pyannote diarization: SPEAKER_00 (Nate) until 344.67s, then SPEAKER_01 (Andrea) starts
+- **Problem**: Andrea says "Ajá" but pyannote assigns it to Nate (whose segment extends to 344.67s)
+- **Result**: "Ajá y ella." appears as a fragment, split from "Nació, como dije, en Pakistán."
+- **Expected**: "Ajá y ella nació, como dije, en Pakistán." as a single sentence (all Andrea)
+
+**Root Cause Analysis**:
+1. **Diarization misattribution**: Pyannote's SPEAKER_00 segment extends to 344.67s, but Andrea's "Ajá" occurs at 343.18s-344.18s. The brief interjection is incorrectly attributed to the previous speaker (Nate).
+2. **Proportional character splitting**: `_convert_speaker_segments_to_char_ranges()` splits Whisper Segment 70 proportionally. Since the speaker boundary (344.67s) falls within the segment (344.18s-348.18s), the first few characters ("Y ella") are attributed to SPEAKER_00.
+3. **Period removal logic**: The system sees "Ajá." (SPEAKER_00) followed by "Y" (also attributed to SPEAKER_00 due to proportional split). Since they're "same speaker", the period is removed and "Y" is lowercased → "Ajá y".
+4. **Speaker boundary split**: A speaker boundary is correctly detected at word "ella" (where SPEAKER_01 starts), triggering a split → "Ajá y ella." becomes a fragment.
+
+**Why Code Behaves Correctly**:
+The code is functioning as designed given the diarization input:
+- Period removal only applies when same-speaker continues (correct logic per v0.6.1)
+- Speaker boundaries correctly trigger splits (restored v0.4.3 behavior)
+- The issue is that the **input** (diarization segments) is misaligned with reality
+
+**Why Increasing `min_words_speaker` Would Cause Regression**:
+The v0.6.1 fix reduced `min_words_speaker` from 4 to 1 specifically to allow single-word utterances like "Malala." to trigger speaker boundary splits. Increasing this threshold would:
+- ❌ Re-introduce the "Malala." bug where Andrea's single-word prompt was merged into Nate's sentence
+- ❌ Violate the principle that "speaker boundaries are definitive signals"
+- ❌ Trade one bug (fragments from misalignment) for another (missed splits from threshold)
+
+**Potential Future Fixes** (not implemented):
+
+**Option 1: Accept as a limitation**
+- **Pros**: No code changes, no risk of regressions
+- **Cons**: Users may see occasional fragments in transcriptions
+- **When appropriate**: When diarization quality is generally good and fragments are rare
+
+**Option 2: More cautious period removal near imminent speaker boundaries**
+- **Approach**: Before removing a period, check if a speaker boundary is within the next N words. If so, preserve the period even if "same speaker" continues.
+- **Pros**: Would preserve "Ajá." as a standalone sentence rather than creating "Ajá y ella."
+- **Cons**: 
+  - May preserve unnecessary periods in other cases
+  - Adds complexity to period removal logic
+  - Doesn't fix the root cause (diarization misalignment)
+- **Implementation**: Modify `_process_whisper_punctuation()` to check for upcoming speaker boundaries before period removal
+
+**Option 3: Post-processing fragment detection and merge**
+- **Approach**: After sentence splitting, detect very short fragments (e.g., <4 words) that end with a period and are followed by a sentence from the same actual speaker. Merge them.
+- **Pros**: Addresses symptom directly at output stage
+- **Cons**:
+  - Heuristic-based, may have false positives
+  - "Same actual speaker" is hard to determine after splits (would need to preserve speaker info)
+  - Violates "fix root cause, not symptoms" principle
+  - Adds post-processing that could interact poorly with existing merge logic
+
+**Current Status**: Documented as known limitation. The issue is fundamentally caused by diarization model inaccuracies at speaker transitions, not by our sentence splitting logic. The code correctly processes the (flawed) diarization input it receives.
+
+**Files Affected**: N/A (no code changes)
+
+**Tests**: N/A (manual verification with Episodio218.mp3)
+
 ## Recent Refactors
 
 ### Sentence Splitting Consolidation (Completed - v0.4.0)
