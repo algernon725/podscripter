@@ -326,8 +326,12 @@ class SentenceSplitter:
                 # Only add boundary if speaker changes
                 if current_seg.get('speaker') != next_seg.get('speaker'):
                     if 'end_word' in current_seg:
-                        boundary_word = current_seg['end_word']
-                        boundaries.add(boundary_word)
+                        # end_word is EXCLUSIVE, so the last word of current speaker is end_word - 1
+                        # We want to split AFTER the last word of the current speaker,
+                        # so the boundary should be at end_word - 1 (the last word of current speaker)
+                        boundary_word = current_seg['end_word'] - 1
+                        if boundary_word >= 0:
+                            boundaries.add(boundary_word)
         else:
             # For Whisper segments, we need to calculate word positions
             # This is done by tracking cumulative text length
@@ -560,30 +564,11 @@ class SentenceSplitter:
                 speaker_word_segments
             )
             
-            # NEW FIX: Remove Whisper periods at skipped boundaries
-            # If this word index was just marked as a skipped Whisper boundary, remove any trailing period
-            if i in self.skipped_whisper_boundaries:
-                if current_chunk[-1].rstrip().endswith(('.', '!', '?')):
-                    # Get speaker info for logging
-                    speaker_at_pos = None
-                    if speaker_word_segments:
-                        speaker_at_pos = self._get_speaker_at_word(i, speaker_word_segments)
-                    
-                    # Remove the period from the word in the chunk
-                    original_word = current_chunk[-1]
-                    current_chunk[-1] = current_chunk[-1].rstrip('.!?')
-                    
-                    self.logger.debug(
-                        f"REMOVED Whisper period at skipped boundary: "
-                        f"word={i} ('{original_word}' → '{current_chunk[-1]}'), speaker={speaker_at_pos}"
-                    )
-                    self.removed_periods.append({
-                        'position': i,
-                        'reason': 'skipped_whisper_boundary',
-                        'speaker': speaker_at_pos,
-                        'original': original_word,
-                        'modified': current_chunk[-1]
-                    })
+            # NOTE: We no longer remove Whisper periods at skipped boundaries unconditionally.
+            # The skipped_whisper_boundaries set tracks positions where we skipped a Whisper boundary
+            # because a speaker boundary was nearby. In this case, the period should STAY because
+            # it marks the end of the current speaker's sentence before a different speaker starts.
+            # Period removal only happens in the "same-speaker connector" logic below.
 
             
             # DEBUG: Log sentence endings around connectors
@@ -599,6 +584,7 @@ class SentenceSplitter:
             # CRITICAL FIX: Remove Whisper period before same-speaker connectors
             # If we decided NOT to split here, but the word has a Whisper period,
             # and next word is a connector, remove the period AND lowercase the connector
+            # BUT ONLY if the same speaker continues - different speakers should keep the period
             if not should_end and i + 1 < len(words):
                 next_word_clean = words[i + 1].lower().strip('.,;:!?¿¡')
                 if next_word_clean in self.CONNECTOR_WORDS and word.rstrip().endswith(('.', '!', '?')):
@@ -609,8 +595,10 @@ class SentenceSplitter:
                         speaker_at_current = self._get_speaker_at_word(i, speaker_word_segments)
                         speaker_at_next = self._get_speaker_at_word(i + 1, speaker_word_segments)
                     
-                    # Remove period if same speaker OR if no speaker info
-                    if speaker_at_current == speaker_at_next or (speaker_at_current is None and speaker_at_next is None):
+                    # IMPORTANT: Only remove period if SAME speaker continues
+                    # If speakers are different, keep the period - it marks end of current speaker's sentence
+                    # Also require speaker info to be available for both positions
+                    if speaker_at_current is not None and speaker_at_next is not None and speaker_at_current == speaker_at_next:
                         # Remove the period from the current word in the chunk
                         current_chunk[-1] = current_chunk[-1].rstrip('.!?')
                         # Also lowercase the connector in the next iteration
@@ -618,7 +606,8 @@ class SentenceSplitter:
                         words[i + 1] = next_word_clean
                         self.logger.debug(
                             f"REMOVED Whisper period before same-speaker connector: "
-                            f"word={i} ('{word}'), connector='{next_word_clean}' (lowercased)"
+                            f"word={i} ('{word}'), connector='{next_word_clean}' (lowercased), "
+                            f"speaker={speaker_at_current}"
                         )
                         self.removed_periods.append({
                             'position': i,
@@ -626,6 +615,12 @@ class SentenceSplitter:
                             'speaker': speaker_at_current,
                             'connector': next_word_clean
                         })
+                    elif speaker_at_current != speaker_at_next:
+                        self.logger.debug(
+                            f"KEPT Whisper period before different-speaker connector: "
+                            f"word={i} ('{word}'), connector='{next_word_clean}', "
+                            f"curr_spk={speaker_at_current}, next_spk={speaker_at_next}"
+                        )
             
             if should_end:
                 sentence_text = ' '.join(current_chunk).strip()
@@ -728,39 +723,15 @@ class SentenceSplitter:
         # PRIORITY 1: Speaker boundaries (HIGHEST PRIORITY - check first!)
         # Speaker changes ALWAYS indicate sentence breaks, even if next word is a connector
         # Different speakers should NEVER have their sentences merged, even with connectors
+        # Per v0.4.3: "Speaker boundaries now ALWAYS create splits, regardless of whether 
+        # the next word is a connector"
         if speaker_word_boundaries and current_index in speaker_word_boundaries:
-            min_words_speaker = 4  # Minimum chunk length to avoid excessive fragmentation
-            
-            # FIX (v0.6.0): Don't split if current or next word is a connector or preposition
-            # Connectors like "y", "o", "pero" and prepositions like "de", "a" should stay with what follows
-            # Check both current (don't end with connector) and next (don't start with connector)
-            connector_words = {
-                # Conjunctions
-                'y', 'e', 'o', 'u', 'pero', 'ni', 'mas', 'sino',
-                # Common prepositions that should not end sentences
-                'de', 'a', 'en', 'por', 'para', 'con', 'sin', 'sobre', 'entre', 'hacia', 'desde', 'hasta'
-            }
-            current_word_lower = current_word.lower().strip('¿?¡!.,;:')
-            next_word_lower = next_word.lower().strip('¿?¡!.,;:') if next_word else ''
-            
-            if current_word_lower in connector_words:
-                self.logger.debug(
-                    f"✗ SKIP speaker boundary: word {current_index} '{current_word}' is a connector, "
-                    f"keeping with next word '{next_word}'"
-                )
-                # Don't split here - let connector stay with what follows
-                return False
-            
-            if next_word_lower in connector_words:
-                self.logger.debug(
-                    f"✗ SKIP speaker boundary: word {current_index} '{current_word}', "
-                    f"next word '{next_word}' is a connector - don't start sentence with connector"
-                )
-                # Don't split here - next sentence shouldn't start with connector
-                return False
+            min_words_speaker = 1  # Minimal threshold - speaker changes are definitive signals
             
             if len(current_chunk) >= min_words_speaker:
-                # Speaker change - split here
+                # Speaker change - ALWAYS split here (per v0.4.3 fix)
+                # Note: We do NOT check for connectors here. If a new speaker starts with
+                # "Y" or "y", that's valid - they're a different speaker and should be separated.
                 self.logger.debug(
                     f"✓ SPLIT at speaker boundary: word {current_index} '{current_word}', "
                     f"next='{next_word}', chunk_len={len(current_chunk)}"
@@ -1056,7 +1027,7 @@ class SentenceSplitter:
         
         Args:
             word_index: The word index to check
-            speaker_segments: List of speaker segments
+            speaker_segments: List of speaker segments (end_word is EXCLUSIVE, like Python slices)
         
         Returns:
             Speaker label if found, None otherwise
@@ -1065,7 +1036,8 @@ class SentenceSplitter:
             return None
         
         for segment in speaker_segments:
-            if segment['start_word'] <= word_index <= segment['end_word']:
+            # Note: end_word is EXCLUSIVE (per _convert_char_ranges_to_word_ranges)
+            if segment['start_word'] <= word_index < segment['end_word']:
                 return segment['speaker']
         
         return None
