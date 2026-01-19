@@ -672,6 +672,67 @@ The v0.6.1 fix reduced `min_words_speaker` from 4 to 1 specifically to allow sin
 
 **Tests**: N/A (manual verification with Episodio218.mp3)
 
+#### Short Speaker Segment Filtering Causing Missed Splits (OPEN - v0.6.1)
+**Problem**: The `MIN_SEGMENT_DURATION = 1.3s` filter (introduced in v0.6.0.1 to prevent rapid speaker flipping artifacts) can filter out legitimate short speaker segments at transitions, causing speaker boundaries to not trigger splits.
+
+**Example**:
+- Whisper segment 125 (507.81s - 509.81s): `"¿Cuántos habitantes tiene?"` (Andrea's question)
+- Whisper segment 126 (510.81s - 511.81s): `"Guinea."` (Nate's answer starts)
+- Pyannote diarization: SPEAKER_01 segment 107 (509.08s - 510.33s) duration = **1.25s**
+- Speaker boundary at 510.33s: SPEAKER_01 → SPEAKER_00 (marked as ✓ INCLUDED)
+- **Problem**: SPEAKER_01's segment (1.25s) is filtered because 1.25s < 1.3s threshold
+- **Result**: `"¿Cuántos habitantes tiene? Guinea."` merged into one paragraph (both speakers)
+- **Expected**: Andrea's question on separate line from Nate's answer
+
+**Root Cause Analysis**:
+1. **MIN_SEGMENT_DURATION threshold**: The 1.3s filter in `_convert_speaker_segments_to_char_ranges()` (line 851 of `podscripter.py`) removes all speaker segments shorter than 1.3 seconds
+2. **Legitimate segment filtered**: SPEAKER_01's segment 107 (1.25s) that covers Andrea's question is filtered out
+3. **Lost speaker attribution**: When processing Whisper segment 125, the system can't find any overlapping SPEAKER_01 segment (it was filtered)
+4. **Missed split**: Without proper speaker attribution, the boundary at 510.33s doesn't trigger a paragraph split
+
+**Why 1.3s Threshold Was Added (v0.6.0.1)**:
+The threshold was increased from 0.5s to 1.3s to filter out rapid speaker flipping artifacts. From CHANGELOG.md:
+> Fixed `"Métodos.pero"` → `"métodos pero"` - Short segments (0.56s, 0.93s, 1.10s, 1.28s) were causing rapid speaker flipping, preventing proper sentence merging
+
+The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all with a small margin.
+
+**Why Lowering Threshold Would Risk Regression**:
+- ❌ Setting threshold < 1.28s would re-introduce the rapid speaker flipping bugs from v0.6.0.1
+- ❌ Those artifacts caused sentence fragmentation like `"Métodos.pero"` instead of `"métodos pero"`
+- ❌ Trade-off: filtering artifacts (< 1.3s) vs. preserving legitimate short segments (~1.0-1.3s)
+
+**Comparison to Diarization Misalignment Issue**:
+
+| Aspect | Misalignment Issue | This Issue |
+|--------|-------------------|------------|
+| **Cause** | Pyannote attributes words to wrong speaker | Our filter removes valid speaker segment |
+| **Manifestation** | Sentence fragments created | Speaker split not triggered |
+| **Root** | External (pyannote accuracy) | Internal (our threshold too aggressive) |
+| **Example** | "Ajá y ella." fragment | "¿Cuántos habitantes tiene? Guinea." merged |
+
+**Potential Future Fixes** (not implemented):
+
+**Option 1: Lower threshold to ~1.0s**
+- **Pros**: Would preserve segments like 1.25s, fixing this bug
+- **Cons**: May re-introduce some rapid speaker flipping artifacts (1.10s-1.28s range)
+- **Risk**: Medium - artifacts in that range were real problems in v0.6.0.1
+
+**Option 2: Context-aware filtering**
+- **Approach**: Only filter short segments that are "sandwiched" between segments of the same speaker (likely artifacts). Preserve short segments that represent genuine speaker transitions (different speakers before/after).
+- **Pros**: More accurate, preserves legitimate transitions while filtering artifacts
+- **Cons**: More complex logic, potential edge cases
+
+**Option 3: Two-tier threshold**
+- **Approach**: Use a lower threshold (e.g., 0.8s) for segments at speaker transitions, higher threshold (1.3s) for mid-speaker segments
+- **Pros**: Targeted filtering based on context
+- **Cons**: Added complexity, need to define "at transition" precisely
+
+**Current Status**: Documented as known limitation. The 1.3s threshold is a trade-off between filtering artifacts and preserving short legitimate segments. Segments between ~1.0-1.3s at speaker transitions may be filtered, causing missed splits.
+
+**Files Affected**: `podscripter.py` line 851 (`MIN_SEGMENT_DURATION = 1.3`)
+
+**Tests**: N/A (manual verification with Episodio220.mp3)
+
 ## Recent Refactors
 
 ### Sentence Splitting Consolidation (Completed - v0.4.0)
