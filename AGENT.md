@@ -429,6 +429,23 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Tests**: Verified with Episodio221.mp3 examples. New tests confirm questions are preserved as single sentences.
 
+#### Double Inverted Question Mark in Embedded Questions (RESOLVED - v0.6.2)
+**Problem**: Spanish sentences with embedded questions incorrectly received a second `¿` at the start.
+- Example: `"Valentina, cuéntenos, ¿usted ahorita está estudiando en persona o virtual y cómo son las clases?"` became `"¿Valentina, cuéntenos, ¿usted ahorita..."` (two `¿` but one `?`)
+- Grammatically incorrect: Spanish requires each `¿` to pair with a `?`
+
+**Root Cause**: Three places in `punctuation_restorer.py` checked if a sentence **started** with `¿`, but not if one already **existed** mid-sentence (embedded question):
+1. Line 1538: Question patterns check
+2. Line 1770: Semantic question gate
+3. Line 4219: Coordinated questions pattern
+
+**Solution Implemented (v0.6.2)**:
+Added `'¿' not in sentence` guard to all three locations, preventing `¿` from being added at the start when the sentence already contains an embedded `¿`.
+
+**Key Insight**: Embedded questions in Spanish (e.g., "Valentina, cuéntenos, ¿usted...?") are grammatically valid. The question portion starts mid-sentence with `¿` and ends with `?`. Adding another `¿` at the sentence start creates mismatched punctuation.
+
+**Tests**: Verified with Episodio221.mp3 examples.
+
 #### Speaker Boundary Splits Blocked by Connector Checks (RESOLVED - v0.6.1)
 **Problem**: Speaker boundaries were not creating sentence breaks when followed by connector words, despite v0.4.3 establishing that "speaker boundaries ALWAYS create splits."
 - Example: `"Malala. Sí. Bueno, Malala nació el 12 de julio de 1997 y es reconocida por? Es."` kept as one paragraph

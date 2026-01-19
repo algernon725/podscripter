@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Root Cause**: The Whisper boundary handling in `_should_end_sentence_here()` returned `True` (allow split) when the next word was not a connector, WITHOUT checking if we were inside an unclosed Spanish inverted question (`¿` present but no closing `?` yet)
   - **Fix**: Added new helper method `_is_inside_unclosed_question()` that checks for unclosed `¿...?` and `¡...!` constructs. This check is now performed before allowing splits at Whisper boundaries
   - **Behavior**: Questions starting with `¿` are now preserved as complete sentences unless a speaker change (diarization) requires splitting
+- **Double inverted question mark in Spanish embedded questions**: Fixed issue where sentences with embedded questions (e.g., `"Valentina, cuéntenos, ¿usted..."`) incorrectly received a second `¿` at the start
+  - **Example**: `"Valentina, cuéntenos, ¿usted ahorita está estudiando...?"` became `"¿Valentina, cuéntenos, ¿usted ahorita..."` (two `¿` but one `?`)
+  - **Root Cause**: Three places in `punctuation_restorer.py` checked if sentence **started** with `¿`, but not if one already **existed** mid-sentence
+  - **Fix**: Added `'¿' not in sentence` guard to all three locations (lines 1538, 1770, 4219) that add inverted question marks
+  - **Spanish grammar**: Each `¿` must pair with a `?`; embedded questions should not trigger adding another `¿` at sentence start
 
 ### Added
 - **Helper method `_is_inside_unclosed_question()`**: New method in `SentenceSplitter` that detects when the current sentence chunk contains an unclosed Spanish inverted question mark (`¿` without corresponding `?`) or exclamation mark (`¡` without `!`)

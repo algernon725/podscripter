@@ -1535,7 +1535,8 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                 sentence = sentence.rstrip('.!?') + sentence[-1]
 
             # Add inverted question mark if needed (without re-splitting)
-            if sentence.endswith('?') and not sentence.startswith('¿'):
+            # Only add if sentence doesn't already have an embedded ¿ (to avoid double inverted marks)
+            if sentence.endswith('?') and not sentence.startswith('¿') and '¿' not in sentence:
                 sentence_lower = sentence.lower()
                 question_patterns = [
                     r'^(qué|dónde|cuándo|cómo|quién|cuál|por qué|recuerdas|sabes|puedes|quieres|necesitas|tienes|vas|estás|están|pueden|saben|quieren|hay|va|es|son|está|están)',
@@ -1766,10 +1767,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                     core = sentence_text[1:] if sentence_text.startswith('¿') else sentence_text
                     if is_question_semantic(core, model_for_gate, 'es'):
                         # Ensure starts with ¿ and ends with ?
-                        if not core.startswith('¿'):
+                        # Only add ¿ if core doesn't already have one (embedded or at start)
+                        if not core.startswith('¿') and '¿' not in core:
                             sentences[i] = '¿' + core
                         else:
-                            sentences[i] = sentence_text
+                            sentences[i] = sentence_text if sentence_text.startswith('¿') else core
                         sentences[i + 1] = '?' if i + 1 < len(sentences) else '?'
                     else:
                         # Not a question: strip leading ¿ and ensure period
@@ -4216,7 +4218,8 @@ def _spanish_cleanup_postprocess(text: str) -> str:
                re.search(rf'\bo\s+(?:{coord_starters})\b', s, flags=re.IGNORECASE)
                or re.search(r'\bo\s+[a-záéíóúñ]+(?:an|en|as|es|a|e|amos|emos|imos)\b', s, flags=re.IGNORECASE)
            ):
-            if not s.startswith('¿'):
+            # Only add ¿ if sentence doesn't already have one (embedded or at start)
+            if not s.startswith('¿') and '¿' not in s:
                 parts_coord[i] = '¿' + s
             parts_coord[i + 1] = '?'
     text = ''.join(parts_coord)
