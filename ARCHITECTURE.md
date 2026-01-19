@@ -355,6 +355,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
    - **Whisper boundary skipping**: If a speaker boundary is within the next 3 words AND next word is connector/lowercase, skip the Whisper boundary to avoid splitting when the same speaker continues across Whisper segments
    - **v0.4.2**: Periods at skipped boundaries are now automatically removed
    - **v0.4.3**: Reduced lookahead window from 15 words to 3 words, added continuation checks to prevent over-aggressive skipping
+   - **v0.6.2**: Spanish inverted question/exclamation protection - before allowing splits at Whisper boundaries, check if inside unclosed `¿...?` or `¡...!` via `_is_inside_unclosed_question()` helper
 4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
 5. Semantic coherence (fallback)
 
@@ -364,6 +365,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 - **v0.4.2**: Whisper-added periods at skipped boundaries are now tracked and removed automatically
 - **v0.4.3**: Speaker boundaries are never skipped, ensuring different speakers are always separated even with connector words
 - **v0.6.1**: Period removal before connectors only happens when SAME speaker continues (verified via `_get_speaker_at_word()`); `end_word` in speaker segments is treated as EXCLUSIVE (like Python slices)
+- **v0.6.2**: Spanish unclosed inverted question/exclamation protection prevents splits inside `¿...?` and `¡...!` constructs at Whisper boundaries
 
 **Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
 

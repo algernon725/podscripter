@@ -409,6 +409,26 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Resolved Issues (Recent)
 
+#### Spanish Inverted Question Split at Whisper Boundaries (RESOLVED - v0.6.2)
+**Problem**: Spanish questions starting with `¿` were being incorrectly split in the middle when a Whisper segment boundary occurred before the closing `?`.
+- Example: `"¿qué cambios ha habido desde la pandemia?"` → `"¿qué cambios ha habido."` | `"Desde la pandemia?"` (incorrect)
+- Also affected: `"¿cómo fueron esos meses donde era extremadamente estricto?"` similarly split mid-question
+- The first part ended with a period (added by `_should_add_terminal_punctuation`) and the second part lost its opening `¿`
+
+**Root Cause**: In `sentence_splitter.py`, the Whisper boundary handling in `_should_end_sentence_here()` returned `True` (allow split) when the next word was not a connector, WITHOUT checking if we were inside an unclosed Spanish inverted question (`¿` present but no closing `?` yet). The Spanish inverted question guard in `_passes_language_specific_checks()` was never reached because the Whisper boundary handling returned early.
+
+**Solution Implemented (v0.6.2)**:
+1. **New helper method `_is_inside_unclosed_question()`**: Detects when current sentence chunk contains unclosed `¿...?` or `¡...!`
+2. **Updated Whisper boundary handling**: Calls `_is_inside_unclosed_question()` before allowing splits at Whisper boundaries
+3. **Updated `_passes_language_specific_checks()`**: Now uses the helper method (DRY principle)
+4. **Exclamation support**: Also protects unclosed `¡...!` constructs
+
+**Key Insight**: Spanish inverted punctuation (`¿...?` and `¡...!`) creates grammatical constructs that must not be split mid-sentence. Unlike regular sentences where Whisper boundaries are reasonable split points, these constructs have explicit opening and closing markers that must be preserved together.
+
+**Impact**: All Spanish transcriptions with questions or exclamations that span multiple Whisper segments. The fix respects speaker changes - if diarization indicates a different speaker mid-question, the split is still allowed per user requirements.
+
+**Tests**: Verified with Episodio221.mp3 examples. New tests confirm questions are preserved as single sentences.
+
 #### Speaker Boundary Splits Blocked by Connector Checks (RESOLVED - v0.6.1)
 **Problem**: Speaker boundaries were not creating sentence breaks when followed by connector words, despite v0.4.3 establishing that "speaker boundaries ALWAYS create splits."
 - Example: `"Malala. Sí. Bueno, Malala nació el 12 de julio de 1997 y es reconocida por? Es."` kept as one paragraph

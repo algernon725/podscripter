@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-01-19
+
+### Fixed
+- **Spanish inverted question sentences split at Whisper boundaries**: Fixed issue where Spanish questions starting with `¿` were incorrectly split in the middle when a Whisper segment boundary occurred before the closing `?`
+  - **Example**: `"¿qué cambios ha habido desde la pandemia?"` was being split as `"¿qué cambios ha habido."` and `"Desde la pandemia?"` with a period incorrectly inserted
+  - **Also affected**: `"¿cómo fueron esos meses donde era extremadamente estricto?"` similarly split mid-question
+  - **Root Cause**: The Whisper boundary handling in `_should_end_sentence_here()` returned `True` (allow split) when the next word was not a connector, WITHOUT checking if we were inside an unclosed Spanish inverted question (`¿` present but no closing `?` yet)
+  - **Fix**: Added new helper method `_is_inside_unclosed_question()` that checks for unclosed `¿...?` and `¡...!` constructs. This check is now performed before allowing splits at Whisper boundaries
+  - **Behavior**: Questions starting with `¿` are now preserved as complete sentences unless a speaker change (diarization) requires splitting
+
+### Added
+- **Helper method `_is_inside_unclosed_question()`**: New method in `SentenceSplitter` that detects when the current sentence chunk contains an unclosed Spanish inverted question mark (`¿` without corresponding `?`) or exclamation mark (`¡` without `!`)
+  - Also used by `_passes_language_specific_checks()` to avoid code duplication
+
 ## [0.6.1] - 2026-01-18
 
 ### Fixed

@@ -831,13 +831,21 @@ class SentenceSplitter:
                         return False
                     else:
                         # Different speakers or no info - allow break
+                        # Per user requirement: speaker changes should still split even inside questions
                         self.logger.debug(
                             f"  → ALLOWING BREAK: speakers differ or no info "
                             f"(curr={current_speaker}, next={next_speaker})"
                         )
                         return True
                 else:
-                    # Not a connector - allow break
+                    # Not a connector - check for unclosed Spanish question before allowing break
+                    # This prevents splitting "¿qué cambios ha habido" | "desde la pandemia?"
+                    if self._is_inside_unclosed_question(current_chunk, words[current_index]):
+                        self.logger.debug(
+                            f"  → PREVENTING BREAK: inside unclosed Spanish question at word {current_index}"
+                        )
+                        return False
+                    # Allow break
                     return True
         
         # PRIORITY 4: General minimum chunk length for semantic splitting
@@ -922,6 +930,45 @@ class SentenceSplitter:
         
         return False
     
+    def _is_inside_unclosed_question(
+        self,
+        current_chunk: List[str],
+        current_word: str = None
+    ) -> bool:
+        """
+        Check if we're inside an unclosed Spanish inverted question.
+        
+        Spanish questions use inverted punctuation: ¿pregunta?
+        We should never split a sentence while inside such a construct
+        (i.e., after seeing ¿ but before seeing the closing ?).
+        
+        This also applies to exclamations: ¡exclamación!
+        
+        Args:
+            current_chunk: Current sentence chunk being built
+            current_word: Optional current word to check for ¿ or ¡
+        
+        Returns:
+            True if inside an unclosed Spanish question/exclamation
+        """
+        if self.language != 'es':
+            return False
+        
+        # Check if current word contains opening inverted punctuation
+        if current_word and ('¿' in current_word or '¡' in current_word):
+            return True
+        
+        # Check if chunk contains unclosed inverted question
+        current_text = ' '.join(current_chunk)
+        if '¿' in current_text and '?' not in current_text:
+            return True
+        
+        # Check if chunk contains unclosed inverted exclamation
+        if '¡' in current_text and '!' not in current_text:
+            return True
+        
+        return False
+    
     def _passes_language_specific_checks(
         self,
         words: List[str],
@@ -943,13 +990,9 @@ class SentenceSplitter:
         """
         current_word = words[current_index]
         
-        # Spanish: Never split after or inside unclosed inverted question mark
-        if self.language == 'es':
-            if '¿' in current_word:
-                return False
-            current_text = ' '.join(current_chunk)
-            if '¿' in current_text and '?' not in current_text:
-                return False
+        # Spanish: Never split after or inside unclosed inverted question/exclamation mark
+        if self._is_inside_unclosed_question(current_chunk, current_word):
+            return False
         
         # Never split when current word precedes a number
         if next_word:
