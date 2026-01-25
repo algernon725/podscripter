@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-01-25
+
+### Fixed
+- **Long sentence splits at grammatically incorrect positions**: Fixed issue where very long sentences (42+ words in Spanish) were being split at grammatically incorrect positions when semantic break logic kicked in
+  - **Example 1**: `"a los 18. Años"` should be `"a los 18 años"` - numbers should not be split from following time/measurement units
+  - **Example 2**: `"sin ser. Parte"` should be `"sin ser parte"` - infinitive verbs should not end sentences
+  - **Example 3**: `"fueron. Dirigidos"` should be `"fueron dirigidos"` - auxiliary verbs should not be split from following past participles
+  - **Root Cause**: When sentences exceeded `min_chunk_semantic_break` threshold (42 words for Spanish), the semantic break logic would split at positions that violated grammatical rules. The `CONTINUATIVE_AUXILIARY_VERBS` set was missing infinitive forms and preterite/past tense forms, and there were no guards for number-unit patterns or auxiliary-participle patterns.
+  - **Fix (Part 1)**: Expanded `CONTINUATIVE_AUXILIARY_VERBS` to include:
+    - **Spanish**: Infinitives (`ser`, `estar`, `haber`, `ir`, etc.), preterite forms (`fue`, `fueron`, `estuvo`, etc.), present tense of ser/estar (`es`, `son`, `está`, `están`, etc.)
+    - **English**: Infinitives (`be`, `have`, `do`, `go`, etc.), present tense (`is`, `are`, `am`)
+    - **French**: Infinitives (`être`, `avoir`, `aller`, `faire`, etc.), passé simple forms (`fut`, `furent`, etc.), present tense (`est`, `sont`, `a`, `ont`, etc.)
+    - **German**: Infinitives (`sein`, `haben`, `werden`, etc.), present tense (`ist`, `sind`, `hat`, `wird`, etc.), preterite (`wurde`, `wurden`, etc.)
+  - **Fix (Part 2)**: Added guard in `_passes_language_specific_checks()` to prevent splitting numbers from following time/measurement units across all languages (años, years, ans, Jahre, etc.)
+  - **Fix (Part 3)**: Added `_is_past_participle()` helper method and guard to prevent splitting auxiliary verbs from following past participles
+  - **Testing**: Added `tests/test_long_sentence_breaks.py` with 18 test cases covering number-unit patterns, infinitive verbs, and auxiliary-participle patterns across Spanish, English, French, and German
+  - **Impact**: Affects all diarization-enabled transcriptions where long sentences are created by joining multiple Whisper segments
+
+### Added
+- **Helper method `_is_past_participle()`**: New method in `SentenceSplitter` that detects past participles based on common endings and irregular forms across Spanish, English, French, and German
+  - Spanish: `-ado`, `-ido` endings + irregular forms (`hecho`, `dicho`, `escrito`, etc.)
+  - English: `-ed`, `-en` endings + irregular forms (`done`, `gone`, `been`, etc.)
+  - French: `-é`, `-i`, `-u` endings + irregular forms (`fait`, `dit`, `été`, etc.)
+  - German: `ge-...-t`, `ge-...-en` patterns + irregular forms (`gewesen`, `gehabt`, etc.)
+
+### Changed
+- **`CONTINUATIVE_AUXILIARY_VERBS` expanded**: Added ~60 new verb forms across 4 languages to prevent grammatically incorrect sentence breaks
+
 ## [0.6.2] - 2026-01-19
 
 ### Fixed

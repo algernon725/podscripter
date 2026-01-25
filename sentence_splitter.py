@@ -115,7 +115,16 @@ class SentenceSplitter:
     
     # Continuative/auxiliary verbs (should never end sentences)
     CONTINUATIVE_AUXILIARY_VERBS = {
-        # Spanish: Imperfect tense and auxiliary verbs
+        # Spanish: Infinitive forms (critical for phrases like "sin ser parte")
+        'ser', 'estar', 'haber', 'ir', 'tener', 'hacer', 'poder', 'deber',
+        'querer', 'saber', 'venir', 'decir', 'ver', 'dar', 'poner', 'salir',
+        
+        # Spanish: Preterite/past tense (critical for phrases like "fueron dirigidos")
+        'fue', 'fueron', 'fui', 'fuimos', 'fuiste', 'fuisteis',
+        'estuvo', 'estuvieron', 'estuve', 'estuvimos', 'estuviste', 'estuvisteis',
+        'hubo',  # impersonal preterite of haber
+        
+        # Spanish: Imperfect tense and auxiliary verbs (existing)
         'estaba', 'estaban', 'estabas', 'estábamos', 'estabais',
         'era', 'eran', 'eras', 'éramos', 'erais',
         'había', 'habían', 'habías', 'habíamos', 'habíais',
@@ -130,16 +139,44 @@ class SentenceSplitter:
         'decía', 'decían', 'decías', 'decíamos', 'decíais',
         'he', 'has', 'ha', 'hemos', 'habéis', 'han',
         
-        # English: Past continuous and auxiliary verbs
-        'was', 'were', 'had', 'been', 'have', 'has',
+        # Spanish: Present tense of ser/estar (often followed by adjectives/participles)
+        'es', 'son', 'soy', 'somos', 'eres', 'sois',
+        'está', 'están', 'estoy', 'estamos', 'estás', 'estáis',
         
-        # French: Imperfect tense and auxiliary verbs
+        # English: Infinitive forms
+        'be', 'have', 'do', 'go', 'get', 'make',
+        
+        # English: Past continuous and auxiliary verbs (existing + additions)
+        'was', 'were', 'had', 'been', 'have', 'has', 'being',
+        'is', 'are', 'am',  # Present tense often followed by participles
+        
+        # French: Infinitive forms
+        'être', 'avoir', 'aller', 'faire', 'pouvoir', 'devoir', 'vouloir', 'savoir',
+        
+        # French: Preterite/passé simple forms
+        'fut', 'furent', 'fus', 'fûmes', 'fûtes',
+        'eut', 'eurent', 'eus', 'eûmes', 'eûtes',
+        
+        # French: Present tense of être/avoir
+        'est', 'sont', 'suis', 'sommes', 'êtes',
+        'a', 'ont', 'ai', 'avons', 'avez',
+        
+        # French: Imperfect tense and auxiliary verbs (existing)
         'étais', 'était', 'étions', 'étiez', 'étaient',
         'avais', 'avait', 'avions', 'aviez', 'avaient',
         'allais', 'allait', 'allions', 'alliez', 'allaient',
         'faisais', 'faisait', 'faisions', 'faisiez', 'faisaient',
         
-        # German: Imperfect tense and auxiliary verbs
+        # German: Infinitive forms
+        'sein', 'haben', 'werden', 'gehen', 'machen', 'können', 'müssen',
+        'wollen', 'sollen', 'dürfen',
+        
+        # German: Present tense of sein/haben/werden
+        'ist', 'sind', 'bin', 'bist', 'seid',
+        'hat', 'habe', 'hast', 'habt',
+        'wird', 'werden', 'wirst', 'werdet',
+        
+        # German: Imperfect tense and auxiliary verbs (existing)
         'war', 'warst', 'waren', 'wart',
         'hatte', 'hattest', 'hatten', 'hattet',
         'ging', 'gingst', 'gingen', 'gingt',
@@ -148,6 +185,7 @@ class SentenceSplitter:
         'wollte', 'wolltest', 'wollten', 'wolltet',
         'musste', 'musstest', 'mussten', 'musstet',
         'sollte', 'solltest', 'sollten', 'solltet',
+        'wurde', 'wurdest', 'wurden', 'wurdet',
     }
     
     def __init__(self, language: str, model, config: dict):
@@ -989,17 +1027,17 @@ class SentenceSplitter:
             True if checks pass, False if should not break
         """
         current_word = words[current_index]
+        current_word_clean = current_word.lower().strip('.,;:!?¿¡')
         
         # Spanish: Never split after or inside unclosed inverted question/exclamation mark
         if self._is_inside_unclosed_question(current_chunk, current_word):
             return False
         
-        # Never split when current word precedes a number
         if next_word:
-            next_word_clean = next_word.strip('.,;:!?')
-            if next_word_clean.isdigit():
-                current_word_clean = current_word.lower().strip('.,;:!?')
-                
+            next_word_clean = next_word.lower().strip('.,;:!?¿¡')
+            
+            # Never split when current word precedes a number
+            if next_word.strip('.,;:!?').isdigit():
                 # Conjunction before number in a list
                 conjunctions_before_numbers = {'y', 'o', 'and', 'or', 'et', 'ou', 'und', 'oder'}
                 if current_word_clean in conjunctions_before_numbers:
@@ -1017,8 +1055,150 @@ class SentenceSplitter:
                 }
                 if current_word_clean in number_preceding_nouns:
                     return False
+            
+            # CRITICAL FIX: Never split after numbers when followed by time/measurement units
+            # This prevents splits like "a los 18. Años" (should be "a los 18 años")
+            if any(c.isdigit() for c in current_word_clean):
+                time_measurement_units = {
+                    # Spanish
+                    'años', 'año', 'meses', 'mes', 'días', 'día', 'horas', 'hora',
+                    'minutos', 'minuto', 'segundos', 'segundo', 'semanas', 'semana',
+                    'siglos', 'siglo', 'décadas', 'década', 'veces', 'vez',
+                    'personas', 'persona', 'dólares', 'dólar', 'euros', 'euro',
+                    'pesos', 'peso', 'metros', 'metro', 'kilómetros', 'kilómetro',
+                    'por', 'ciento', 'mil', 'millones', 'millón',
+                    # English
+                    'years', 'year', 'months', 'month', 'days', 'day', 'hours', 'hour',
+                    'minutes', 'minute', 'seconds', 'second', 'weeks', 'week',
+                    'centuries', 'century', 'decades', 'decade', 'times', 'time',
+                    'people', 'person', 'dollars', 'dollar', 'percent', 'thousand',
+                    'million', 'billion', 'meters', 'meter', 'kilometers', 'kilometer',
+                    # French
+                    'ans', 'an', 'mois', 'jours', 'jour', 'heures', 'heure',
+                    'minutes', 'minute', 'secondes', 'seconde', 'semaines', 'semaine',
+                    'siècles', 'siècle', 'décennies', 'décennie', 'fois',
+                    'personnes', 'personne', 'euros', 'euro', 'pour', 'cent',
+                    'mille', 'millions', 'million', 'mètres', 'mètre',
+                    # German
+                    'jahre', 'jahr', 'monate', 'monat', 'tage', 'tag', 'stunden', 'stunde',
+                    'minuten', 'minute', 'sekunden', 'sekunde', 'wochen', 'woche',
+                    'jahrhunderte', 'jahrhundert', 'jahrzehnte', 'jahrzehnt', 'mal',
+                    'personen', 'person', 'euro', 'prozent', 'tausend',
+                    'millionen', 'million', 'meter', 'kilometer',
+                }
+                if next_word_clean in time_measurement_units:
+                    return False
+            
+            # CRITICAL FIX: Never split auxiliary verbs from following past participles
+            # This prevents splits like "fueron. Dirigidos" (should be "fueron dirigidos")
+            if current_word_clean in self.CONTINUATIVE_AUXILIARY_VERBS:
+                if self._is_past_participle(next_word_clean):
+                    return False
         
         return True
+    
+    def _is_past_participle(self, word: str) -> bool:
+        """
+        Check if a word is likely a past participle based on common endings.
+        
+        Args:
+            word: The word to check (should be lowercase and stripped of punctuation)
+        
+        Returns:
+            True if the word appears to be a past participle
+        """
+        word = word.lower().strip('.,;:!?¿¡')
+        
+        # Spanish past participles: -ado, -ido (and some common irregulars)
+        spanish_participle_endings = ('ado', 'ados', 'ada', 'adas', 'ido', 'idos', 'ida', 'idas')
+        spanish_irregular_participles = {
+            'hecho', 'hechos', 'hecha', 'hechas',
+            'dicho', 'dichos', 'dicha', 'dichas',
+            'escrito', 'escritos', 'escrita', 'escritas',
+            'visto', 'vistos', 'vista', 'vistas',
+            'puesto', 'puestos', 'puesta', 'puestas',
+            'abierto', 'abiertos', 'abierta', 'abiertas',
+            'cubierto', 'cubiertos', 'cubierta', 'cubiertas',
+            'muerto', 'muertos', 'muerta', 'muertas',
+            'roto', 'rotos', 'rota', 'rotas',
+            'vuelto', 'vueltos', 'vuelta', 'vueltas',
+            'resuelto', 'resueltos', 'resuelta', 'resueltas',
+            'satisfecho', 'satisfechos', 'satisfecha', 'satisfechas',
+            'dirigido', 'dirigidos', 'dirigida', 'dirigidas',  # specifically for the bug case
+        }
+        
+        # English past participles: -ed, -en, -t (and common irregulars)
+        english_participle_endings = ('ed', 'en', 'wn', 'ne', 'nt')
+        english_irregular_participles = {
+            'been', 'done', 'gone', 'seen', 'taken', 'given', 'known', 'shown',
+            'grown', 'drawn', 'thrown', 'blown', 'flown', 'chosen', 'frozen',
+            'spoken', 'broken', 'stolen', 'written', 'driven', 'ridden', 'risen',
+            'bitten', 'hidden', 'forbidden', 'forgiven', 'forgotten', 'gotten',
+            'eaten', 'beaten', 'fallen', 'shaken', 'taken', 'woken', 'worn',
+            'torn', 'born', 'sworn', 'bought', 'brought', 'caught', 'fought',
+            'thought', 'taught', 'sought', 'left', 'lost', 'sent', 'spent',
+            'built', 'burnt', 'dealt', 'felt', 'kept', 'slept', 'meant', 'met',
+            'paid', 'said', 'sold', 'told', 'heard', 'held', 'led', 'read',
+            'fed', 'fled', 'bled', 'bred', 'sped', 'shed', 'spread', 'wed',
+            'set', 'cut', 'hit', 'hurt', 'put', 'shut', 'split', 'quit',
+            'cast', 'cost', 'burst', 'thrust', 'knit', 'spit',
+            'made', 'had', 'laid', 'stood', 'understood', 'sat', 'shot', 'got',
+        }
+        
+        # French past participles: -é, -i, -u, -s, -t (and irregulars)
+        french_participle_endings = ('é', 'ée', 'és', 'ées', 'i', 'ie', 'is', 'ies',
+                                      'u', 'ue', 'us', 'ues', 'it', 'ite', 'its', 'ites')
+        french_irregular_participles = {
+            'fait', 'faite', 'faits', 'faites',
+            'dit', 'dite', 'dits', 'dites',
+            'écrit', 'écrite', 'écrits', 'écrites',
+            'pris', 'prise', 'prises',
+            'mis', 'mise', 'mises',
+            'ouvert', 'ouverte', 'ouverts', 'ouvertes',
+            'offert', 'offerte', 'offerts', 'offertes',
+            'mort', 'morte', 'morts', 'mortes',
+            'né', 'née', 'nés', 'nées',
+            'été',  # être
+            'eu', 'eue', 'eus', 'eues',  # avoir
+            'su', 'sue', 'sus', 'sues',  # savoir
+            'pu',  # pouvoir
+            'voulu', 'voulue', 'voulus', 'voulues',
+            'dû', 'due', 'dus', 'dues',  # devoir
+            'vu', 'vue', 'vus', 'vues',  # voir
+        }
+        
+        # German past participles: typically start with ge- and end with -t or -en
+        german_participle_patterns = ('ge',)  # Start pattern
+        german_participle_endings = ('t', 'en')
+        german_irregular_participles = {
+            'gewesen', 'gehabt', 'geworden', 'gegangen', 'gekommen', 'gesehen',
+            'gegeben', 'genommen', 'gefunden', 'gewusst', 'gedacht', 'gebracht',
+            'genannt', 'gekannt', 'gelassen', 'getan', 'gestanden', 'verstanden',
+            'begonnen', 'gewonnen', 'gesprochen', 'getroffen', 'geschrieben',
+            'gelesen', 'gehalten', 'gefallen', 'geschlafen', 'getragen',
+            'gefahren', 'gezogen', 'geflogen', 'gewachsen', 'geboren',
+        }
+        
+        # Check Spanish
+        if word.endswith(spanish_participle_endings) or word in spanish_irregular_participles:
+            return True
+        
+        # Check English
+        if word.endswith(english_participle_endings) or word in english_irregular_participles:
+            return True
+        
+        # Check French
+        if word.endswith(french_participle_endings) or word in french_irregular_participles:
+            return True
+        
+        # Check German (starts with ge- and ends with -t or -en)
+        if word.startswith(german_participle_patterns):
+            if word.endswith(german_participle_endings):
+                return True
+        if word in german_irregular_participles:
+            return True
+        
+        return False
     
     def _check_semantic_break(self, words: List[str], current_index: int) -> bool:
         """

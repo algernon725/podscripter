@@ -351,6 +351,9 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
    - **v0.4.3**: Speaker boundaries ALWAYS create splits, even if next word is a connector (different speakers must be separated)
    - **v0.6.1**: Removed connector word checks that were incorrectly blocking speaker splits; reduced threshold from 4 to 1 word
 2. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
+   - **v0.6.3**: Expanded `CONTINUATIVE_AUXILIARY_VERBS` to include infinitives (`ser`, `estar`, `be`, `have`, `être`, `avoir`, `sein`, `haben`, etc.) and preterite forms (`fue`, `fueron`, `was`, `were`, `fut`, `furent`, `wurde`, etc.)
+   - **v0.6.3**: Added guard for numbers followed by time/measurement units (prevents "a los 18. Años" → keeps "a los 18 años")
+   - **v0.6.3**: Added `_is_past_participle()` helper and guard to prevent splitting auxiliary verbs from past participles (prevents "fueron. Dirigidos" → keeps "fueron dirigidos")
 3. Whisper boundaries (medium priority - min 10 words)
    - **Whisper boundary skipping**: If a speaker boundary is within the next 3 words AND next word is connector/lowercase, skip the Whisper boundary to avoid splitting when the same speaker continues across Whisper segments
    - **v0.4.2**: Periods at skipped boundaries are now automatically removed

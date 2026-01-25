@@ -347,11 +347,15 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 **Root Cause**: `_should_end_sentence_here()` lacked a guard against ending sentences on continuative/auxiliary verbs. These verbs are grammatically incomplete without their complement.
 
-**Solution**: Added comprehensive guard (lines ~1601-1645 in `punctuation_restorer.py`) that prevents splits when current word is a continuative/auxiliary verb:
-- Spanish: Imperfect tense (estaba, era, tenía, había, iba, hacía, podía, debía, quería, sabía, venía, decía) and perfect auxiliaries (he, has, ha, hemos, habéis, han)
-- English: Past continuous (was, were), perfect auxiliaries (had, been, have, has)
-- French: Imperfect tense (étais, était, étions, étiez, étaient, avais, avait, allais, allait, faisais, faisait) and auxiliary (avait)
-- German: Imperfect tense (war, hatte, ging, machte) and modal verbs (konnte, wollte, musste, sollte)
+**Solution**: Added comprehensive guard in `CONTINUATIVE_AUXILIARY_VERBS` set (in `sentence_splitter.py`) that prevents splits when current word is a continuative/auxiliary verb:
+- Spanish: Imperfect tense (estaba, era, tenía, había, iba, hacía, podía, debía, quería, sabía, venía, decía), perfect auxiliaries (he, has, ha, hemos, habéis, han), **infinitives** (ser, estar, haber, ir, tener, hacer, poder, deber, querer, saber), **preterite** (fue, fueron, estuvo, estuvieron), and **present tense** (es, son, está, están)
+- English: Past continuous (was, were), perfect auxiliaries (had, been, have, has), **infinitives** (be, have, do, go), and **present tense** (is, are, am)
+- French: Imperfect tense (étais, était, étions, étiez, étaient, avais, avait, allais, allait, faisais, faisait), **infinitives** (être, avoir, aller, faire, pouvoir, devoir), **passé simple** (fut, furent, eut, eurent), and **present tense** (est, sont, a, ont)
+- German: Imperfect tense (war, hatte, ging, machte), modal verbs (konnte, wollte, musste, sollte), **infinitives** (sein, haben, werden, gehen, machen), **present tense** (ist, sind, hat, wird), and **preterite** (wurde, wurden)
+
+**Additional guards (v0.6.3)**:
+- **Number + time/measurement unit**: Prevents splits like `"a los 18. Años"` → keeps `"a los 18 años"` (applies to años, years, ans, Jahre, etc.)
+- **Auxiliary + past participle**: Prevents splits like `"fueron. Dirigidos"` → keeps `"fueron dirigidos"` via `_is_past_participle()` helper that detects Spanish (-ado/-ido), English (-ed/-en), French (-é/-i/-u), and German (ge-...-t/ge-...-en) participle patterns
 
 **Tests**: `test_continuative_verb_split_bug.py`
 
