@@ -1,6 +1,6 @@
 # podscripter
 
-![podscripter](docs/podscripter-logo.jpeg)
+![podscripter](podscripter-logo.jpeg)
 
 ## Overview
 
