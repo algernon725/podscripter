@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.3] - 2026-01-25
 
 ### Fixed
+- **Questions and exclamations incorrectly merged with following sentences**: Fixed issue where sentences ending with `?` or `!` were merged with the next sentence when it started with a connector word ("pero", "y", etc.) and the same speaker continued
+  - **Example**: `"¿no?"` + `"Pero en un país..."` incorrectly became `"¿no pero en un país..."` (question mark removed, connector lowercased)
+  - **Root Cause**: The same-speaker connector merge logic (introduced in v0.4.0 to fix "trabajo. Y este meta" → "trabajo y este meta") was treating `?` and `!` the same as `.`, removing them before connectors
+  - **Impact**: Created very long run-on paragraphs when many consecutive sentences started with connectors and the same speaker continued throughout
+  - **Fix**: Modified merge logic to only merge sentences ending with `.` (periods), not `?` or `!` - questions and exclamations are complete thoughts that should remain as separate sentences
+  - **Files changed**: `sentence_splitter.py` lines 628 and 1355-1356
 - **Long sentence splits at grammatically incorrect positions**: Fixed issue where very long sentences (42+ words in Spanish) were being split at grammatically incorrect positions when semantic break logic kicked in
   - **Example 1**: `"a los 18. Años"` should be `"a los 18 años"` - numbers should not be split from following time/measurement units
   - **Example 2**: `"sin ser. Parte"` should be `"sin ser parte"` - infinitive verbs should not end sentences

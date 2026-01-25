@@ -546,6 +546,25 @@ Long natural language sentences (> 50 chars) ending with lowercase words that ha
 
 **Tests**: All 35 tests pass. Verified with Episodio212-trim.mp3 (Andrea and Nate now on separate lines).
 
+#### Questions/Exclamations Merged with Connectors (RESOLVED - v0.6.3)
+**Problem**: Sentences ending with `?` or `!` were incorrectly merged with the following sentence when it started with a connector word ("pero", "y", etc.) and the same speaker continued. This created very long run-on paragraphs.
+- Example: `"¿no?"` + `"Pero en un país..."` became `"¿no pero en un país..."` (question mark removed)
+- The connector merge logic (introduced in v0.4.0) treated `?` and `!` the same as `.`
+- When many consecutive sentences started with connectors and the same speaker continued, this created giant paragraphs
+
+**Root Cause**: In `sentence_splitter.py`, the connector merge logic at lines 628 and 1355 checked for `word.rstrip().endswith(('.', '!', '?'))` and stripped all three punctuation marks before merging. This was linguistically incorrect because questions and exclamations are complete communicative units, unlike declarative statements which can naturally flow into connectors.
+
+**Solution Implemented (v0.6.3)**:
+- **Only merge on periods**: Changed the condition to `word.rstrip().endswith('.')` - only periods trigger connector merging
+- **Preserve `?` and `!`**: Questions and exclamations now remain as separate sentences even when followed by same-speaker connectors
+- **Updated both locations**: `_evaluate_boundaries()` (line 628) and `_process_whisper_punctuation()` (lines 1355-1356)
+
+**Key Insight**: Periods (`.`) at the end of declarative statements can naturally flow into connectors ("trabajo. Y este meta" → "trabajo y este meta"), but questions (`?`) and exclamations (`!`) represent complete thoughts that should not be merged, regardless of what follows.
+
+**Impact**: Diarization-enabled transcriptions now correctly split paragraphs at question marks and exclamation marks, preventing run-on paragraphs.
+
+**Tests**: Verified with Episodio225.mp3 - giant paragraph now correctly split into multiple paragraphs at question boundaries.
+
 #### Whisper-Added Periods at Skipped Boundaries (RESOLVED - v0.4.2)
 **Problem**: When a Whisper segment boundary was skipped (because a speaker boundary was nearby), Whisper's period at that segment end remained in the text and caused an unwanted sentence split.
 - Example: Whisper segment 10 ends with "ustedes." and segment 11 is "Mateo 712"

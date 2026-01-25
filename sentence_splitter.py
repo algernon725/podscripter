@@ -623,9 +623,11 @@ class SentenceSplitter:
             # If we decided NOT to split here, but the word has a Whisper period,
             # and next word is a connector, remove the period AND lowercase the connector
             # BUT ONLY if the same speaker continues - different speakers should keep the period
+            # NOTE: Only merge on periods (.), NOT on ? or ! - questions and exclamations are
+            # complete thoughts that should remain separate even when followed by connectors
             if not should_end and i + 1 < len(words):
                 next_word_clean = words[i + 1].lower().strip('.,;:!?¿¡')
-                if next_word_clean in self.CONNECTOR_WORDS and word.rstrip().endswith(('.', '!', '?')):
+                if next_word_clean in self.CONNECTOR_WORDS and word.rstrip().endswith('.'):
                     # Check if same speaker continues
                     speaker_at_current = None
                     speaker_at_next = None
@@ -1347,9 +1349,11 @@ class SentenceSplitter:
                         f"speaker_at_next={speaker_at_next} (word {next_start_word_idx})"
                     )
                     
-                    if speaker_at_end == speaker_at_next and speaker_at_end is not None:
-                        # Same speaker continues - remove period and merge with lowercased connector
-                        sentence = sentence.rstrip('.!?')
+                    # Only merge if sentence ends with period (.)
+                    # Questions (?) and exclamations (!) are complete thoughts - don't merge
+                    if speaker_at_end == speaker_at_next and speaker_at_end is not None and sentence.rstrip().endswith('.'):
+                        # Same speaker continues with period - remove period and merge with lowercased connector
+                        sentence = sentence.rstrip('.')
                         
                         # Merge: current sentence + connector (lowercased) + rest of next sentence
                         connector_lowercased = next_word_clean
