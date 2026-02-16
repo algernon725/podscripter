@@ -81,13 +81,12 @@ Open a terminal and run:
 Create folders to store audio files and model data:
   ```bash
   mkdir -p audio-files
-  mkdir -p models/sentence-transformers models/huggingface models/pyannote
+  mkdir -p models/sentence-transformers models/huggingface
   ```
 
 This creates the necessary directory structure for caching models:
-- `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos)
+- `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos and pyannote diarization models)
 - `models/sentence-transformers/` - Caches sentence embedding models for punctuation restoration
-- `models/pyannote/` - Caches speaker diarization models (only needed if using `--enable-diarization`)
 
 ### 4. Build the Docker Image
 
@@ -103,7 +102,6 @@ Run the container and mount the folders you just created:
   docker run -it \
     -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
     -v $(pwd)/models/huggingface:/root/.cache/huggingface \
-    -v $(pwd)/models/pyannote:/root/.cache/pyannote \
     -v $(pwd)/audio-files:/app/audio-files \
     podscripter
   ```
@@ -175,9 +173,8 @@ Speaker diarization improves sentence boundaries by detecting when speakers chan
 
 **Setup (first time only):**
 1. **Accept model licenses** (required before token will work):
-   - Visit https://huggingface.co/pyannote/speaker-diarization-3.1
+   - Visit https://huggingface.co/pyannote/speaker-diarization-community-1
    - Click "Agree and access repository"
-   - Also accept: https://huggingface.co/pyannote/segmentation-3.0
 
 2. **Create a Hugging Face token**:
    - Go to https://huggingface.co/settings/tokens
@@ -199,7 +196,7 @@ python podscripter.py audio-files/interview.mp3 --output_dir audio-files \
   --enable-diarization
 ```
 
-After first successful download, models are cached in `models/pyannote/` and subsequent runs don't need the token.
+After first successful download, models are cached in `models/huggingface/` and subsequent runs don't need the token.
 
 ### Expected output snippets
 
@@ -279,13 +276,13 @@ Podscripter caches models locally to avoid repeated downloads. Cache locations a
 
 - Faster-Whisper (Whisper) models are cached via the Hugging Face Hub under `models/huggingface/` (look for `hub/` entries like `Systran/faster-whisper-*`)
 - Sentence-Transformers under `models/sentence-transformers/`
-- Pyannote (speaker diarization) under `models/pyannote/` (only needed if using `--enable-diarization`)
+- Pyannote (speaker diarization) under `models/huggingface/` (pyannote.audio 4.x uses `HF_HOME`)
 
 Note: The Sentence-Transformers loader first attempts to load from the local cache and prefers offline use when the cache is present (avoids network calls). When caches are warm you may set `HF_HOME` and/or `HF_HUB_OFFLINE=1` to run fully offline.
 
 **To clear cache and re-download models:**
 ```bash
-rm -rf models/sentence-transformers/* models/huggingface/* models/pyannote/*
+rm -rf models/sentence-transformers/* models/huggingface/*
 ```
 
 ## Output
@@ -305,7 +302,6 @@ docker run --rm \
   -v $(pwd):/app \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
-  -v $(pwd)/models/pyannote:/root/.cache/pyannote \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter python3 /app/tests/run_all_tests.py
 ```

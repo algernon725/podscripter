@@ -27,7 +27,7 @@ podscripter/
 ### 2. Create Directories
 
 ```bash
-mkdir -p models/sentence-transformers models/huggingface models/pyannote
+mkdir -p models/sentence-transformers models/huggingface
 ```
 
 ### 3. Docker Run Command
@@ -65,11 +65,11 @@ docker run -it \
 - Includes tokenizers, configs, model weights, and datasets
 - Note: Uses `HF_HOME` environment variable (deprecated `TRANSFORMERS_CACHE` removed)
 
-### Pyannote Cache (`/root/.cache/pyannote`)
+### Pyannote Cache (under `HF_HOME`)
 - Speaker diarization models for pyannote.audio
-- Models: `pyannote/speaker-diarization-3.1`, segmentation and embedding models
-- Downloaded by `pyannote.audio` library (version 3.x)
-- Note: Uses `PYANNOTE_CACHE` environment variable (pyannote 3.x specific; version 4.0+ uses HF_HOME instead)
+- Models: `pyannote/speaker-diarization-community-1` and embedding models
+- Downloaded by `pyannote.audio` library (version 4.x)
+- Note: pyannote.audio 4.x uses `HF_HOME` for caching (same as Whisper/sentence-transformers)
 
 ## Verification
 
@@ -97,16 +97,14 @@ ls -la models/huggingface/
 1. **Check volume mounts**: Ensure the directories exist and are writable
 2. **Check permissions**: Make sure the container can write to the mounted volumes
 3. **Check environment variables**: Verify the cache directories are set correctly:
-   - `HF_HOME=/root/.cache/huggingface` (for Hugging Face models like Whisper)
-   - `PYANNOTE_CACHE=/root/.cache/pyannote` (for pyannote.audio 3.x speaker diarization)
+   - `HF_HOME=/root/.cache/huggingface` (for Hugging Face models: Whisper, pyannote, etc.)
 4. **Check for deprecation warnings**: Ensure you're using the latest Dockerfile with `HF_HOME` instead of deprecated `TRANSFORMERS_CACHE`
-5. **Pyannote-specific**: pyannote.audio 3.x uses `PYANNOTE_CACHE`, not `HF_HOME`. Make sure the Dockerfile sets this environment variable
 
 ### To force re-download:
 
 ```bash
 # Remove cached models
-rm -rf models/sentence-transformers/* models/huggingface/* models/pyannote/*
+rm -rf models/sentence-transformers/* models/huggingface/*
 ```
 
 ## Expected File Sizes

@@ -380,7 +380,7 @@ Benefits:
 - Natural speaker changes almost always align with sentence boundaries
 
 Caching:
-- Models cached in `models/pyannote/` mounted to `/root/.cache/pyannote`
+- Models cached under `HF_HOME` (`/root/.cache/huggingface`, mounted from `models/huggingface`)
 - Requires Hugging Face token for first-time model download (`--hf-token` or `HF_TOKEN` env var)
 - Subsequent runs use cached models for fast startup
 

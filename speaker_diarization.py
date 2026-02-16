@@ -43,6 +43,16 @@ warnings.filterwarnings(
     module="torchaudio"
 )
 
+# Suppress torchaudio 2.8 deprecation warning about switching to torchcodec in 2.9.
+# We intentionally use torchaudio.load() with the soundfile backend to bypass
+# torchcodec's MP3 chunk decoding issues. Pinned to torchaudio==2.8.0.
+warnings.filterwarnings(
+    "ignore",
+    message="In 2.9, this function's implementation will be changed",
+    category=UserWarning,
+    module="torchaudio"
+)
+
 # Suppress pyannote pooling warning when processing very short audio segments
 # This occurs when std() is called on tensors with only 1 sample (degrees of freedom = 0)
 # It's a harmless numerical edge case that doesn't affect output quality
@@ -89,7 +99,7 @@ def diarize_audio(
     *,
     min_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
-    use_auth_token: Optional[str] = None,
+    token: Optional[str] = None,
     device: str = DEFAULT_DIARIZATION_DEVICE,
 ) -> DiarizationResult:
     """
@@ -99,7 +109,7 @@ def diarize_audio(
         media_file: Path to the audio/video file
         min_speakers: Minimum number of speakers (None for auto-detect)
         max_speakers: Maximum number of speakers (None for auto-detect)
-        use_auth_token: Hugging Face token for model access
+        token: Hugging Face token for model access
         device: Device to run on ("cpu" or "cuda")
     
     Returns:
@@ -120,11 +130,11 @@ def diarize_audio(
         raise DiarizationError(f"Media file not found: {media_file}")
     
     try:
-        # Load the pre-trained pipeline
+        # Load the pre-trained pipeline (pyannote.audio 4.x, community-1)
         logger.info("Loading speaker diarization model...")
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=use_auth_token
+            "pyannote/speaker-diarization-community-1",
+            token=token
         )
         
         # Move to specified device
@@ -143,15 +153,24 @@ def diarize_audio(
         if max_speakers is not None:
             params["max_speakers"] = max_speakers
         
+        # Pre-load audio with torchaudio to bypass torchcodec's MP3 chunk
+        # decoding issues (sample count mismatches with lossy formats).
+        import torchaudio
+        waveform, sample_rate = torchaudio.load(str(media_file))
+        audio_input = {"waveform": waveform, "sample_rate": sample_rate}
+        
         # Run diarization
         logger.info(f"Running speaker diarization on {media_path.name}...")
-        diarization = pipeline(str(media_file), **params)
+        output = pipeline(audio_input, **params)
+        
+        # pyannote 4.x returns an object with .speaker_diarization attribute
+        diarization = output.speaker_diarization
         
         # Extract segments
         segments: list[SpeakerSegment] = []
         speakers = set()
         
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
+        for turn, speaker in diarization:
             segments.append({
                 "start": float(turn.start),
                 "end": float(turn.end),

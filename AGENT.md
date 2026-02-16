@@ -31,9 +31,9 @@
 - Faster-Whisper (Whisper) models cached via Hugging Face Hub under `/root/.cache/huggingface` (mounted from `models/huggingface`)
 - Sentence-Transformers cached in `/root/.cache/torch/sentence_transformers`
 - Hugging Face models cached in `/root/.cache/huggingface`
-- Pyannote speaker diarization models cached in `/root/.cache/pyannote` (mounted from `models/pyannote`)
+- Pyannote speaker diarization models cached under `HF_HOME` (`/root/.cache/huggingface`)
 - Use `HF_HOME` environment variable (avoid deprecated `TRANSFORMERS_CACHE`)
-- Use `PYANNOTE_CACHE` environment variable for pyannote.audio 3.x (version 4.0+ uses `HF_HOME` instead)
+- pyannote.audio 4.x uses `HF_HOME` for model caching (`PYANNOTE_CACHE` is no longer used)
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits
 - Use a singleton model loader to avoid repeated model instantiation within a process
 - SpaCy capitalization is always enabled, with models baked into the image (see Docker Best Practices)
@@ -246,7 +246,6 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Mount volumes for model caching and media:
   - `-v $(pwd)/models/huggingface:/root/.cache/huggingface`
   - `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers`
-  - `-v $(pwd)/models/pyannote:/root/.cache/pyannote` (if using speaker diarization)
   - `-v $(pwd)/audio-files:/app/audio-files`
 - Include all necessary environment variables in Dockerfile
 - Avoid deprecated environment variables (e.g., `TRANSFORMERS_CACHE`)
@@ -793,6 +792,23 @@ The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all 
 **Files Affected**: `podscripter.py` line 851 (`MIN_SEGMENT_DURATION = 1.3`)
 
 **Tests**: N/A (manual verification with Episodio220.mp3)
+
+#### torchaudio.load() Deprecation Warning (KNOWN - Dependency Upgrade)
+**Warning**: `In 2.9, this function's implementation will be changed to use torchaudio.load_with_torchcodec under the hood.`
+
+**Context**: pyannote.audio 4.x uses torchcodec for audio I/O, but torchcodec has issues with MP3 files (sample count mismatches due to lossy frame boundaries). Our workaround pre-loads audio with `torchaudio.load()` using the `soundfile` backend (via `libsndfile1` + `soundfile` pip package), bypassing torchcodec entirely. torchaudio 2.8 warns that this API will change in 2.9 to use torchcodec under the hood.
+
+**Current Mitigation**:
+- Pinned `torchaudio==2.8.0` so the 2.9 change doesn't affect us
+- Suppressed the warning in `speaker_diarization.py` via `warnings.filterwarnings`
+- Audio pre-loaded with `torchaudio.load()` and passed as `{"waveform": ..., "sample_rate": ...}` dict to pyannote pipeline
+
+**Future Action Required**: When upgrading past `torchaudio==2.8.0`, the audio loading in `speaker_diarization.py` will need to be revisited. Options at that time:
+1. Switch to torchcodec's `AudioDecoder` directly (if MP3 chunk decoding is fixed)
+2. Use `soundfile.read()` directly and construct the waveform dict manually
+3. Convert MP3 to WAV via `pydub`/`ffmpeg` before loading
+
+**Files Affected**: `speaker_diarization.py` (audio pre-loading and warning suppression), `Dockerfile` (`libsndfile1` + `soundfile` dependencies)
 
 ## Recent Refactors
 
@@ -1466,7 +1482,7 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 
 **Implementation Guidelines:**
 - **Opt-in feature** (disabled by default to avoid dependency bloat)
-- Uses pyannote.audio 3.3.2 with Hugging Face model caching
+- Uses pyannote.audio 4.0.4 (community-1 pipeline) with Hugging Face model caching
 - Speaker boundaries passed SEPARATELY to `restore_punctuation()` (not merged with Whisper boundaries)
 - Speaker timestamps converted to character positions via `_convert_speaker_timestamps_to_char_positions()`
 - Priority: Speaker boundaries > Whisper boundaries > Semantic coherence
@@ -1499,10 +1515,9 @@ Podscripter includes optional speaker diarization to improve sentence boundaries
 - Precedence: CLI flag > environment variable
 
 **Model Caching:**
-- Cache directory: `models/pyannote/` → `/root/.cache/pyannote`
-- First run requires HF token (same pattern as sentence-transformers)
-- Subsequent runs use cached models
-- Mount in Docker: `-v $(pwd)/models/pyannote:/root/.cache/pyannote`
+- pyannote.audio 4.x uses `HF_HOME` for caching (same as sentence-transformers)
+- First run requires HF token (accept model agreement at hf.co/pyannote/speaker-diarization-community-1)
+- Subsequent runs use cached models under `/root/.cache/huggingface`
 
 **Testing:**
 - Unit tests: `tests/test_speaker_diarization_unit.py` (boundary extraction, merging, deduplication)

@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-16
+
+### Changed
+- **Major dependency upgrade for pyannote.audio 4.x compatibility**:
+  - `pyannote.audio` 3.3.2 → 4.0.4 (new `community-1` diarization pipeline with improved speaker counting/assignment)
+  - `torch` 2.2.0 → 2.8.0 (required by pyannote.audio 4.x)
+  - `torchaudio` 2.2.0 → 2.8.0
+  - `spacy` 3.7.4 → 3.8.11 (numpy 2.x compatibility)
+  - spaCy language models 3.7.0 → 3.8.0 (`es_core_news_sm`, `en_core_web_sm`, `fr_core_news_sm`, `de_core_news_sm`)
+  - **Root cause**: Unpinned `sentence-transformers` pulled a new `transformers` requiring torch >= 2.4, breaking the build. Resolved by upgrading the full dependency chain rather than patching around version conflicts.
+- **Diarization pipeline**: `pyannote/speaker-diarization-3.1` → `pyannote/speaker-diarization-community-1` (gated model — requires accepting agreement at hf.co/pyannote/speaker-diarization-community-1)
+- **Diarization output format**: pyannote 4.x returns `output.speaker_diarization` instead of a direct annotation; iteration yields `(turn, speaker)` tuples instead of `(turn, _, speaker)` from `itertracks()`
+- **Model caching**: pyannote.audio 4.x uses `HF_HOME` for model caching; `PYANNOTE_CACHE` environment variable removed from Dockerfile. Separate `models/pyannote` mount no longer needed — diarization models now cached under `models/huggingface`
+- **API parameter rename**: `use_auth_token` → `token` in `diarize_audio()` and `Pipeline.from_pretrained()` (huggingface_hub dropped `use_auth_token`)
+
+### Added
+- `torchcodec==0.7.0` dependency (required by pyannote.audio 4.x; pinned to avoid ABI mismatch with torch 2.8)
+- `soundfile` pip package + `libsndfile1` system package for torchaudio audio backend (MP3 decoding)
+- Audio pre-loading via `torchaudio.load()` in `speaker_diarization.py` — bypasses torchcodec's MP3 chunk decoding issues (sample count mismatches with lossy formats)
+- Warning suppression for torchaudio 2.8 deprecation notice about future torchcodec migration
+- `sentence-transformers==5.2.2` version pin to prevent the unpinned dependency cascade that triggered this upgrade
+
+### Fixed
+- **Docker build failure**: Unpinned `sentence-transformers` pulling `transformers` requiring torch >= 2.4 while torch was pinned to 2.2.0
+- **`use_auth_token` removed in huggingface_hub**: pyannote 3.3.2 used deprecated `use_auth_token` parameter internally; upgrading to pyannote 4.0.4 resolves natively
+- **numpy binary incompatibility**: spacy 3.7.4's `thinc` compiled against numpy 1.x, incompatible with numpy 2.x pulled by torch 2.8.0
+- **torchcodec ABI mismatch**: torchcodec 0.8.x has undefined symbol errors with torch 2.8.0; pinned to 0.7.0
+- **MP3 sample count mismatch in diarization**: torchcodec's chunk-based MP3 decoding produced incorrect sample counts; fixed by pre-loading audio with torchaudio/soundfile
+
+### Removed
+- `PYANNOTE_CACHE` environment variable from Dockerfile (no longer used by pyannote.audio 4.x)
+- `-v $(pwd)/models/pyannote:/root/.cache/pyannote` Docker mount from all documentation and scripts
+
 ## [0.6.3.1] - 2026-02-16
 
 ### Fixed

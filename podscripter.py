@@ -1332,7 +1332,7 @@ def _transcribe_with_sentences(
                 media_file,
                 min_speakers=min_speakers,
                 max_speakers=max_speakers,
-                use_auth_token=token,
+                token=token,
                 device=device,
             )
             speaker_boundaries = diarization_result['speaker_boundaries']
