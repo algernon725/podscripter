@@ -215,6 +215,93 @@ def test_integration_with_user_case():
     print(f"After safe processing: {result}")
 
 
+def test_escucha_it_false_domain():
+    """Test that 'Escucha. It's' is NOT merged as a domain (Escucha.it).
+    
+    Regression test for the bug where fix_spaced_domains treated
+    'Escucha. It' as a spaced domain (Italy's .it TLD), producing
+    'Escucha.it's raining cats and dogs.' instead of keeping the
+    sentence boundary intact.
+    """
+    print("\nTesting Escucha.it false domain prevention...")
+    
+    # fix_spaced_domains should NOT merge 'Escucha. It' since .it is not in SINGLE_TLDS
+    input_text = "Escucha. It's raining cats and dogs."
+    result = fix_spaced_domains(input_text, use_exclusions=True, language='es')
+    if result == input_text:
+        print(f"✅ PASS: 'Escucha. It' correctly NOT merged: {result}")
+    else:
+        print(f"❌ FAIL: 'Escucha. It' was incorrectly merged")
+        print(f"   Expected: {input_text}")
+        print(f"   Got:      {result}")
+    assert result == input_text, f"Expected unchanged text but got: {result}"
+    
+    # mask_domains should NOT mask Escucha.it since .it is not in SINGLE_TLDS
+    input_text2 = "Escucha.it is wrong"
+    masked = mask_domains(input_text2, use_exclusions=True, language='es')
+    if "Escucha__DOT__it" not in masked:
+        print(f"✅ PASS: Escucha.it correctly NOT masked: {masked}")
+    else:
+        print(f"❌ FAIL: Escucha.it was incorrectly masked: {masked}")
+    assert "Escucha__DOT__it" not in masked, f"Escucha.it should not be masked"
+
+
+def test_removed_tlds_not_matched():
+    """Test that removed TLDs (.it, .nl, .jp, .cn, .in, .ru) are not matched."""
+    print("\nTesting removed TLDs are not matched...")
+    
+    removed_tld_cases = [
+        ("example.it", ".it"),
+        ("example.nl", ".nl"),
+        ("example.jp", ".jp"),
+        ("example.cn", ".cn"),
+        ("example.in", ".in"),
+        ("example.ru", ".ru"),
+    ]
+    
+    for input_text, tld in removed_tld_cases:
+        masked = mask_domains(input_text, use_exclusions=True)
+        if "__DOT__" not in masked:
+            print(f"✅ PASS: {tld} correctly NOT masked in '{input_text}'")
+        else:
+            print(f"❌ FAIL: {tld} was incorrectly masked in '{input_text}': {masked}")
+        assert "__DOT__" not in masked, f"{tld} should not be matched as a TLD"
+    
+    for input_text, tld in removed_tld_cases:
+        spaced = input_text.replace(".", ". ")
+        result = fix_spaced_domains(spaced, use_exclusions=True)
+        if result == spaced:
+            print(f"✅ PASS: {tld} correctly NOT fixed in '{spaced}'")
+        else:
+            print(f"❌ FAIL: {tld} was incorrectly fixed in '{spaced}': {result}")
+        assert result == spaced, f"{tld} should not be fixed as a spaced domain"
+
+
+def test_popular_tlds_still_work():
+    """Test that popular TLDs still work correctly after refactor."""
+    print("\nTesting popular TLDs still work...")
+    
+    popular_tld_cases = [
+        ("google.com", "google__DOT__com"),
+        ("github.io", "github__DOT__io"),
+        ("harvard.edu", "harvard__DOT__edu"),
+        ("example.net", "example__DOT__net"),
+        ("example.org", "example__DOT__org"),
+        ("example.fr", "example__DOT__fr"),
+        ("example.br", "example__DOT__br"),
+        ("example.ca", "example__DOT__ca"),
+        ("example.au", "example__DOT__au"),
+    ]
+    
+    for input_text, expected_masked in popular_tld_cases:
+        masked = mask_domains(input_text, use_exclusions=False)
+        if expected_masked in masked:
+            print(f"✅ PASS: {input_text} correctly masked")
+        else:
+            print(f"❌ FAIL: {input_text} not correctly masked: {masked}")
+        assert expected_masked in masked, f"Expected {expected_masked} in {masked}"
+
+
 if __name__ == "__main__":
     print("Running domain utilities tests...")
     print("=" * 50)
@@ -227,6 +314,9 @@ if __name__ == "__main__":
     test_domain_aware_regex()
     test_roundtrip_processing()
     test_integration_with_user_case()
+    test_escucha_it_false_domain()
+    test_removed_tlds_not_matched()
+    test_popular_tlds_still_work()
     
     print("\n" + "=" * 50)
     print("Domain utilities tests completed!")

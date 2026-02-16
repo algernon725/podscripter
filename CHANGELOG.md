@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3.1] - 2026-02-16
+
+### Fixed
+- **False domain detection for `.it` TLD in Spanish transcriptions**: Fixed bug where `fix_spaced_domains()` incorrectly merged "Escucha. It's raining cats and dogs." into "Escucha.it's raining cats and dogs." by treating "Escucha.it" as an Italian domain
+  - **Example**: `"Tranquilo, Nate, no tienes que saberlo todo. Escucha. It's raining cats and dogs."` → incorrectly became `"...Escucha.it's raining cats and dogs."` (sentence boundary destroyed)
+  - **Root Cause**: The `.it` (Italy) TLD was in `SINGLE_TLDS`, causing `fix_spaced_domains()` to merge any `word. It` pattern into a domain. Unlike `.de` and `.es` which had Spanish-specific exclusions, `.it` had no protection and "it" is a common English pronoun
+  - **Fix**: Refactored `SINGLE_TLDS` in `domain_utils.py` to only include popular, commonly-used TLDs. Removed 6 obscure TLDs that could cause false positives: `.it` (conflicts with English "it"), `.nl`, `.jp`, `.cn`, `.in` (conflicts with English "in"), `.ru`
+  - **New TLD list**: `com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|br|ca|au` (17 TLDs, down from 22)
+  - **Impact**: Prevents false domain merges in multilingual transcriptions where English words like "it" or "in" follow a sentence-ending period
+
+### Added
+- **Regression tests for removed TLDs**: New tests in `test_domain_utils.py`:
+  - `test_escucha_it_false_domain()` — verifies "Escucha. It's" is not merged as a domain
+  - `test_removed_tlds_not_matched()` — verifies all 6 removed TLDs are no longer matched by masking or spaced-domain fixing
+  - `test_popular_tlds_still_work()` — verifies popular TLDs (com, io, edu, net, org, fr, br, ca, au) continue to work correctly
+
 ## [0.6.3] - 2026-01-25
 
 ### Fixed

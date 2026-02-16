@@ -12,7 +12,7 @@ from typing import Callable
 
 
 # Centralized TLD and exclusion patterns
-SINGLE_TLDS = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|it|nl|br|ca|au|jp|cn|in|ru"
+SINGLE_TLDS = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|br|ca|au"
 COMPOUND_TLDS = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
 
 # Spanish words that should NOT be treated as domain labels
