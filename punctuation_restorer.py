@@ -47,6 +47,7 @@ This module now focuses on punctuation restoration and language-specific formatt
 #       - min_chunk_inside_question
 #       - min_chunk_capital_break
 #       - min_chunk_semantic_break
+#       - semantic_whisper_lookahead
 #
 # - Spanish keyword/constants:
 #   * ES_QUESTION_WORDS_CORE, ES_QUESTION_STARTERS_EXTRA
@@ -196,6 +197,7 @@ def _get_language_thresholds(language: str) -> dict:
             # Whisper boundary integration thresholds
             'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
             'max_words_force_split': 100,   # Force split on very long segments even without boundary
+            'semantic_whisper_lookahead': 8,  # Defer semantic split if Whisper boundary is within N words
         }
     # Defaults for other languages (align with existing logic)
     return {
@@ -208,6 +210,7 @@ def _get_language_thresholds(language: str) -> dict:
         # Whisper boundary integration thresholds
         'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
         'max_words_force_split': 100,   # Force split on very long segments even without boundary
+        'semantic_whisper_lookahead': 8,  # Defer semantic split if Whisper boundary is within N words
     }
 
 

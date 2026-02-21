@@ -306,6 +306,7 @@ flowchart TD
 - Thresholds (language-agnostic; in `_get_language_thresholds(language)`):
   - `min_words_whisper_break` (default 10)
   - `max_words_force_split` (default 100)
+  - `semantic_whisper_lookahead` (default 8): before running the semantic coherence check, scan the next N words for a Whisper boundary; if one exists, defer the split so the higher-priority boundary is evaluated at its natural position
 - Backward compatible: behavior is unchanged when boundaries are not provided.
 
 Tests: `tests/test_whisper_boundary_integration.py` covers extraction, gating, and multi-language behavior.
@@ -362,6 +363,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
    - **v0.6.2**: Spanish inverted question/exclamation protection - before allowing splits at Whisper boundaries, check if inside unclosed `¿...?` or `¡...!` via `_is_inside_unclosed_question()` helper
 4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
 5. Semantic coherence (fallback)
+   - **v0.7.1**: Whisper boundary lookahead — before running the semantic model, scan the next `semantic_whisper_lookahead` words (default 8) for a Whisper boundary; if found, defer the split so the higher-priority Whisper boundary (PRIORITY 3) is evaluated at its natural position. Prevents false-positive semantic splits when the model's 10-word window crosses a real sentence boundary a few words ahead.
 
 **Critical implementation details**: 
 - Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes

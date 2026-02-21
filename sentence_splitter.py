@@ -899,6 +899,20 @@ class SentenceSplitter:
         # PRIORITY 5: Semantic coherence check (if we have the model)
         if self.model is not None:
             if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):
+                # Defer to nearby Whisper boundary if one exists within lookahead window.
+                # Whisper boundaries are higher-priority signals (PRIORITY 4) and should
+                # be evaluated at their natural position rather than preempted here.
+                if whisper_word_boundaries:
+                    lookahead = thresholds.get('semantic_whisper_lookahead', 8)
+                    for future_idx in range(current_index + 1,
+                                            min(current_index + lookahead + 1, len(words))):
+                        if future_idx in whisper_word_boundaries:
+                            self.logger.debug(
+                                f"DEFERRED semantic split at word {current_index} ('{current_word}'): "
+                                f"Whisper boundary at word {future_idx} is "
+                                f"{future_idx - current_index} words ahead"
+                            )
+                            return False
                 return self._check_semantic_break(words, current_index)
         
         return False

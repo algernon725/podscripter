@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-21
+
+### Fixed
+- **Semantic split preempting nearby Whisper boundary**: Sentences were incorrectly broken mid-phrase when the semantic coherence model (PRIORITY 5) fired a few words before a legitimate Whisper segment boundary (PRIORITY 4). The semantic model's 10-word lookahead window would cross a real sentence boundary, producing a false-positive low-similarity score at the wrong position (e.g., `"...para de verdad tomar."` | `"Su español al siguiente nivel."` instead of the correct `"...para de verdad tomar su español al siguiente nivel."`).
+  - **Root Cause**: `_should_end_sentence_here()` did not check for upcoming Whisper boundaries before running the semantic coherence model. The Whisper boundary at the actual sentence end was never evaluated because the chunk was reset after the premature semantic split.
+  - **Fix**: Added Whisper boundary lookahead before semantic splits — scans next N words (configurable via `semantic_whisper_lookahead`, default 8) for a Whisper boundary; if found, defers the split so the higher-priority boundary is evaluated at its natural position. Mirrors the existing 3-word lookahead pattern for Whisper boundary skipping near speaker boundaries.
+  - **New threshold**: `semantic_whisper_lookahead` (default 8) added to both Spanish and default configs in `_get_language_thresholds()`.
+  - **Tests**: `tests/test_semantic_whisper_lookahead.py` (7 tests covering deferral, edge cases, cross-language, and backward compatibility).
+
 ## [0.7.0] - 2026-02-16
 
 ### Changed

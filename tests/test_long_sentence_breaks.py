@@ -31,6 +31,7 @@ class MockConfig:
             'min_chunk_before_split': 20,
             'min_chunk_semantic_break': 42,
             'min_words_whisper_break': 10,
+            'semantic_whisper_lookahead': 8,
         }
 
 

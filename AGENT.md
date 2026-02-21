@@ -413,6 +413,24 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Resolved Issues (Recent)
 
+#### Semantic Split Preempting Nearby Whisper Boundary (RESOLVED - v0.7.1)
+**Problem**: Sentences were incorrectly split mid-phrase when the semantic coherence check (PRIORITY 5) fired a few words before a legitimate Whisper segment boundary (PRIORITY 4). The semantic model's 10-word lookahead window would cross a real sentence boundary, producing a false-positive low-similarity score at the current word.
+- Spanish example: `"...para de verdad tomar."` | `"Su español al siguiente nivel."` (incorrect)
+- Should be: `"...para de verdad tomar su español al siguiente nivel."` (correct)
+- Occurred when the chunk reached `min_chunk_semantic_break` (42 words for Spanish) at a word not protected by grammatical guards, with a Whisper boundary only 5 words ahead
+- Language-agnostic: could affect any language when the semantic threshold is reached near a Whisper boundary
+
+**Root Cause**: `_should_end_sentence_here()` did not check for upcoming Whisper boundaries before running the semantic coherence model. The Whisper boundary at the actual sentence end ("nivel.") was never evaluated because the chunk was reset after the premature semantic split at "tomar".
+
+**Solution Implemented (v0.7.1)**:
+1. **Whisper boundary lookahead before semantic splits**: Before calling `_check_semantic_break()`, scan the next N words (configurable via `semantic_whisper_lookahead`, default 8) for a Whisper boundary. If one exists, defer the split so the higher-priority Whisper boundary can be evaluated at its natural position.
+2. **New threshold `semantic_whisper_lookahead`**: Added to both Spanish (8) and default (8) configs in `_get_language_thresholds()`.
+3. **Architecturally consistent**: Mirrors the existing 3-word lookahead pattern for Whisper boundary skipping near speaker boundaries (lines 806-832).
+
+**Key Insight**: The declared priority hierarchy is Whisper boundaries > Semantic coherence, but the code didn't enforce this — the semantic check could fire at any word past the `min_chunk_semantic_break` threshold without considering whether a Whisper boundary was imminent. The lookahead ensures the priority hierarchy is respected in practice.
+
+**Tests**: `tests/test_semantic_whisper_lookahead.py` — 7 tests covering deferral, edge cases, cross-language, and backward compatibility when no boundaries are provided.
+
 #### Spanish Inverted Question Split at Whisper Boundaries (RESOLVED - v0.6.2)
 **Problem**: Spanish questions starting with `¿` were being incorrectly split in the middle when a Whisper segment boundary occurred before the closing `?`.
 - Example: `"¿qué cambios ha habido desde la pandemia?"` → `"¿qué cambios ha habido."` | `"Desde la pandemia?"` (incorrect)
@@ -1073,7 +1091,7 @@ Before submitting any changes, ensure:
 - Centralized thresholds and configs
   - `LanguageConfig` via `get_language_config(language)` and `_get_language_thresholds(language)` now control:
     - Spanish semantic thresholds: `semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`
-    - Splitting thresholds: `min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`
+    - Splitting thresholds: `min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`
   - Also provides per-language greetings and question starter lists for en/fr/de/es (used by non-Spanish formatter)
   - Used in `should_end_sentence_here`, `is_question_semantic`, and non-Spanish formatter to avoid inline constants.
 
