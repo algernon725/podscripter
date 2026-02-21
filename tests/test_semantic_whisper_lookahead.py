@@ -17,25 +17,14 @@ producing a false-positive split 5 words before the Whisper boundary at "nivel."
 """
 
 import unittest
-import sys
-import os
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
 
+from conftest import MockConfig
 from sentence_splitter import SentenceSplitter
 
-
-class MockConfig:
-    """Mock config matching Spanish thresholds."""
-    def __init__(self):
-        self.thresholds = {
-            'min_total_words_no_split': 30,
-            'min_chunk_before_split': 20,
-            'min_chunk_semantic_break': 42,
-            'min_words_whisper_break': 10,
-            'semantic_whisper_lookahead': 8,
-        }
+pytestmark = pytest.mark.core
 
 
 class _SentinelModel:
@@ -47,7 +36,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
     """Verify that semantic splits are deferred when a Whisper boundary is nearby."""
 
     def setUp(self):
-        self.config = MockConfig()
+        self.config = MockConfig(min_total_words_no_split=30)
 
     def _build_long_spanish_text(self):
         """
@@ -282,7 +271,3 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
             result,
             "Should not split when semantic model says no"
         )
-
-
-if __name__ == '__main__':
-    unittest.main(verbosity=2)

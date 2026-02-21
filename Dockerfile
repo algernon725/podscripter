@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     soundfile \
     sentence-transformers==5.2.2 \
     spacy==3.8.11 \
-    pyannote.audio==4.0.4
+    pyannote.audio==4.0.4 \
+    pytest
 
 # Install spaCy language models (3.8.0 for spacy 3.8.x)
 RUN pip install --no-cache-dir \

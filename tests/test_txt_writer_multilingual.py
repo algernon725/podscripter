@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test that the TXT writer fix works for all languages
 when the sentences are already correctly punctuated.
@@ -6,6 +5,10 @@ when the sentences are already correctly punctuated.
 
 import tempfile
 import os
+
+import pytest
+
+pytestmark = pytest.mark.core
 
 
 def read_txt_output(filepath):
@@ -19,7 +22,7 @@ def read_txt_output(filepath):
 def test_txt_writer_with_correct_punctuation():
     """Test TXT writer doesn't split correctly-punctuated number lists."""
     from podscripter import _write_txt
-    
+
     test_cases = [
         {
             'language': 'es',
@@ -46,112 +49,61 @@ def test_txt_writer_with_correct_punctuation():
             'name': 'German'
         },
     ]
-    
-    print("="*70)
-    print("Testing TXT Writer with Correctly Punctuated Number Lists")
-    print("="*70)
-    print()
-    
-    all_passed = True
-    
+
     for case in test_cases:
-        print(f"{case['name']}:")
-        print(f"  Input: {case['sentence'][:80]}...")
-        
-        # Write using TXT writer (as a single sentence)
         sentences = [case['sentence']]
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             temp_file = f.name
-        
+
         try:
             _write_txt(sentences, temp_file, language=case['language'])
             paragraphs = read_txt_output(temp_file)
-            
-            # Check if the number list stayed together
+
             full_text = ' '.join(paragraphs)
             has_list = case['should_have'] in full_text
-            
-            # Check if "184." is standalone
             standalone_184 = any(p.strip() in ["184.", "184"] for p in paragraphs)
-            
-            if has_list and not standalone_184:
-                print(f"  ✅ TXT writer preserved number list correctly")
-            else:
-                print(f"  ❌ TXT writer split the list")
-                print(f"     Has '{case['should_have']}': {has_list}")
-                print(f"     Standalone '184.': {standalone_184}")
-                print(f"     Paragraphs: {paragraphs}")
-                all_passed = False
-                
+
+            assert has_list, (
+                f"{case['name']}: number list '{case['should_have']}' not preserved in output: {paragraphs}"
+            )
+            assert not standalone_184, (
+                f"{case['name']}: '184.' was split into standalone paragraph: {paragraphs}"
+            )
         finally:
             if os.path.exists(temp_file):
                 os.unlink(temp_file)
-        
-        print()
-    
-    return all_passed
 
 
 def test_simple_number_lists_all_languages():
     """Test simple number lists with 'and/y/et/und'."""
     from podscripter import _write_txt
-    
+
     test_cases = [
         ('es', 'Los episodios son 1, 2, 3 y 4. Luego continúa.', '3 y 4'),
         ('en', 'The episodes are 1, 2, 3 and 4. Then continue.', '3 and 4'),
         ('fr', 'Les épisodes sont 1, 2, 3 et 4. Ensuite continue.', '3 et 4'),
         ('de', 'Die Episoden sind 1, 2, 3 und 4. Dann fortfahren.', '3 und 4'),
     ]
-    
-    print("="*70)
-    print("Testing Simple Number Lists - All Languages")
-    print("="*70)
-    print()
-    
-    all_passed = True
-    
+
     for lang, sentence, pattern in test_cases:
         sentences = [sentence]
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             temp_file = f.name
-        
+
         try:
             _write_txt(sentences, temp_file, language=lang)
             paragraphs = read_txt_output(temp_file)
-            
+
             full_text = ' '.join(paragraphs)
             has_pattern = pattern in full_text
             not_split = len(paragraphs) == 1 or (len(paragraphs) == 2 and '4.' not in paragraphs[1])
-            
-            if has_pattern and not_split:
-                print(f"  ✅ {lang.upper()}: '{pattern}' preserved")
-            else:
-                print(f"  ❌ {lang.upper()}: Failed")
-                print(f"     Paragraphs: {paragraphs}")
-                all_passed = False
-                
+
+            assert has_pattern, (
+                f"{lang.upper()}: pattern '{pattern}' not found in output: {paragraphs}"
+            )
+            assert not_split, f"{lang.upper()}: number list was split: {paragraphs}"
         finally:
             if os.path.exists(temp_file):
                 os.unlink(temp_file)
-    
-    print()
-    return all_passed
-
-
-if __name__ == "__main__":
-    result1 = test_txt_writer_with_correct_punctuation()
-    result2 = test_simple_number_lists_all_languages()
-    
-    print("="*70)
-    if result1 and result2:
-        print("🎉 TXT writer handles number lists correctly in all languages!")
-        print()
-        print("Note: English and French still have a separate bug in punctuation")
-        print("restoration that inserts periods before standalone numbers like '184'.")
-        print("That's a different issue from the TXT writer splitting bug.")
-    else:
-        print("❌ Some tests failed")
-    print("="*70)
-

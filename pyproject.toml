@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+markers = [
+    "core: primary language and core functionality tests (run by default)",
+    "multilingual: cross-language aggregate tests",
+    "transcription: transcription integration tests (require models)",
+]
+addopts = "-v --tb=short -m 'not transcription'"

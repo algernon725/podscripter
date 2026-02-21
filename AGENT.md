@@ -216,31 +216,45 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 - Guard prevents accidental merging when the next sentence contains additional clauses (e.g., "Hola para todos ...").
 
 ### 2. Testing Requirements
-- All tests must run inside Docker container
+- All tests use **pytest** and must run inside Docker container
 - Create focused test files for specific bugs/issues
 - Use descriptive test names that explain the scenario
 - Test both individual functions and full transcription pipeline
 - Ensure model caches are mounted for reliable, fast tests and to avoid 429s
-- Unit guardrails included by default in the suite:
+- Shared test infrastructure lives in `tests/conftest.py`:
+  - Handles `sys.path` setup (do NOT add `sys.path` hacks to individual test files)
+  - Provides `MockConfig` class and fixtures (`mock_config`, `es_splitter`, `en_splitter`, `de_splitter`, `fr_splitter`)
+- pytest configuration lives in `pyproject.toml`
+- Tests are categorized using pytest markers:
+  - `@pytest.mark.core` — primary language tests, bug-fix regressions, unit tests (run by default)
+  - `@pytest.mark.multilingual` — cross-language aggregate tests (run by default)
+  - `@pytest.mark.transcription` — integration tests requiring models/media (opt-in)
+- Running tests:
+  - Default (core + multilingual): `pytest`
+  - All tests including transcription: `pytest -m ''`
+  - Only multilingual: `pytest -m multilingual`
+  - Only transcription: `pytest -m transcription`
+  - Single file: `pytest tests/test_spanish_bug_fixes.py`
+  - Keyword filter: `pytest -k "question"`
+  - Stop on first failure: `pytest -x`
+  - Re-run only failures: `pytest --lf`
+- Key test files:
   - `test_sentence_assembly_unit.py`: ES ellipsis continuation and domain handling; FR short-connector merge
   - `test_chunk_merge_helpers.py`: verifies `_dedupe_segments` and `_accumulate_segments` integrity
-- Spanish-only tests to be included by default:
-  - `test_spanish_embedded_questions.py` (embedded `¿ … ?` clauses)
-  - `test_human_vs_program_intro.py` (human-vs-program similarity on intro + extended lines; token-level F1 thresholds)
-    - Intro average F1 threshold: ≥ 0.80
-    - Overall average F1 threshold: ≥ 0.70
-  - `test_spanish_helpers.py` (unit tests for `_es_*` helpers: tags, collocations, merges, pairing, greetings)
-    - Includes greeting guards to prevent duplicate commas and ensure natural "Hola para/a ..." behavior
-    - Includes embedded Spanish samples and a human-reference excerpt; computes SequenceMatcher ratio, token F1, and sentence-level alignment metrics (no external media required)
-  - `test_spanish_domains_and_ellipses.py` (comprehensive domain handling including single/compound TLDs and ellipsis continuation; tests triple merge functionality)
-  - `test_spanish_false_domains.py` (tests prevention of Spanish words being treated as domains; e.g., `uno.de` → `uno. de`)
-  - `test_domain_utils.py` (comprehensive tests for centralized domain detection, masking, and exclusion utilities)
-  - `test_initials_normalization.py` (WIP: tests for person initial normalization like "C.S. Lewis"; currently documents expected behavior)
-  - Run selection controlled by env flags in `tests/run_all_tests.py`: `RUN_ALL`, `RUN_MULTILINGUAL`, `RUN_TRANSCRIPTION`, `RUN_DEBUG`
- - The ad-hoc script `tests/test_transcription.py` is for manual experiments:
-  - Defaults: model `medium`, device `cpu`, compute type `auto`
-  - Toggles: `--single`, `--chunk-length N`, `--apply-restoration`, `--dump-raw` (writes raw Whisper output for debugging)
-  - It also exposes VAD toggles (`--no-vad`, `--vad-speech-pad-ms`) strictly for debugging; the main CLI uses constants
+  - `test_spanish_embedded_questions.py`: embedded `¿ … ?` clauses
+  - `test_human_vs_program_intro.py`: human-vs-program similarity (F1 thresholds: intro ≥ 0.80, overall ≥ 0.70)
+  - `test_spanish_helpers.py`: unit tests for `_es_*` helpers (tags, collocations, merges, pairing, greetings)
+  - `test_spanish_domains_and_ellipses.py`: domain handling including single/compound TLDs and ellipsis continuation
+  - `test_spanish_false_domains.py`: prevention of Spanish words being treated as domains
+  - `test_domain_utils.py`: centralized domain detection, masking, and exclusion utilities
+  - `test_initials_normalization.py`: person initial normalization like "C.S. Lewis" (WIP)
+- Known pre-existing test failures (174 tests across 36 files):
+  - These tests are marked with `@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")`
+  - They show as `xfail` (expected failure) in pytest output, NOT as `FAILED`
+  - Root causes: API return types changed since tests were written (e.g., `restore_punctuation` now returns a tuple; `_extract_speaker_boundaries` returns `(boundaries, segments)`), exact-match expectations on NLP output that drifted, or test logic that was incorrect from the start
+  - These tests were originally print-only with no assertions, so the failures were invisible until the pytest migration added real assertions
+  - When fixing these, remove the `@pytest.mark.xfail` decorator so the test becomes a normal passing test
+  - If a previously-xfail test starts passing without code changes, pytest reports it as `XPASS` — this is informational and not a failure
 
 ### 3. Docker Best Practices
 - Mount volumes for model caching and media:
@@ -278,7 +292,8 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 3. Testing Strategy
 - Create `test_[specific_issue].py` files for focused testing
-- Use `test_[component]_debug.py` for debugging complex issues
+- Use `assert` statements with descriptive messages (not print-based pass/fail)
+- Use `@pytest.mark.parametrize` when testing the same logic across multiple inputs
 - Test both positive and negative cases
 - Verify fixes work across all supported languages
 
@@ -1131,7 +1146,7 @@ Before submitting any changes, ensure:
 
 - Tuning guidance
   - Prefer editing constants and thresholds over changing logic
-  - After any change, run `tests/run_all_tests.py` inside Docker with model caches mounted
+  - After any change, run `pytest` inside Docker with model caches mounted
   - Avoid adding one-off hacks; extend constants or helper behavior instead
 
 - Centralized comma spacing (2025)

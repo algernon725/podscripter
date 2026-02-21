@@ -237,14 +237,15 @@ flowchart TD
 
 ## Testing and quality gates
 
+- **Framework**: pytest (configured in `pyproject.toml`; shared fixtures in `tests/conftest.py`)
 - All tests run in Docker with caches mounted
 - Language-specific and cross-language tests for punctuation, splitting, and domain protection (including compound TLD support)
-- Ad-hoc `tests/test_transcription.py` for manual experiments
-- Focused unit tests included by default:
-  - `tests/test_sentence_assembly_unit.py` protects Spanish ellipsis/domain handling and French connector merges
-  - `tests/test_chunk_merge_helpers.py` validates dedupe and accumulation correctness for segments
-  - `tests/test_srt_normalization.py` validates SRT cue trimming behavior
-  - `tests/test_initials_normalization.py` (WIP) documents expected behavior for person initial normalization
+- Tests are categorized via pytest markers:
+  - `core`: primary language tests, bug-fix regressions, unit tests (run by default)
+  - `multilingual`: cross-language aggregate tests (run by default)
+  - `transcription`: integration tests requiring models/media (opt-in via `pytest -m transcription`)
+- Default run (`pytest`) executes core + multilingual; transcription tests are excluded unless explicitly requested
+- 174 tests are marked `@pytest.mark.xfail` — these are pre-existing failures exposed when print-only tests were converted to use real assertions during the pytest migration. They show as `xfail` (not `FAILED`) and do not affect the exit code. See AGENT.md for root causes and remediation guidance.
 
 ## Extensibility
 

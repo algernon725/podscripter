@@ -7,12 +7,13 @@ the sentence splitting logic without requiring actual audio files or
 diarization models.
 """
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import unittest
+
+import pytest
+
 from speaker_diarization import _merge_boundaries
+
+pytestmark = pytest.mark.core
 
 
 class TestBoundaryMergingIntegration(unittest.TestCase):
@@ -159,7 +160,4 @@ class TestMergeBehaviorConsistency(unittest.TestCase):
         self.assertEqual(len(result), 3)  # 10.0, 15.0, 20.0
         self.assertEqual(result, [10.0, 15.0, 20.0])
 
-
-if __name__ == '__main__':
-    unittest.main()
 

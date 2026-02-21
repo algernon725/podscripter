@@ -1,142 +1,78 @@
-#!/usr/bin/env python3
 """
 Test script for improved punctuation restoration functionality
 """
 
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    print("SentenceTransformers not available. Install with: pip install sentence-transformers")
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+import pytest
 
-def test_improved_punctuation():
-    if not SENTENCE_TRANSFORMERS_AVAILABLE:
-        return
-    
-    # Test cases that demonstrate the improvements
-    test_cases = [
-        # English - Long run-on sentences that should be properly segmented
-        {
-            'lang': 'en',
-            'input': "hello how are you today I hope you are doing well thank you for asking about my day it was quite busy but productive I managed to finish all my tasks and even had time for a coffee break",
-            'description': 'English long conversation - should create meaningful sentences'
-        },
-        # English - Questions mixed with statements
-        {
-            'lang': 'en',
-            'input': "what time is the meeting tomorrow I need to prepare my presentation and also check if everyone received the agenda can you confirm the location",
-            'description': 'English mixed questions and statements'
-        },
-        # English - Sentences with conjunctions that should continue
-        {
-            'lang': 'en',
-            'input': "I went to the store and bought some groceries then I came home and started cooking dinner because I was hungry and wanted to eat something healthy",
-            'description': 'English sentences with conjunctions - should keep related clauses together'
-        },
-        # Spanish - Similar patterns
-        {
-            'lang': 'es', 
-            'input': "hola como estas hoy espero que estes bien gracias por preguntar sobre mi dia fue bastante ocupado pero productivo logre terminar todas mis tareas",
-            'description': 'Spanish conversation - should create meaningful sentences'
-        },
-        # German - Long sentences
-        {
-            'lang': 'de',
-            'input': "hallo wie geht es dir heute ich hoffe es geht dir gut danke fur das fragen uber meinen tag es war ziemlich beschaftigt aber produktiv",
-            'description': 'German conversation - should create meaningful sentences'
-        },
-        # French - Mixed content
-        {
-            'lang': 'fr',
-            'input': "bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci de demander de ma journee elle etait assez occupee mais productive",
-            'description': 'French conversation - should create meaningful sentences'
-        }
-    ]
-    
-    print("Testing improved punctuation restoration...")
-    print("=" * 60)
-    
-    for i, test_case in enumerate(test_cases, 1):
-        lang = test_case['lang']
-        input_text = test_case['input']
-        description = test_case['description']
-        
-        print(f"\nTest {i}: {description} ({lang})")
-        print(f"Input:  {input_text}")
-        
-        try:
-            from punctuation_restorer import restore_punctuation
-            result = restore_punctuation(input_text, lang)
-            print(f"Output: {result}")
-            
-            # Count sentences in output
-            sentences = [s.strip() for s in result.split('.') if s.strip()]
-            print(f"Sentences created: {len(sentences)}")
-            for j, sent in enumerate(sentences, 1):
-                print(f"  {j}. {sent}")
-            
-            print("✓ Success")
-        except Exception as e:
-            print(f"✗ Error: {e}")
-        
-        print("-" * 40)
+from sentence_transformers import SentenceTransformer
+from conftest import restore_punctuation
 
-def test_specific_improvements():
-    """Test specific improvements in sentence boundary detection"""
-    if not SENTENCE_TRANSFORMERS_AVAILABLE:
-        return
-    
-    print("\n" + "=" * 60)
-    print("TESTING SPECIFIC IMPROVEMENTS")
-    print("=" * 60)
-    
-    # Test cases that specifically show the improvements
-    specific_tests = [
-        {
-            'lang': 'en',
-            'input': "I went to the store and bought milk bread and eggs then I came home and started cooking dinner because I was hungry",
-            'description': 'Should keep related clauses together, not split at every "and"'
-        },
-        {
-            'lang': 'en',
-            'input': "what time is the meeting can you send me the agenda I need to prepare my presentation",
-            'description': 'Should detect questions and separate them properly'
-        },
-        {
-            'lang': 'en',
-            'input': "thank you for your help that was amazing I really appreciate it",
-            'description': 'Should detect exclamations and gratitude expressions'
-        },
-        {
-            'lang': 'en',
-            'input': "the weather is nice today however it might rain later so we should bring umbrellas just in case",
-            'description': 'Should handle transitional words like "however" properly'
-        }
-    ]
-    
-    for i, test_case in enumerate(specific_tests, 1):
-        lang = test_case['lang']
-        input_text = test_case['input']
-        description = test_case['description']
-        
-        print(f"\nSpecific Test {i}: {description}")
-        print(f"Input:  {input_text}")
-        
-        try:
-            from punctuation_restorer import restore_punctuation
-            result = restore_punctuation(input_text, lang)
-            print(f"Output: {result}")
-            
-            # Show sentence breakdown
-            sentences = [s.strip() for s in result.split('.') if s.strip()]
-            print(f"Sentences: {len(sentences)}")
-            for j, sent in enumerate(sentences, 1):
-                print(f"  {j}. {sent}")
-            
-        except Exception as e:
-            print(f"✗ Error: {e}")
+pytestmark = pytest.mark.core
 
-if __name__ == "__main__":
-    test_improved_punctuation()
-    test_specific_improvements() 
+
+@pytest.mark.parametrize("lang,input_text,description", [
+    (
+        'en',
+        "hello how are you today I hope you are doing well thank you for asking about my day it was quite busy but productive I managed to finish all my tasks and even had time for a coffee break",
+        'English long conversation - should create meaningful sentences',
+    ),
+    (
+        'en',
+        "what time is the meeting tomorrow I need to prepare my presentation and also check if everyone received the agenda can you confirm the location",
+        'English mixed questions and statements',
+    ),
+    (
+        'en',
+        "I went to the store and bought some groceries then I came home and started cooking dinner because I was hungry and wanted to eat something healthy",
+        'English sentences with conjunctions - should keep related clauses together',
+    ),
+    (
+        'es',
+        "hola como estas hoy espero que estes bien gracias por preguntar sobre mi dia fue bastante ocupado pero productivo logre terminar todas mis tareas",
+        'Spanish conversation - should create meaningful sentences',
+    ),
+    (
+        'de',
+        "hallo wie geht es dir heute ich hoffe es geht dir gut danke fur das fragen uber meinen tag es war ziemlich beschaftigt aber produktiv",
+        'German conversation - should create meaningful sentences',
+    ),
+    (
+        'fr',
+        "bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci de demander de ma journee elle etait assez occupee mais productive",
+        'French conversation - should create meaningful sentences',
+    ),
+])
+def test_improved_punctuation(lang, input_text, description):
+    """Test that improved punctuation restoration creates properly punctuated output."""
+    result = restore_punctuation(input_text, lang)
+    assert result and result.strip(), f"[{description}] Empty result for input: {input_text}"
+    assert result.strip()[-1] in '.!?', \
+        f"[{description}] Result doesn't end with punctuation: {result}"
+    sentences = [s.strip() for s in result.split('.') if s.strip()]
+    assert len(sentences) >= 1, f"[{description}] No sentences produced: {result}"
+
+
+@pytest.mark.parametrize("input_text,description", [
+    (
+        "I went to the store and bought milk bread and eggs then I came home and started cooking dinner because I was hungry",
+        'Should keep related clauses together, not split at every "and"',
+    ),
+    (
+        "what time is the meeting can you send me the agenda I need to prepare my presentation",
+        'Should detect questions and separate them properly',
+    ),
+    (
+        "thank you for your help that was amazing I really appreciate it",
+        'Should detect exclamations and gratitude expressions',
+    ),
+    (
+        "the weather is nice today however it might rain later so we should bring umbrellas just in case",
+        'Should handle transitional words like "however" properly',
+    ),
+])
+def test_specific_improvements(input_text, description):
+    """Test specific improvements in sentence boundary detection."""
+    result = restore_punctuation(input_text, 'en')
+    assert result and result.strip(), f"[{description}] Empty result for input: {input_text}"
+    assert result.strip()[-1] in '.!?', \
+        f"[{description}] Result doesn't end with punctuation: {result}"

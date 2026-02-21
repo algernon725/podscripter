@@ -14,25 +14,13 @@ Bug examples fixed:
 """
 
 import unittest
-import sys
-import os
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
 
+from conftest import MockConfig
 from sentence_splitter import SentenceSplitter
 
-
-class MockConfig:
-    """Mock config for testing without full language config."""
-    def __init__(self):
-        self.thresholds = {
-            'min_total_words_no_split': 25,
-            'min_chunk_before_split': 20,
-            'min_chunk_semantic_break': 42,
-            'min_words_whisper_break': 10,
-            'semantic_whisper_lookahead': 8,
-        }
+pytestmark = pytest.mark.core
 
 
 class TestNumberTimeUnitGuard(unittest.TestCase):
@@ -229,7 +217,3 @@ class TestFrenchAuxiliaryGuard(unittest.TestCase):
         self.assertTrue(self.splitter._is_past_participle('vendu'))
         self.assertTrue(self.splitter._is_past_participle('fait'))
         self.assertTrue(self.splitter._is_past_participle('été'))
-
-
-if __name__ == '__main__':
-    unittest.main(verbosity=2)

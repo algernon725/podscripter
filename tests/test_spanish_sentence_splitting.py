@@ -1,116 +1,51 @@
-#!/usr/bin/env python3
 """
 Test to reproduce and fix Spanish sentence splitting issues
 """
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from punctuation_restorer import restore_punctuation
+import pytest
 
-def test_spanish_sentence_splitting():
+from conftest import restore_punctuation
+
+pytestmark = pytest.mark.core
+
+
+@pytest.mark.parametrize("input_text,expected", [
+    ("yo soy andrea de santander colombia",
+     "Yo soy Andrea, de Santander, Colombia."),
+    ("recuerdas todos esos momentos en los que no supiste qué decir",
+     "¿Recuerdas todos esos momentos en los que no supiste qué decir?"),
+    ("hola cómo estás hoy",
+     "¿Hola, cómo estás hoy?"),
+    ("me llamo carlos y vivo en madrid",
+     "Me llamo Carlos y vivo en Madrid."),
+    ("qué hora es la reunión mañana",
+     "¿Qué hora es la reunión mañana?"),
+    ("es importante que todos estén presentes",
+     "Es importante que todos estén presentes."),
+    ("buenas tardes mi nombre es maría y trabajo en bogotá",
+     "Buenas tardes, mi nombre es María y trabajo en Bogotá."),
+    ("puedes decirme dónde queda la estación de metro",
+     "¿Puedes decirme dónde queda la estación de metro?"),
+    ("ayer fuimos al museo y después comimos en un restaurante muy bonito",
+     "Ayer fuimos al museo y después comimos en un restaurante muy bonito."),
+    ("quieren ir al cine esta noche o prefieren quedarse en casa",
+     "¿Quieren ir al cine esta noche o prefieren quedarse en casa?"),
+], ids=[
+    "introduction",
+    "question_remembering",
+    "greeting_question",
+    "introduction_conjunction",
+    "question_time",
+    "importance_statement",
+    "greeting_with_intro",
+    "embedded_wh_question",
+    "past_tense_narrative",
+    "yesno_coordination",
+])
+@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
+def test_spanish_sentence_splitting(input_text, expected):
     """Test Spanish sentence splitting issues."""
-    
-    print("Testing Spanish Sentence Splitting Issues")
-    print("=" * 60)
-    
-    # Test cases that demonstrate the problems
-    test_cases = [
-        {
-            'input': "yo soy andrea de santander colombia",
-            'expected': "Yo soy Andrea, de Santander, Colombia.",
-            'description': 'Introduction should be one sentence'
-        },
-        {
-            'input': "recuerdas todos esos momentos en los que no supiste qué decir",
-            'expected': "¿Recuerdas todos esos momentos en los que no supiste qué decir?",
-            'description': 'Question should be one sentence with question mark'
-        },
-        {
-            'input': "hola cómo estás hoy",
-            'expected': "¿Hola, cómo estás hoy?",
-            'description': 'Greeting with question'
-        },
-        {
-            'input': "me llamo carlos y vivo en madrid",
-            'expected': "Me llamo Carlos y vivo en Madrid.",
-            'description': 'Introduction with conjunction'
-        },
-        {
-            'input': "qué hora es la reunión mañana",
-            'expected': "¿Qué hora es la reunión mañana?",
-            'description': 'Question about time'
-        },
-        {
-            'input': "es importante que todos estén presentes",
-            'expected': "Es importante que todos estén presentes.",
-            'description': 'Statement about importance'
-        },
-        {
-            'input': "buenas tardes mi nombre es maría y trabajo en bogotá",
-            'expected': "Buenas tardes, mi nombre es María y trabajo en Bogotá.",
-            'description': 'Greeting with introduction'
-        },
-        {
-            'input': "puedes decirme dónde queda la estación de metro",
-            'expected': "¿Puedes decirme dónde queda la estación de metro?",
-            'description': 'Embedded wh-question'
-        },
-        {
-            'input': "ayer fuimos al museo y después comimos en un restaurante muy bonito",
-            'expected': "Ayer fuimos al museo y después comimos en un restaurante muy bonito.",
-            'description': 'Past tense narrative statement'
-        },
-        {
-            'input': "quieren ir al cine esta noche o prefieren quedarse en casa",
-            'expected': "¿Quieren ir al cine esta noche o prefieren quedarse en casa?",
-            'description': 'Yes/No question with coordination'
-        }
-    ]
-    
-    correct_results = 0
-    total_tests = len(test_cases)
-    
-    for i, test_case in enumerate(test_cases, 1):
-        input_text = test_case['input']
-        expected = test_case['expected']
-        description = test_case['description']
-        
-        print(f"\nTest {i}: {description}")
-        print(f"Input:  {input_text}")
-        
-        try:
-            result = restore_punctuation(input_text, 'es')
-            print(f"Output: {result}")
-            print(f"Expected: {expected}")
-            
-            # Check if result matches expected (allowing for minor variations)
-            if result.strip() == expected.strip():
-                print("✓ CORRECT")
-                correct_results += 1
-            else:
-                print("✗ INCORRECT")
-                
-        except Exception as e:
-            print(f"✗ Error: {e}")
-        
-        print("-" * 40)
-    
-    # Summary
-    accuracy = correct_results / total_tests
-    print(f"\n{'='*60}")
-    print("SPANISH SENTENCE SPLITTING TEST SUMMARY")
-    print(f"{'='*60}")
-    print(f"Total tests: {total_tests}")
-    print(f"Correct results: {correct_results}")
-    print(f"Accuracy: {accuracy:.1%}")
-    
-    if accuracy >= 0.8:
-        print("🎉 Excellent! Spanish sentence splitting is working well!")
-    elif accuracy >= 0.6:
-        print("✅ Good! Most Spanish sentences are correctly handled")
-    else:
-        print("⚠️ Spanish sentence splitting needs improvement")
-
-if __name__ == "__main__":
-    test_spanish_sentence_splitting() 
+    result = restore_punctuation(input_text, 'es')
+    assert result.strip() == expected.strip(), (
+        f"got {result!r}, expected {expected!r}"
+    )

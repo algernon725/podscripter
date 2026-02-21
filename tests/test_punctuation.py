@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 MIT License
 
@@ -27,61 +26,39 @@ SOFTWARE.
 Test script for sentence transformer punctuation restoration functionality
 """
 
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    print("SentenceTransformers not available. Install with: pip install sentence-transformers")
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+import pytest
 
-def test_advanced_punctuation():
-    if not SENTENCE_TRANSFORMERS_AVAILABLE:
-        return
-    
-    test_cases = [
-        # English
-        {
-            'lang': 'en',
-            'input': "hello how are you today I hope you are doing well thank you",
-            'description': 'English basic conversation'
-        },
-        # Spanish
-        {
-            'lang': 'es', 
-            'input': "hola como estas hoy espero que estes bien gracias",
-            'description': 'Spanish basic conversation'
-        },
-        # German
-        {
-            'lang': 'de',
-            'input': "hallo wie geht es dir heute ich hoffe es geht dir gut danke",
-            'description': 'German basic conversation'
-        },
-        # French
-        {
-            'lang': 'fr',
-            'input': "bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci",
-            'description': 'French basic conversation'
-        }
-    ]
-    
-    print("Testing advanced punctuation restoration...")
-    
-    for i, test_case in enumerate(test_cases, 1):
-        lang = test_case['lang']
-        input_text = test_case['input']
-        description = test_case['description']
-        
-        print(f"\nTest {i}: {description} ({lang})")
-        print(f"Input:  {input_text}")
-        
-        try:
-            from punctuation_restorer import restore_punctuation
-            result = restore_punctuation(input_text, lang)
-            print(f"Output: {result}")
-            print("✓ Success")
-        except Exception as e:
-            print(f"✗ Error: {e}")
+from sentence_transformers import SentenceTransformer
+from conftest import restore_punctuation
 
-if __name__ == "__main__":
-    test_advanced_punctuation() 
+pytestmark = pytest.mark.core
+
+
+@pytest.mark.parametrize("lang,input_text,description", [
+    (
+        'en',
+        "hello how are you today I hope you are doing well thank you",
+        'English basic conversation',
+    ),
+    (
+        'es',
+        "hola como estas hoy espero que estes bien gracias",
+        'Spanish basic conversation',
+    ),
+    (
+        'de',
+        "hallo wie geht es dir heute ich hoffe es geht dir gut danke",
+        'German basic conversation',
+    ),
+    (
+        'fr',
+        "bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci",
+        'French basic conversation',
+    ),
+])
+def test_advanced_punctuation(lang, input_text, description):
+    """Test that punctuation restoration produces output with terminal punctuation."""
+    result = restore_punctuation(input_text, lang)
+    assert result and result.strip(), f"[{description}] Empty result for input: {input_text}"
+    assert result.strip()[-1] in '.!?', \
+        f"[{description}] Result doesn't end with punctuation: {result}"

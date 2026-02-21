@@ -13,24 +13,20 @@ The text should keep "y yo estaba en Colombia y estaba continuando" together,
 but instead breaks at "estaba."
 """
 
-import sys
-from pathlib import Path
+from conftest import restore_punctuation
+import pytest
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from punctuation_restorer import restore_punctuation
+pytestmark = pytest.mark.core
 
 
 def test_estaba_break_with_long_text():
     """
     Test that 'estaba' doesn't break with long text that triggers semantic splitting.
-    
+
     This reproduces the actual bug from Episodio190 where the sentence incorrectly
     broke at "estaba" due to semantic splitting in long text.
     """
-    
-    # From Episodio190 segments 43-70 - build up enough context to trigger semantic split
+
     long_text = """
     siempre estamos pensando en nuestro primer mes de matrimonio porque después de la boda 
     estamos muy tranquilos y disfrutando la vida y fue muy divertido cierto sí por supuesto 
@@ -49,65 +45,30 @@ def test_estaba_break_with_long_text():
     y yo estaba en Colombia y estaba continuando con la universidad porque yo no me había 
     graduado ese era mi último semestre
     """.replace('\n', ' ')
-    
+
     result = restore_punctuation(long_text, language='es')
-    
-    print("=" * 80)
-    print("TEST: Long text - 'estaba' should not break sentence")
-    print("=" * 80)
-    print(f"Input length: {len(long_text.split())} words")
-    print()
-    
-    # Split result into sentences to analyze
+
     sentences = [s.strip() for s in result.replace('?', '.').replace('!', '.').split('.') if s.strip()]
-    
-    print("Output sentences:")
-    for i, sent in enumerate(sentences, 1):
-        print(f"{i}. {sent}")
-    print()
-    
-    # Check for the bug: sentence incorrectly ending with "estaba"
-    bug_found = False
+
     for sent in sentences:
         sent_lower = sent.lower().strip()
-        # Check if sentence ends with just "estaba" (or similar continuative verbs)
-        if sent_lower.endswith(' estaba') or sent_lower.endswith(' estaban'):
-            print(f"✗ BUG FOUND: Sentence ends with continuative verb:")
-            print(f"  '{sent}'")
-            print()
-            bug_found = True
-        if sent_lower.endswith(' era') or sent_lower.endswith(' eran'):
-            print(f"✗ BUG FOUND: Sentence ends with continuative verb:")
-            print(f"  '{sent}'")
-            print()
-            bug_found = True
-        if sent_lower.endswith(' tenía') or sent_lower.endswith(' tenían'):
-            print(f"✗ BUG FOUND: Sentence ends with continuative verb:")
-            print(f"  '{sent}'")
-            print()
-            bug_found = True
-        if sent_lower.endswith(' había') or sent_lower.endswith(' habían'):
-            print(f"✗ BUG FOUND: Sentence ends with continuative verb:")
-            print(f"  '{sent}'")
-            print()
-            bug_found = True
-    
-    # The key phrase should stay together
+        assert not sent_lower.endswith(' estaba') and not sent_lower.endswith(' estaban'), \
+            f"Sentence ends with continuative verb 'estaba/estaban': '{sent}'"
+        assert not sent_lower.endswith(' era') and not sent_lower.endswith(' eran'), \
+            f"Sentence ends with continuative verb 'era/eran': '{sent}'"
+        assert not sent_lower.endswith(' tenía') and not sent_lower.endswith(' tenían'), \
+            f"Sentence ends with continuative verb 'tenía/tenían': '{sent}'"
+        assert not sent_lower.endswith(' había') and not sent_lower.endswith(' habían'), \
+            f"Sentence ends with continuative verb 'había/habían': '{sent}'"
+
     result_lower = result.lower()
-    if "estaba continuando" not in result_lower and "estaba en colombia y estaba" in result_lower:
-        print("✗ BUG: 'estaba continuando' was incorrectly split")
-        bug_found = True
-    
-    assert not bug_found, "Sentence incorrectly breaks at continuative verb in long text"
-    
-    print("✓ Long text test passed: no breaks at continuative verbs")
-    print()
-    return result
+    if "estaba en colombia y estaba" in result_lower:
+        assert "estaba continuando" in result_lower, \
+            "'estaba continuando' was incorrectly split"
 
 
 def test_multiple_long_text_patterns():
-    """Test various patterns with long text to ensure robustness"""
-    
+    """Test various patterns with long text to ensure robustness."""
     test_cases = [
         {
             'name': 'estaba + gerund',
@@ -146,41 +107,10 @@ def test_multiple_long_text_patterns():
             'must_contain': 'tenía una sensación'
         }
     ]
-    
-    print("=" * 80)
-    print("TEST: Multiple long text patterns with continuative verbs")
-    print("=" * 80)
-    
-    all_passed = True
+
     for test_case in test_cases:
-        name = test_case['name']
-        text = test_case['text']
-        must_contain = test_case['must_contain']
-        
-        result = restore_punctuation(text, language='es')
+        result = restore_punctuation(test_case['text'], language='es')
         result_lower = result.lower()
-        
-        # Check that the phrase stays together
-        if must_contain not in result_lower:
-            print(f"✗ FAILED: {name}")
-            print(f"  Expected phrase '{must_contain}' was split")
-            print(f"  Result: {result}")
-            print()
-            all_passed = False
-        else:
-            print(f"✓ PASSED: {name}")
-    
-    print()
-    assert all_passed, "Some long text pattern tests failed"
-    print("✓ All long text pattern tests passed")
-    print()
 
-
-if __name__ == '__main__':
-    test_estaba_break_with_long_text()
-    test_multiple_long_text_patterns()
-    
-    print("=" * 80)
-    print("ALL LONG TEXT TESTS PASSED!")
-    print("=" * 80)
-
+        assert test_case['must_contain'] in result_lower, \
+            f"[{test_case['name']}] Expected phrase '{test_case['must_contain']}' was split. Result: {result}"
