@@ -15,11 +15,16 @@ Tests cover:
 import pytest
 
 from sentence_formatter import SentenceFormatter, MergeMetadata
+from sentence_splitter import Sentence
 
 pytestmark = pytest.mark.core
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
+def _texts(result):
+    """Extract plain text strings from a list of Sentence objects or strings."""
+    return [s.text if isinstance(s, Sentence) else s for s in result]
+
+
 def test_formatter_works_without_speaker_segments():
     """
     CRITICAL: Verify backward compatibility when speaker_segments=None.
@@ -30,6 +35,7 @@ def test_formatter_works_without_speaker_segments():
     sentences = ["Visit google.", "Com for search", "No.", "No.", "No.", "99.", "9% accuracy"]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert any("google.com" in s for s in result), f"Expected domain merge in: {result}"
     assert any("No, no, no" in s for s in result), f"Expected emphatic merge in: {result}"
@@ -41,12 +47,12 @@ def test_formatter_works_without_speaker_segments():
         assert merge.speaker2 is None, f"Expected None speaker2, got {merge.speaker2}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_merge_basic():
     """Test basic domain merge: 'example.' + 'com' -> 'example.com'"""
     sentences = ["Visit example.", "Com for more info"]
     formatter = SentenceFormatter('en', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert "example.com" in result[0], f"Expected 'example.com' in: {result[0]}"
@@ -57,7 +63,6 @@ def test_domain_merge_basic():
     assert len(domain_merges) == 1, f"Expected 1 domain merge, got {len(domain_merges)}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_merge_natural_language_guard():
     """
     Test natural language guard prevents false domain merges.
@@ -71,6 +76,7 @@ def test_domain_merge_natural_language_guard():
     ]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 2, f"Expected 2 sentences (no merge), got {len(result)}: {result}"
     assert "jugar.es" not in ' '.join(result), f"Should not contain 'jugar.es': {result}"
@@ -79,46 +85,46 @@ def test_domain_merge_natural_language_guard():
     assert len(domain_merges) == 0, f"Expected 0 domain merges, got {len(domain_merges)}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_merge_short_sentence():
     """Test domain merge works for short sentences (< 50 chars)"""
     sentences = ["Visit google.", "Com"]
     formatter = SentenceFormatter('en', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert "google.com" in result[0], f"Expected 'google.com' in: {result[0]}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_merge_capitalized_label():
     """Test domain merge works for capitalized labels (brand names)"""
     sentences = ["Check out Google.", "Com for search"]
     formatter = SentenceFormatter('en', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert "Google.com" in result[0], f"Expected 'Google.com' in: {result[0]}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_merge_triple():
     """Test triple domain merge: 'example.' + 'com' + 'Y mas' -> 'example.com Y mas'"""
     sentences = ["Visit example.", "com", "Y más información aquí"]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert "example.com" in result[0], f"Expected 'example.com' in: {result[0]}"
     assert "más información" in result[0], f"Expected remainder in: {result[0]}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_decimal_merge_basic():
     """Test basic decimal merge: '99.' + '9%' -> '99.9%'"""
     sentences = ["The accuracy is 99.", "9% de los casos"]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert "99.9%" in result[0], f"Expected '99.9%' in: {result[0]}"
@@ -128,24 +134,24 @@ def test_decimal_merge_basic():
     assert len(decimal_merges) == 1, f"Expected 1 decimal merge, got {len(decimal_merges)}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_decimal_merge_without_percent():
     """Test decimal merge without percent: '121.' + '73' -> '121.73'"""
     sentences = ["The distance is 121.", "73 meters"]
     formatter = SentenceFormatter('en', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert "121.73" in result[0], f"Expected '121.73' in: {result[0]}"
     assert "meters" in result[0], f"Expected remainder in: {result[0]}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_emphatic_merge_spanish():
     """Test Spanish emphatic word merge: 'No.' + 'No.' + 'No.' -> 'No, no, no.'"""
     sentences = ["No.", "No.", "No."]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert result[0] == "No, no, no.", f"Expected 'No, no, no.', got: {result[0]}"
@@ -154,34 +160,34 @@ def test_emphatic_merge_spanish():
     assert len(emphatic_merges) == 1, f"Expected 1 emphatic merge, got {len(emphatic_merges)}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_emphatic_merge_spanish_si():
     """Test Spanish 'si' normalization: 'Si.' + 'si.' + 'Si.' -> 'Si, si, si.'"""
     sentences = ["Si.", "si.", "Sí."]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert result[0] == "Sí, sí, sí.", f"Expected 'Sí, sí, sí.', got: {result[0]}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_emphatic_merge_french():
     """Test French emphatic word merge: 'Non.' + 'Non.' -> 'Non, non.'"""
     sentences = ["Non.", "Non."]
     formatter = SentenceFormatter('fr', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert result[0] == "Non, non.", f"Expected 'Non, non.', got: {result[0]}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_emphatic_merge_german():
     """Test German emphatic word merge: 'Nein.' + 'Nein.' -> 'Nein, nein.'"""
     sentences = ["Nein.", "Nein."]
     formatter = SentenceFormatter('de', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
     assert result[0] == "Nein, nein.", f"Expected 'Nein, nein.', got: {result[0]}"
@@ -196,7 +202,6 @@ def test_no_emphatic_merge_for_unsupported_language():
     assert len(result) == 3, f"Expected 3 sentences (no merge), got {len(result)}: {result}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_multiple_merge_types():
     """Test that multiple merge types can be applied in sequence"""
     sentences = [
@@ -209,6 +214,7 @@ def test_multiple_merge_types():
     ]
     formatter = SentenceFormatter('es', speaker_segments=None)
     result, metadata = formatter.format(sentences)
+    result = _texts(result)
 
     assert any("google.com" in s for s in result), f"Expected domain merge in: {result}"
     assert any("99.9%" in s for s in result), f"Expected decimal merge in: {result}"

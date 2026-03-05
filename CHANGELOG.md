@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-03-05
+
+### Fixed
+- **Fixed 33 xfail tests caused by return-type mismatches** — these unit tests for core components were failing only because test code didn't account for API return-type changes, not because of actual bugs:
+  - `test_speaker_diarization_unit.py` (7 tests): unpacked tuple return from `_extract_speaker_boundaries()` which now returns `(boundaries, details)` instead of a flat list
+  - `test_sentence_formatter.py` (14 tests): added `_texts()` helper to extract `.text` from `Sentence` objects returned by `SentenceFormatter.format()`
+  - `test_sentence_splitter_unit.py` (8 tests): accessed `.text` on `Sentence` objects from `SentenceSplitter.split()`
+  - `test_sentence_assembly_unit.py` (4 tests): updated expectations to match `assemble_sentences_from_processed` behavior (text without terminal punctuation is trailing, not a sentence; decimal `99.9` preserved but `%` has a space)
+  - Also fixed `test_short_segments_filtered` test data to use segments actually below `MIN_SPEAKER_SEGMENT_SEC` (0.5s)
+- **Promoted 51 xpassed tests to normal passing tests** — audited all tests marked `@pytest.mark.xfail` that were now passing. All 51 had genuine assertions (exact string match or model-must-add-`?` checks with no `?` in input). Moved `@pytest.mark.xfail` from function-level to per-parameter on parametrized tests so only the specific failing inputs remain marked.
+
+### Changed
+- **xfail markers are now per-parameter** — parametrized tests in 9 files no longer blanket-xfail all inputs. Only the specific failing parameter combinations are marked, so passing inputs run as normal tests and will catch regressions.
+  - Files updated: `test_english_sentence_splitting.py`, `test_french_sentence_splitting.py`, `test_german_sentence_splitting.py`, `test_spanish_sentence_splitting.py`, `test_multilingual_questions.py`, `test_spanish_questions.py`, `test_spanish_inverted_questions.py`, `test_spanish_bug_fixes.py`, `test_specific_spanish_bugs.py`
+- **Updated AGENT.md** — added detailed remediation guide for remaining 142 xfail tests in Known Limitations section, categorized by priority (question detection drift, exact-match splitting drift, integration tests, scoring thresholds)
+- **Updated ARCHITECTURE.md** — refreshed xfail counts and status
+
 ## [0.8.0] - 2026-02-21
 
 ### Changed

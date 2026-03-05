@@ -18,6 +18,7 @@ GERMAN_SPLITTING_CASES = [
         "erinnerst du dich an all diese momente als du nicht wusstest was du sagen solltest",
         "Erinnerst du dich an all diese Momente, als du nicht wusstest, was du sagen solltest?",
         id="question-with-question-mark",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "hallo wie geht es dir heute",
@@ -33,6 +34,7 @@ GERMAN_SPLITTING_CASES = [
         "um wie viel uhr ist das treffen morgen",
         "Um wie viel Uhr ist das Treffen morgen?",
         id="question-about-time",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "es ist wichtig dass alle anwesend sind",
@@ -43,6 +45,7 @@ GERMAN_SPLITTING_CASES = [
         "kannst du mir bei diesem projekt helfen",
         "Kannst du mir bei diesem Projekt helfen?",
         id="request-for-help",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "ich möchte mich vorstellen",
@@ -53,6 +56,7 @@ GERMAN_SPLITTING_CASES = [
         "wo hast du deutsch gelernt",
         "Wo hast du Deutsch gelernt?",
         id="question-about-learning",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "danke für deine zeit heute",
@@ -63,16 +67,19 @@ GERMAN_SPLITTING_CASES = [
         "er kauft z b brot und milch",
         "Er kauft z. B. Brot und Milch.",
         id="abbreviation-zB-should-not-split",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "es kostet 3 5 euro",
         "Es kostet 3.5 Euro.",
         id="decimal-number-keeps-dot",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "er sagte ich komme gleich",
         "Er sagte: Ich komme gleich.",
         id="reported-speech-with-colon",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "wie schön das ist",
@@ -83,11 +90,11 @@ GERMAN_SPLITTING_CASES = [
         "ich glaube dass er kommt weil er zugesagt hat",
         "Ich glaube, dass er kommt, weil er zugesagt hat.",
         id="multiple-subordinate-clauses-with-commas",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
 ]
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 @pytest.mark.parametrize("input_text,expected", GERMAN_SPLITTING_CASES)
 def test_german_sentence_splitting(input_text, expected):
     """Test German sentence splitting issues."""

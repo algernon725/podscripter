@@ -13,26 +13,31 @@ FRENCH_SPLITTING_CASES = [
         "je suis marie de paris france",
         "Je suis Marie de Paris, France.",
         id="introduction-one-sentence",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "vous souvenez vous de tous ces moments où vous ne saviez pas quoi dire",
         "Vous souvenez-vous de tous ces moments où vous ne saviez pas quoi dire?",
         id="question-with-question-mark",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "bonjour comment allez vous aujourd'hui",
         "Bonjour, comment allez-vous aujourd'hui?",
         id="greeting-with-question",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "je m'appelle pierre et j'habite à lyon",
         "Je m'appelle Pierre et j'habite à Lyon.",
         id="introduction-with-conjunction",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "à quelle heure est la réunion demain",
         "À quelle heure est la réunion demain?",
         id="question-about-time",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "il est important que tout le monde soit présent",
@@ -43,6 +48,7 @@ FRENCH_SPLITTING_CASES = [
         "pouvez vous m'aider avec ce projet",
         "Pouvez-vous m'aider avec ce projet?",
         id="request-for-help",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "je voudrais me présenter",
@@ -53,6 +59,7 @@ FRENCH_SPLITTING_CASES = [
         "où avez vous appris à parler français",
         "Où avez-vous appris à parler français?",
         id="question-about-learning",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "merci pour votre temps aujourd'hui",
@@ -62,7 +69,6 @@ FRENCH_SPLITTING_CASES = [
 ]
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 @pytest.mark.parametrize("input_text,expected", FRENCH_SPLITTING_CASES)
 def test_french_sentence_splitting(input_text, expected):
     """Test French sentence splitting issues."""

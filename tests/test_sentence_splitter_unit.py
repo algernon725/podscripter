@@ -43,7 +43,6 @@ class TestSentenceSplitterBasic(unittest.TestCase):
         self.assertGreater(len(sentences), 0)
         self.assertIsInstance(metadata, dict)
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_short_text_no_split(self):
         """Test that very short text is not split."""
         splitter = SentenceSplitter('es', self.model, self.es_config)
@@ -51,7 +50,7 @@ class TestSentenceSplitterBasic(unittest.TestCase):
         sentences, metadata = splitter.split(text)
         
         self.assertEqual(len(sentences), 1)
-        self.assertEqual(sentences[0], "Hola")
+        self.assertEqual(sentences[0].text, "Hola")
 
 
 class TestWhisperPeriodRemoval(unittest.TestCase):
@@ -65,16 +64,12 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
         self.fr_config = _get_language_config('fr')
         self.de_config = _get_language_config('de')
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_spanish_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (Spanish)."""
         splitter = SentenceSplitter('es', self.model, self.es_config)
         
-        # Simulate text with Whisper-added period before connector
-        # "trabajo. Y este meta" should become "trabajo y este meta" (same speaker)
         text = "es importante tener una estructura como un trabajo y este meta es tu trabajo cada día"
         
-        # Create speaker segments (same speaker for entire text)
         speaker_segments = [
             {'start_word': 0, 'end_word': 20, 'speaker': 'SPEAKER_00'}
         ]
@@ -84,15 +79,13 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
             speaker_segments=speaker_segments
         )
         
-        # The sentence should NOT be split at "y" since same speaker continues
-        # Check that we don't have a sentence starting with "y" or "Y"
         for sentence in sentences:
-            first_word = sentence.split()[0] if sentence.split() else ''
+            text_ = sentence.text
+            first_word = text_.split()[0] if text_.split() else ''
             first_word_clean = first_word.lower().strip('.,;:!?¿¡')
             self.assertNotEqual(first_word_clean, 'y', 
-                              f"Sentence should not start with 'y' (same speaker): {sentence}")
+                              f"Sentence should not start with 'y' (same speaker): {text_}")
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_english_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (English)."""
         splitter = SentenceSplitter('en', self.model, self.en_config)
@@ -108,14 +101,13 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
             speaker_segments=speaker_segments
         )
         
-        # Should not have sentence starting with "and"
         for sentence in sentences:
-            first_word = sentence.split()[0] if sentence.split() else ''
+            text_ = sentence.text
+            first_word = text_.split()[0] if text_.split() else ''
             first_word_clean = first_word.lower().strip('.,;:!?')
             self.assertNotEqual(first_word_clean, 'and',
-                              f"Sentence should not start with 'and' (same speaker): {sentence}")
+                              f"Sentence should not start with 'and' (same speaker): {text_}")
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_french_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (French)."""
         splitter = SentenceSplitter('fr', self.model, self.fr_config)
@@ -131,14 +123,13 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
             speaker_segments=speaker_segments
         )
         
-        # Should not have sentence starting with "et"
         for sentence in sentences:
-            first_word = sentence.split()[0] if sentence.split() else ''
+            text_ = sentence.text
+            first_word = text_.split()[0] if text_.split() else ''
             first_word_clean = first_word.lower().strip('.,;:!?')
             self.assertNotEqual(first_word_clean, 'et',
-                              f"Sentence should not start with 'et' (same speaker): {sentence}")
+                              f"Sentence should not start with 'et' (same speaker): {text_}")
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_german_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (German)."""
         splitter = SentenceSplitter('de', self.model, self.de_config)
@@ -154,12 +145,12 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
             speaker_segments=speaker_segments
         )
         
-        # Should not have sentence starting with "und"
         for sentence in sentences:
-            first_word = sentence.split()[0] if sentence.split() else ''
+            text_ = sentence.text
+            first_word = text_.split()[0] if text_.split() else ''
             first_word_clean = first_word.lower().strip('.,;:!?')
             self.assertNotEqual(first_word_clean, 'und',
-                              f"Sentence should not start with 'und' (same speaker): {sentence}")
+                              f"Sentence should not start with 'und' (same speaker): {text_}")
     
     def test_different_speaker_connector_preserved(self):
         """Test that periods ARE kept when different speakers start with connector."""
@@ -210,53 +201,47 @@ class TestGrammaticalGuards(unittest.TestCase):
         self.model = MockModel()
         self.es_config = _get_language_config('es')
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_no_break_on_conjunction(self):
         """Test that sentences don't end on coordinating conjunctions."""
         splitter = SentenceSplitter('es', self.model, self.es_config)
         
-        # Should not break after "y"
         text = "tenemos muchos errores y eco es importante"
         sentences, _ = splitter.split(text)
         
-        # Check no sentence ends with just "y"
         for sentence in sentences:
-            last_word = sentence.split()[-1] if sentence.split() else ''
+            text_ = sentence.text
+            last_word = text_.split()[-1] if text_.split() else ''
             last_word_clean = last_word.lower().strip('.,;:!?')
             self.assertNotEqual(last_word_clean, 'y',
-                              f"Sentence should not end with 'y': {sentence}")
+                              f"Sentence should not end with 'y': {text_}")
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_no_break_on_preposition(self):
         """Test that sentences don't end on prepositions."""
         splitter = SentenceSplitter('es', self.model, self.es_config)
         
-        # Should not break after "a"
         text = "entonces yo conocí a un amigo que trabajaba con cámaras"
         sentences, _ = splitter.split(text)
         
-        # Check no sentence ends with just "a"
         for sentence in sentences:
-            last_word = sentence.split()[-1] if sentence.split() else ''
+            text_ = sentence.text
+            last_word = text_.split()[-1] if text_.split() else ''
             last_word_clean = last_word.lower().strip('.,;:!?')
             self.assertNotEqual(last_word_clean, 'a',
-                              f"Sentence should not end with 'a': {sentence}")
+                              f"Sentence should not end with 'a': {text_}")
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_no_break_on_auxiliary_verb(self):
         """Test that sentences don't end on auxiliary/continuative verbs."""
         splitter = SentenceSplitter('es', self.model, self.es_config)
         
-        # Should not break after "estaba"
         text = "yo estaba en Colombia y estaba continuando con la universidad"
         sentences, _ = splitter.split(text)
         
-        # Check no sentence ends with just "estaba"
         for sentence in sentences:
-            last_word = sentence.split()[-1] if sentence.split() else ''
+            text_ = sentence.text
+            last_word = text_.split()[-1] if text_.split() else ''
             last_word_clean = last_word.lower().strip('.,;:!?')
             self.assertNotEqual(last_word_clean, 'estaba',
-                              f"Sentence should not end with 'estaba': {sentence}")
+                              f"Sentence should not end with 'estaba': {text_}")
 
 
 class TestSpeakerBoundaryPriority(unittest.TestCase):

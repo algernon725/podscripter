@@ -24,22 +24,19 @@ pytestmark = pytest.mark.core
 class TestExtractSpeakerBoundaries(unittest.TestCase):
     """Test extraction of speaker boundaries from segments."""
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_empty_segments(self):
         """Empty segments should return empty boundaries."""
-        result = _extract_speaker_boundaries([])
-        self.assertEqual(result, [])
+        boundaries, details = _extract_speaker_boundaries([])
+        self.assertEqual(boundaries, [])
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_single_segment(self):
         """Single segment should have no boundaries."""
         segments: list[SpeakerSegment] = [
             {"start": 0.0, "end": 10.0, "speaker": "SPEAKER_00"}
         ]
-        result = _extract_speaker_boundaries(segments)
-        self.assertEqual(result, [])
+        boundaries, details = _extract_speaker_boundaries(segments)
+        self.assertEqual(boundaries, [])
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_same_speaker_no_boundary(self):
         """Segments with same speaker should not create boundaries."""
         segments: list[SpeakerSegment] = [
@@ -47,20 +44,18 @@ class TestExtractSpeakerBoundaries(unittest.TestCase):
             {"start": 10.0, "end": 20.0, "speaker": "SPEAKER_00"},
             {"start": 20.0, "end": 30.0, "speaker": "SPEAKER_00"}
         ]
-        result = _extract_speaker_boundaries(segments)
-        self.assertEqual(result, [])
+        boundaries, details = _extract_speaker_boundaries(segments)
+        self.assertEqual(boundaries, [])
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_speaker_change_creates_boundary(self):
         """Speaker change should create boundary at end of first segment."""
         segments: list[SpeakerSegment] = [
             {"start": 0.0, "end": 10.0, "speaker": "SPEAKER_00"},
             {"start": 10.0, "end": 20.0, "speaker": "SPEAKER_01"}
         ]
-        result = _extract_speaker_boundaries(segments)
-        self.assertEqual(result, [10.0])
+        boundaries, details = _extract_speaker_boundaries(segments)
+        self.assertEqual(boundaries, [10.0])
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_multiple_speaker_changes(self):
         """Multiple speaker changes should create multiple boundaries."""
         segments: list[SpeakerSegment] = [
@@ -69,22 +64,19 @@ class TestExtractSpeakerBoundaries(unittest.TestCase):
             {"start": 15.0, "end": 25.0, "speaker": "SPEAKER_00"},
             {"start": 25.0, "end": 35.0, "speaker": "SPEAKER_02"}
         ]
-        result = _extract_speaker_boundaries(segments)
-        self.assertEqual(result, [10.0, 15.0, 25.0])
+        boundaries, details = _extract_speaker_boundaries(segments)
+        self.assertEqual(boundaries, [10.0, 15.0, 25.0])
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_short_segments_filtered(self):
-        """Very short segments (< MIN_SPEAKER_SEGMENT_SEC) should be filtered."""
+        """Very short segments (< MIN_SPEAKER_SEGMENT_SEC=0.5s) should be filtered."""
         segments: list[SpeakerSegment] = [
-            {"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"},  # Too short (1s)
-            {"start": 1.0, "end": 4.0, "speaker": "SPEAKER_01"},  # Long enough (3s)
-            {"start": 4.0, "end": 5.5, "speaker": "SPEAKER_00"}   # Too short (1.5s)
+            {"start": 0.0, "end": 0.3, "speaker": "SPEAKER_00"},  # Too short (0.3s < 0.5s)
+            {"start": 0.3, "end": 4.0, "speaker": "SPEAKER_01"},  # Long enough (3.7s)
+            {"start": 4.0, "end": 4.4, "speaker": "SPEAKER_00"}   # Too short (0.4s < 0.5s)
         ]
-        result = _extract_speaker_boundaries(segments)
-        # Only the boundary after the 3s segment should be included
-        self.assertEqual(result, [4.0])
+        boundaries, details = _extract_speaker_boundaries(segments)
+        self.assertEqual(boundaries, [4.0])
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_unsorted_segments(self):
         """Unsorted segments should be sorted before processing."""
         segments: list[SpeakerSegment] = [
@@ -92,9 +84,8 @@ class TestExtractSpeakerBoundaries(unittest.TestCase):
             {"start": 0.0, "end": 10.0, "speaker": "SPEAKER_00"},
             {"start": 10.0, "end": 20.0, "speaker": "SPEAKER_01"}
         ]
-        result = _extract_speaker_boundaries(segments)
-        # Should detect boundary at 10.0 where speaker changes from 00 to 01
-        self.assertEqual(result, [10.0])
+        boundaries, details = _extract_speaker_boundaries(segments)
+        self.assertEqual(boundaries, [10.0])
 
 
 class TestMergeBoundaries(unittest.TestCase):

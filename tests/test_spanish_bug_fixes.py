@@ -33,11 +33,10 @@ def test_bug2_trailing_commas(text):
     assert not result.rstrip().endswith(','), f"Trailing comma: {result!r}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 @pytest.mark.parametrize("text", [
-    "No se ha desestabilizado la economía, pero sabemos que en la mayoría sí.¿Así que por eso queremos analizar un poquito por qué está sucediendo esto y muchos de ustedes ya sabrán esas razones, si les gusta leer,",
+    pytest.param("No se ha desestabilizado la economía, pero sabemos que en la mayoría sí.¿Así que por eso queremos analizar un poquito por qué está sucediendo esto y muchos de ustedes ya sabrán esas razones, si les gusta leer,", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Despidan a los empleados por los siguientes dos o tres meses, ¿no",
-    "Sé cómo explicar un bailout en español, ¿tú sabes?¿No sé qué es eso",
+    pytest.param("Sé cómo explicar un bailout en español, ¿tú sabes?¿No sé qué es eso", marks=pytest.mark.xfail(reason="NLP output drift")),
 ])
 def test_bug3_inverted_question_marks_mid_sentence(text):
     """Inverted question marks should not appear improperly fused to preceding punctuation."""
@@ -55,21 +54,20 @@ def test_bug4_question_mark_after_period():
     assert result[-1] in '.?!', f"Missing end punctuation: {result!r}"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 @pytest.mark.parametrize("text", [
-    "Hola cómo estás hoy",
+    pytest.param("Hola cómo estás hoy", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Qué hora es",
     "Dónde está la reunión",
     "Cuándo es la cita",
     "Cómo te llamas",
     "Quién puede ayudarme",
     "Cuál es tu nombre",
-    "Por qué no viniste",
-    "Recuerdas la última vez",
+    pytest.param("Por qué no viniste", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Recuerdas la última vez", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Sabes dónde queda",
-    "Puedes ayudarme",
-    "Quieres que vayamos",
-    "Necesitas algo más",
+    pytest.param("Puedes ayudarme", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Quieres que vayamos", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Necesitas algo más", marks=pytest.mark.xfail(reason="NLP output drift")),
 ])
 def test_additional_question_detection(text):
     """Spanish questions should be detected and end with '?'."""

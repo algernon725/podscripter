@@ -11,24 +11,24 @@ pytestmark = pytest.mark.core
 
 @pytest.mark.parametrize("text,description", [
     ("qué hora es la reunión mañana", "Basic question word (qué)"),
-    ("dónde está la oficina", "Basic question word (dónde)"),
+    pytest.param("dónde está la oficina", "Basic question word (dónde)", marks=pytest.mark.xfail(reason="NLP output drift")),
     ("cuándo es la cita", "Basic question word (cuándo)"),
     ("cómo estás hoy", "Basic question word (cómo)"),
     ("quién puede ayudarme", "Basic question word (quién)"),
     ("cuál es tu nombre", "Basic question word (cuál)"),
-    ("puedes enviarme la agenda", "Question pattern (puedes)"),
-    ("podrías explicar esto", "Question pattern (podrías)"),
-    ("vas a venir mañana", "Question pattern (vas a)"),
-    ("tienes tiempo para reunirte", "Question pattern (tienes)"),
-    ("necesitas ayuda con esto", "Question pattern (necesitas)"),
+    pytest.param("puedes enviarme la agenda", "Question pattern (puedes)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("podrías explicar esto", "Question pattern (podrías)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("vas a venir mañana", "Question pattern (vas a)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("tienes tiempo para reunirte", "Question pattern (tienes)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("necesitas ayuda con esto", "Question pattern (necesitas)", marks=pytest.mark.xfail(reason="NLP output drift")),
     ("sabes dónde queda", "Question pattern (sabes)"),
-    ("hay algo más que necesites", "Question pattern (hay)"),
-    ("está todo bien contigo", "Question pattern (está)"),
-    ("te gusta esta idea", "Question pattern (te gusta)"),
-    ("quieres que vayamos juntos", "Question pattern (quieres)"),
-    ("te parece bien la propuesta", "Question pattern (te parece)"),
-    ("crees que es correcto", "Question pattern (crees)"),
-    ("piensas que funcionará", "Question pattern (piensas)"),
+    pytest.param("hay algo más que necesites", "Question pattern (hay)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("está todo bien contigo", "Question pattern (está)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("te gusta esta idea", "Question pattern (te gusta)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("quieres que vayamos juntos", "Question pattern (quieres)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("te parece bien la propuesta", "Question pattern (te parece)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("crees que es correcto", "Question pattern (crees)", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("piensas que funcionará", "Question pattern (piensas)", marks=pytest.mark.xfail(reason="NLP output drift")),
     ("qué hora es la reunión", "Question word combination (qué hora)"),
     ("dónde está la reunión", "Question word combination (dónde está)"),
     ("cuándo es la cita", "Question word combination (cuándo es)"),
@@ -36,7 +36,6 @@ pytestmark = pytest.mark.core
     ("quién puede ayudarme", "Question word combination (quién puede)"),
     ("cuál es tu preferencia", "Question word combination (cuál es)"),
 ])
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_spanish_question_detected(text, description):
     """Text expected to be a question should contain '?' in result."""
     result = restore_punctuation(text, 'es')

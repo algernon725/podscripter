@@ -248,12 +248,14 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `test_spanish_false_domains.py`: prevention of Spanish words being treated as domains
   - `test_domain_utils.py`: centralized domain detection, masking, and exclusion utilities
   - `test_initials_normalization.py`: person initial normalization like "C.S. Lewis" (WIP)
-- Known pre-existing test failures (174 tests across 36 files):
-  - These tests are marked with `@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")`
+- Known pre-existing test failures (142 xfail test invocations across 32 files):
+  - xfail markers are now **per-parameter** on parametrized tests (not function-level), so only the specific failing inputs are marked
+  - Two xfail reasons:
+    - `reason="NLP output drift"` — exact-match or question-detection expectations that no longer match current model output (bulk of the 142)
+    - `reason="Pre-existing: test expectations predate API changes"` — remaining non-parametrized tests with stale expectations
   - They show as `xfail` (expected failure) in pytest output, NOT as `FAILED`
-  - Root causes: API return types changed since tests were written (e.g., `restore_punctuation` now returns a tuple; `_extract_speaker_boundaries` returns `(boundaries, segments)`), exact-match expectations on NLP output that drifted, or test logic that was incorrect from the start
-  - These tests were originally print-only with no assertions, so the failures were invisible until the pytest migration added real assertions
-  - When fixing these, remove the `@pytest.mark.xfail` decorator so the test becomes a normal passing test
+  - 84 previously-xfail tests have been fixed and now pass normally (33 from return-type mismatches, 51 from verified-correct xpassed tests promoted to normal)
+  - When fixing xfail tests, remove the `@pytest.mark.xfail` decorator (or `marks=pytest.mark.xfail(...)` from the `pytest.param`) so the test becomes a normal passing test
   - If a previously-xfail test starts passing without code changes, pytest reports it as `XPASS` — this is informational and not a failure
 
 ### 3. Docker Best Practices
@@ -705,6 +707,37 @@ Implemented the sentence splitting consolidation refactor. The new `SentenceSpli
 **Tests**: `test_initials_normalization.py` (comprehensive coverage for EN/ES/FR/DE)
 
 ### 6. Known Limitations and Open Issues
+
+#### Remaining xfail Tests — NLP Output Drift (OPEN - v0.8.0)
+**142 xfail test invocations across 32 files** remain after the pytest migration. These were audited and categorized; none are false positives. The xfail markers are per-parameter on parametrized tests, so only the specific failing inputs are marked.
+
+**Category A: Question detection drift (≈80 tests, HIGH priority)**
+Tests assert that `restore_punctuation` adds `?` to Spanish question patterns (e.g., "puedes ayudarme" → "¿Puedes ayudarme?"). The model detects questions starting with explicit question words (qué, cómo, cuándo) but misses implicit question patterns (verb-first without question words: puedes, tienes, quieres, crees, etc.).
+
+Files: `test_spanish_questions.py` (13), `test_spanish_inverted_questions.py` (13), `test_spanish_bug_fixes.py` (8), `test_multilingual_questions.py` (15), `test_specific_spanish_bugs.py` (2), `test_specific_question.py` (1), `test_past_tense_questions.py` (2)
+
+**Remediation**: Improve question detection heuristics in `punctuation_restorer.py` for verb-first Spanish patterns. The passing tests show the model handles explicit question words correctly; the gap is in pragmatic/contextual question detection.
+
+**Category B: Exact-match sentence splitting drift (≈30 tests, MEDIUM priority)**
+Tests assert `restore_punctuation(input) == expected` for EN/FR/DE/ES inputs. The model produces slightly different output than expected (e.g., different comma placement, missing question marks on implicit questions, different capitalization).
+
+Files: `test_english_sentence_splitting.py` (9), `test_french_sentence_splitting.py` (7), `test_german_sentence_splitting.py` (8), `test_spanish_sentence_splitting.py` (7)
+
+**Remediation**: Run each failing case in Docker, inspect actual vs expected, and either (a) update expectations to match correct current output, or (b) fix the model if current output is wrong. Many of these overlap with Category A (implicit question detection).
+
+**Category C: Integration tests — domain/number/formatting (≈20 tests, MEDIUM priority)**
+Tests for domain merging, decimal preservation, capitalization, whisper boundary handling, and SRT normalization.
+
+Files: `test_spanish_capitalization_domain_regression.py` (5), `test_initials_normalization.py` (4), `test_spanish_numbers.py` (3), `test_spanish_false_domains.py` (2), `test_spanish_embedded_questions.py` (2), `test_domain_utils.py` (2), `test_chunk_merge_helpers.py` (2), `test_whisper_skipped_boundary_detailed.py` (2), `test_whisper_skipped_boundary_periods.py` (3), `test_spanish_domains_and_ellipses.py` (1), `test_trailing_comma_bug.py` (1), `test_srt_normalization.py` (1), `test_transcribe_helpers.py` (1)
+
+**Remediation**: Run each in Docker, inspect actual output, and update test expectations or fix the underlying function. These are typically one-off fixes.
+
+**Category D: Run-on / similarity / intro tests (≈10 tests, LOW priority)**
+Scoring thresholds, run-on detection, and introduction matching.
+
+Files: `test_multilingual_runon_sentences.py` (2), `test_english_runon_fix.py` (1), `test_french_runon_fix.py` (1), `test_german_runon_fix.py` (1), `test_spanish_runon_fix.py` (1), `test_multilingual_introductions.py` (1), `test_human_vs_program_intro.py` (1), `test_spanish_helpers.py` (1)
+
+**Remediation**: Run in Docker, compare actual vs expected, update expectations.
 
 #### Diarization Misalignment Causing Sentence Fragments (OPEN - v0.6.1)
 **Problem**: When pyannote diarization incorrectly attributes a brief interjection to the previous speaker, the period removal logic can create sentence fragments.

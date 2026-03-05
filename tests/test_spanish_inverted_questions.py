@@ -11,28 +11,27 @@ from conftest import restore_punctuation
 pytestmark = pytest.mark.core
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 @pytest.mark.parametrize("text", [
-    "Estamos listos",
+    pytest.param("Estamos listos", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Cómo están",
     "No sé qué es eso",
-    "Puedes ayudarme",
+    pytest.param("Puedes ayudarme", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Sabes dónde está",
-    "Quieres que vayamos",
-    "Necesitas algo más",
-    "Tienes tiempo",
+    pytest.param("Quieres que vayamos", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Necesitas algo más", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Tienes tiempo", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Va a llover hoy",
-    "Estás listo",
-    "Puedo ayudarte",
+    pytest.param("Estás listo", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Puedo ayudarte", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Hay algo más",
-    "Está todo bien",
+    pytest.param("Está todo bien", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Te parece bien",
-    "Crees que es correcto",
-    "Va a funcionar",
-    "Están listos",
+    pytest.param("Crees que es correcto", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Va a funcionar", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Están listos", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Pueden ayudarme",
-    "Saben qué hacer",
-    "Quieren ir",
+    pytest.param("Saben qué hacer", marks=pytest.mark.xfail(reason="NLP output drift")),
+    pytest.param("Quieren ir", marks=pytest.mark.xfail(reason="NLP output drift")),
 ])
 def test_spanish_inverted_questions(text):
     """Spanish questions should have inverted question marks."""

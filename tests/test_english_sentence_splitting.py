@@ -13,6 +13,7 @@ ENGLISH_SPLITTING_CASES = [
         "And President Trump is putting the D. C. Police Department under federal control.",
         "And President Trump is putting the DC Police Department under federal control.",
         id="do-not-split-dotted-acronym-DC",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "He calls the U. S. Capitol a place of unchecked crime and squalor.",
@@ -23,31 +24,37 @@ ENGLISH_SPLITTING_CASES = [
         "He compared the speed and power of this crackdown to what's happening on the U.S.-Mexico border.",
         "He compared the speed and power of this crackdown to what's happening on the US-Mexico border.",
         id="compact-dotted-acronym-US-before-hyphen",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "i am john from new york city",
         "I am John from New York City.",
         id="introduction-one-sentence",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "do you remember all those moments when you didn't know what to say",
         "Do you remember all those moments when you didn't know what to say?",
         id="question-with-question-mark",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "hello how are you today",
         "Hello, how are you today?",
         id="greeting-with-question",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "my name is sarah and i live in london",
         "My name is Sarah and I live in London.",
         id="introduction-with-conjunction",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "what time is the meeting tomorrow",
         "What time is the meeting tomorrow?",
         id="question-about-time",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "it is important that everyone is present",
@@ -58,6 +65,7 @@ ENGLISH_SPLITTING_CASES = [
         "can you help me with this project",
         "Can you help me with this project?",
         id="request-for-help",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "i would like to introduce myself",
@@ -68,6 +76,7 @@ ENGLISH_SPLITTING_CASES = [
         "where did you learn to speak english",
         "Where did you learn to speak English?",
         id="question-about-learning",
+        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "thank you for your time today",
@@ -77,7 +86,6 @@ ENGLISH_SPLITTING_CASES = [
 ]
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 @pytest.mark.parametrize("input_text,expected", ENGLISH_SPLITTING_CASES)
 def test_english_sentence_splitting(input_text, expected):
     """Test English sentence splitting issues."""
