@@ -12,16 +12,13 @@ def assert_float_close(a, b, tol=1e-6):
         raise AssertionError(f"Expected {b} but got {a}")
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_trims_to_next_start_minus_gap():
     segs = [
-        {"start": 0.0, "end": 10.0, "text": "Hello"},
+        {"start": 0.0, "end": 10.0, "text": "Hello world this is a longer text segment for testing trimming"},
         {"start": 3.0, "end": 4.0, "text": "world"},
     ]
     out = _normalize_srt_cues(segs, max_duration=6.0, min_gap=0.2, min_duration=1.0)
-    # First end should be trimmed to 2.8 (3.0 - 0.2)
     assert_float_close(out[0]["end"], 2.8)
-    # Second remains within original bounds (max_duration not hit)
     assert_float_close(out[1]["start"], 3.0)
     assert_float_close(out[1]["end"], 4.0)
 

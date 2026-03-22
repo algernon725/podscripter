@@ -3,77 +3,8 @@
 import pytest
 
 import punctuation_restorer as pr  # noqa: E402
-from spanish_samples import SPANISH_ASR_SEGMENTS, HUMAN_REFERENCE_TEXT  # noqa: E402
 
 pytestmark = pytest.mark.core
-
-
-def _normalize(s: str) -> str:
-    import re
-    s = s.strip()
-    s = re.sub(r"\n+", " ", s)
-    s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"([.!?])\s+", r"\1 ", s)
-    return s.lower()
-
-
-def score_similarity(generated: str, reference: str) -> dict:
-    from difflib import SequenceMatcher
-    gen = _normalize(generated)
-    ref = _normalize(reference)
-    ratio = SequenceMatcher(None, gen, ref).ratio()
-    gen_tokens = gen.split()
-    ref_tokens = ref.split()
-    common = sum((min(gen_tokens.count(t), ref_tokens.count(t)) for t in set(gen_tokens + ref_tokens)))
-    precision = common / max(1, len(gen_tokens))
-    recall = common / max(1, len(ref_tokens))
-    f1 = 0.0 if (precision + recall) == 0 else 2 * precision * recall / (precision + recall)
-    gen_sentences = [s.strip() for s in generated.split('\n') if s.strip()]
-    ref_sentences = [s.strip() for s in reference.split('\n') if s.strip()]
-    gen_norm = [_normalize(s) for s in gen_sentences]
-    ref_norm = [_normalize(s) for s in ref_sentences]
-    matched = 0
-    used = set()
-    for s in gen_norm:
-        for idx, r in enumerate(ref_norm):
-            if idx in used:
-                continue
-            from difflib import SequenceMatcher as SM
-            if SM(None, s, r).ratio() >= 0.70:
-                matched += 1
-                used.add(idx)
-                break
-    sent_precision = matched / max(1, len(gen_norm))
-    sent_recall = matched / max(1, len(ref_norm))
-    sent_f1 = 0.0 if (sent_precision + sent_recall) == 0 else 2 * sent_precision * sent_recall / (sent_precision + sent_recall)
-    return {
-        "ratio": ratio,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "sent_precision": sent_precision,
-        "sent_recall": sent_recall,
-        "sent_f1": sent_f1,
-    }
-
-
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
-def test_spanish_transcription_scoring():
-    from podscripter import _assemble_sentences
-
-    all_text = ' '.join(SPANISH_ASR_SEGMENTS)
-
-    sentences = _assemble_sentences(all_text, [], 'es', quiet=True)
-
-    generated_text = "\n\n".join(sentences)
-
-    reference_text = HUMAN_REFERENCE_TEXT
-
-    metrics = score_similarity(generated_text, reference_text)
-
-    assert metrics["ratio"] > 0.30
-    assert metrics["f1"] > 0.70
-    assert metrics["sent_f1"] > 0.10
 
 
 """

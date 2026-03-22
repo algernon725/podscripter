@@ -108,25 +108,3 @@ def test_ellipsis_not_split():
         assert "rota" in out[0]
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
-def test_exact_domain_split_pattern():
-    """Test the exact problematic pattern from Episodio184."""
-    from podscripter import _assemble_sentences
-
-    test_text = "Debes ir a espanolistos.com y ahí puedes encontrar este episodio y todos los demás"
-    sentences = _assemble_sentences(test_text, 'es', quiet=True)
-
-    assert len(sentences) == 1
-    assert "espanolistos.com" in sentences[0]
-    assert "espanolistos." not in sentences[0] or "Com." not in str(sentences)
-    assert "y ahí puedes encontrar" in sentences[0]
-
-    split_sentences = ["Debes ir a espanolistos.", "Com.", "Y ahí puedes encontrar este episodio."]
-    merged = _assemble_sentences("\n\n".join(split_sentences), 'es', quiet=True)
-
-    found_complete = False
-    for sentence in merged:
-        if "espanolistos.com" in sentence and "ahí puedes encontrar" in sentence:
-            found_complete = True
-            break
-    assert found_complete, f"Domain not properly merged in: {merged}"

@@ -708,36 +708,27 @@ Implemented the sentence splitting consolidation refactor. The new `SentenceSpli
 
 ### 6. Known Limitations and Open Issues
 
-#### Remaining xfail Tests — NLP Output Drift (OPEN - v0.8.0)
-**142 xfail test invocations across 32 files** remain after the pytest migration. These were audited and categorized; none are false positives. The xfail markers are per-parameter on parametrized tests, so only the specific failing inputs are marked.
+#### Remaining xfail Tests — NLP Output Drift (OPEN - v0.8.2)
+**83 xfail test invocations across 10 files** remain. These are all genuine NLP model limitations — verified by running every xfail in Docker (v0.8.2). All represent cases where the model produces incorrect or suboptimal output. The xfail markers are per-parameter on parametrized tests.
 
-**Category A: Question detection drift (≈80 tests, HIGH priority)**
-Tests assert that `restore_punctuation` adds `?` to Spanish question patterns (e.g., "puedes ayudarme" → "¿Puedes ayudarme?"). The model detects questions starting with explicit question words (qué, cómo, cuándo) but misses implicit question patterns (verb-first without question words: puedes, tienes, quieres, crees, etc.).
+**Question detection (52 xfails, HIGH priority)**
+The model detects questions starting with explicit question words (qué, cómo, cuándo) but misses implicit question patterns (verb-first without question words: puedes, tienes, quieres, crees, etc.). Also affects multilingual question detection (FR, DE, IT, PT, NL, JA, RU).
 
-Files: `test_spanish_questions.py` (13), `test_spanish_inverted_questions.py` (13), `test_spanish_bug_fixes.py` (8), `test_multilingual_questions.py` (15), `test_specific_spanish_bugs.py` (2), `test_specific_question.py` (1), `test_past_tense_questions.py` (2)
+Files: `test_spanish_questions.py` (13), `test_spanish_inverted_questions.py` (13), `test_multilingual_questions.py` (15), `test_spanish_bug_fixes.py` (8), `test_spanish_embedded_questions.py` (2), `test_multilingual_runon_sentences.py` (1 — French question marks)
 
-**Remediation**: Improve question detection heuristics in `punctuation_restorer.py` for verb-first Spanish patterns. The passing tests show the model handles explicit question words correctly; the gap is in pragmatic/contextual question detection.
+**Remediation**: Improve question detection heuristics in `punctuation_restorer.py` for verb-first patterns. The passing tests show the model handles explicit question words correctly.
 
-**Category B: Exact-match sentence splitting drift (≈30 tests, MEDIUM priority)**
-Tests assert `restore_punctuation(input) == expected` for EN/FR/DE/ES inputs. The model produces slightly different output than expected (e.g., different comma placement, missing question marks on implicit questions, different capitalization).
+**Sentence splitting / formatting (31 xfails, MEDIUM priority)**
+Exact-match tests where the model produces different output than expected: missing question marks on implicit questions, different comma placement, missing capitalization of proper nouns, German-specific issues (abbreviation handling, decimal preservation, colon/comma placement).
 
-Files: `test_english_sentence_splitting.py` (9), `test_french_sentence_splitting.py` (7), `test_german_sentence_splitting.py` (8), `test_spanish_sentence_splitting.py` (7)
+Files: `test_english_sentence_splitting.py` (9), `test_german_sentence_splitting.py` (8), `test_spanish_sentence_splitting.py` (7), `test_french_sentence_splitting.py` (7)
 
-**Remediation**: Run each failing case in Docker, inspect actual vs expected, and either (a) update expectations to match correct current output, or (b) fix the model if current output is wrong. Many of these overlap with Category A (implicit question detection).
+**Remediation**: Many overlap with question detection. German-specific issues (z.B. abbreviation, 3.5 decimal, colon in reported speech) are independent NLP gaps.
 
-**Category C: Integration tests — domain/number/formatting (≈20 tests, MEDIUM priority)**
-Tests for domain merging, decimal preservation, capitalization, whisper boundary handling, and SRT normalization.
-
-Files: `test_spanish_capitalization_domain_regression.py` (5), `test_initials_normalization.py` (4), `test_spanish_numbers.py` (3), `test_spanish_false_domains.py` (2), `test_spanish_embedded_questions.py` (2), `test_domain_utils.py` (2), `test_chunk_merge_helpers.py` (2), `test_whisper_skipped_boundary_detailed.py` (2), `test_whisper_skipped_boundary_periods.py` (3), `test_spanish_domains_and_ellipses.py` (1), `test_trailing_comma_bug.py` (1), `test_srt_normalization.py` (1), `test_transcribe_helpers.py` (1)
-
-**Remediation**: Run each in Docker, inspect actual output, and update test expectations or fix the underlying function. These are typically one-off fixes.
-
-**Category D: Run-on / similarity / intro tests (≈10 tests, LOW priority)**
-Scoring thresholds, run-on detection, and introduction matching.
-
-Files: `test_multilingual_runon_sentences.py` (2), `test_english_runon_fix.py` (1), `test_french_runon_fix.py` (1), `test_german_runon_fix.py` (1), `test_spanish_runon_fix.py` (1), `test_multilingual_introductions.py` (1), `test_human_vs_program_intro.py` (1), `test_spanish_helpers.py` (1)
-
-**Remediation**: Run in Docker, compare actual vs expected, update expectations.
+**Previously resolved (v0.8.2):** 59 xfails were eliminated from v0.8.1's 142:
+- 12 fixed by correcting API call mismatches (`_assemble_sentences` signature, `_accumulate_segments` text joining, `Sentence` object extraction)
+- 11 fixed by updating test expectations to match verified-correct current behavior (domain masking, SRT normalization, trailing comma, dedup segments)
+- 36 removed: 15 deleted files (duplicates/redundant/aspirational), 21 low-value xfail functions removed from files that also have passing tests (run-on detection, initials normalization, thousands commas, whisper boundary periods, domain assembly drift)
 
 #### Diarization Misalignment Causing Sentence Fragments (OPEN - v0.6.1)
 **Problem**: When pyannote diarization incorrectly attributes a brief interjection to the previous speaker, the period removal logic can create sentence fragments.

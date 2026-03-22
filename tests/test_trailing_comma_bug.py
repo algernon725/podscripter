@@ -22,7 +22,6 @@ pytestmark = pytest.mark.core
 class TestTrailingCommaBug(unittest.TestCase):
     """Test that trailing commas are stripped before adding terminal punctuation."""
     
-    @pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
     def test_spanish_trailing_comma_with_question_words(self):
         """Test the specific bug case: sentence with trailing comma containing 'no'."""
         # This is the exact text from the bug report
@@ -36,12 +35,11 @@ class TestTrailingCommaBug(unittest.TestCase):
         
         # Should not have ", ?" in any sentence
         for sentence in sentences:
-            self.assertNotIn(', ?', sentence,
-                           f"Sentence should not contain ', ?': {sentence}")
-            
-            # Should end with proper punctuation (. or ?)
-            self.assertTrue(sentence.rstrip().endswith(('.', '!', '?')),
-                          f"Sentence should end with terminal punctuation: {sentence}")
+            s = sentence.text if hasattr(sentence, 'text') else sentence
+            self.assertNotIn(', ?', s,
+                           f"Sentence should not contain ', ?': {s}")
+            self.assertTrue(s.rstrip().endswith(('.', '!', '?')),
+                          f"Sentence should end with terminal punctuation: {s}")
     
     def test_spanish_trailing_comma_no_question_words(self):
         """Test trailing comma is removed even without question words."""

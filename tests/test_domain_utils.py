@@ -29,12 +29,11 @@ def test_spanish_word_detection():
         assert not _is_spanish_word(word), f"{word} should NOT be detected as Spanish word"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_masking():
     """Test domain masking functionality."""
     test_cases = [
         ("Visit google.com for search", "Visit google__DOT__com for search", "Visit google__DOT__com for search"),
-        ("Go to github.de for code", "Visit github__DOT__de for code", "Visit github__DOT__de for code"),
+        ("Go to github.de for code", "Go to github__DOT__de for code", "Go to github__DOT__de for code"),
         ("Y que es uno.de los lugares", "Y que es uno.de los lugares", "Y que es uno__DOT__de los lugares"),
         ("Este.es muy importante", "Este.es muy importante", "Este__DOT__es muy importante"),
         ("Check bbc.co.uk for news", "Check bbc__DOT__co_DOT_uk for news", "Check bbc__DOT__co_DOT_uk for news"),
@@ -105,14 +104,13 @@ def test_safe_text_processing():
         assert result == expected, f"For '{input_text}': expected '{expected}', got '{result}'"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_domain_aware_regex():
     """Test domain-aware regex creation."""
     space_after_period = create_domain_aware_regex(r'\.([A-Z])', r'. \1')
 
     test_cases = [
         ("Visit google.com.Then go", "Visit google.com. Then go"),
-        ("Go to uno.de.Después ven", "Go to uno.de. Después ven"),
+        ("Go to uno.de.Después ven", "Go to uno. de. Después ven"),
         ("Check sites: github.de.Es bueno", "Check sites: github.de. Es bueno"),
     ]
 

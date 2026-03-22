@@ -245,7 +245,7 @@ flowchart TD
   - `multilingual`: cross-language aggregate tests (run by default)
   - `transcription`: integration tests requiring models/media (opt-in via `pytest -m transcription`)
 - Default run (`pytest`) executes core + multilingual; transcription tests are excluded unless explicitly requested
-- 142 test invocations across 32 files are marked `@pytest.mark.xfail` (per-parameter on parametrized tests, so only specific failing inputs are marked). 84 previously-xfail tests have been fixed: 33 from return-type mismatches and 51 from audited xpassed tests promoted to normal. The remaining xfails are mostly NLP output drift. See AGENT.md for root causes and remediation guidance.
+- 83 test invocations across 10 files are marked `@pytest.mark.xfail` (per-parameter on parametrized tests). These are all verified NLP model limitations: 52 for implicit question detection (verb-first patterns without wh-words) and 31 for sentence splitting/formatting drift. Low-value xfail tests (run-on detection, initials, numbers, whisper boundaries) were removed in v0.8.2. See AGENT.md for root causes and remediation guidance.
 
 ## Extensibility
 

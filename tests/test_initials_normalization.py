@@ -1,61 +1,83 @@
 #!/usr/bin/env python3
 """
-Test normalization of person initials and organizational acronyms across languages.
+Test normalization of person initials and organizational acronyms.
 
-This test covers the bug where names with initials (like "C.S. Lewis", "J.K. Rowling")
-are incorrectly split into separate sentences when they appear in transcriptions,
-particularly in non-English texts that reference English names.
+Tests both the _normalize_initials_and_acronyms function directly (unit tests)
+and the end-to-end pipeline behavior through restore_punctuation.
+
+Known limitation: spaCy's _apply_spacy_capitalization() can re-space initials
+downstream, so the end-to-end pipeline does not always preserve compact initials.
+The normalization function itself works correctly.
 """
 
 from conftest import restore_punctuation
+from punctuation_restorer import _normalize_initials_and_acronyms
 import pytest
 
 pytestmark = pytest.mark.core
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
-def test_spanish_with_english_names():
-    """Test Spanish text containing English names with initials."""
-    test_cases = [
-        {
-            'input': 'es a C. S. Lewis porque él escribió muchos libros que me parecen interesantes',
-            'description': 'C.S. Lewis in Spanish context',
-            'should_not_contain': ['es a c.', 'S.', 'es a C.'],
-            'should_contain': 'C.S. Lewis'
-        },
-        {
-            'input': 'me gusta leer a J. K. Rowling porque escribió Harry Potter',
-            'description': 'J.K. Rowling in Spanish context',
-            'should_not_contain': ['J.', 'K.'],
-            'should_contain': 'J.K. Rowling'
-        },
-        {
-            'input': 'leí un libro de C. S. Lewis que se llama Las Crónicas de Narnia',
-            'description': 'C.S. Lewis with book title',
-            'should_not_contain': ['C.', 'S.'],
-            'should_contain': 'C.S. Lewis'
-        },
-        {
-            'input': 'J. R. R. Tolkien escribió El Señor de los Anillos',
-            'description': 'Three initials: J.R.R. Tolkien',
-            'should_not_contain': ['J.', 'R.'],
-            'should_contain': 'J.R.R. Tolkien'
-        },
-    ]
+# ── Unit tests for _normalize_initials_and_acronyms ──────────────────────────
 
-    for test in test_cases:
-        result = restore_punctuation(test['input'], 'es')
+def test_two_initial_person_name():
+    """Two spaced initials + surname → compact with periods."""
+    assert _normalize_initials_and_acronyms("C. S. Lewis") == "C.S. Lewis"
+    assert _normalize_initials_and_acronyms("J. K. Rowling") == "J.K. Rowling"
 
-        for bad_pattern in test['should_not_contain']:
-            assert bad_pattern not in result, \
-                f"[{test['description']}] Found incorrect split pattern: '{bad_pattern}' in '{result}'"
 
-        assert test['should_contain'] in result, \
-            f"[{test['description']}] Expected pattern '{test['should_contain']}' not found in '{result}'"
+def test_three_initial_person_name():
+    """Three spaced initials + surname → compact with periods."""
+    assert _normalize_initials_and_acronyms("J. R. R. Tolkien") == "J.R.R. Tolkien"
 
+
+def test_person_name_in_spanish_context():
+    """Initials in a Spanish sentence are compacted."""
+    result = _normalize_initials_and_acronyms(
+        "es a C. S. Lewis porque él escribió muchos libros"
+    )
+    assert "C.S. Lewis" in result
+
+
+def test_person_name_in_french_context():
+    result = _normalize_initials_and_acronyms(
+        "j'aime lire C. S. Lewis parce qu'il a écrit des livres"
+    )
+    assert "C.S. Lewis" in result
+
+
+def test_multiple_names_in_one_sentence():
+    result = _normalize_initials_and_acronyms(
+        "me gusta C. S. Lewis y también J. K. Rowling"
+    )
+    assert "C.S. Lewis" in result
+    assert "J.K. Rowling" in result
+
+
+def test_three_letter_acronym_at_end():
+    """Three-letter acronym at end of text → periods and spaces removed."""
+    assert "USA" in _normalize_initials_and_acronyms("in the U. S. A.")
+
+
+def test_two_letter_acronym_before_lowercase():
+    """Two-letter acronym before lowercase word → compact without periods."""
+    result = _normalize_initials_and_acronyms("in the U. S. today")
+    assert "US" in result
+
+
+def test_empty_and_none():
+    assert _normalize_initials_and_acronyms("") == ""
+    assert _normalize_initials_and_acronyms(None) is None
+
+
+def test_no_initials_unchanged():
+    text = "Hello world, this has no initials at all."
+    assert _normalize_initials_and_acronyms(text) == text
+
+
+# ── End-to-end pipeline tests ────────────────────────────────────────────────
 
 def test_english_organizational_acronyms():
-    """Test English organizational acronyms (existing behavior should be preserved)."""
+    """English organizational acronyms survive the full pipeline."""
     test_cases = [
         {
             'input': 'the U. S. Capitol is in Washington D. C.',
@@ -77,76 +99,16 @@ def test_english_organizational_acronyms():
                 f"[{test['description']}] Expected acronym '{acronym}' not found in '{result}'"
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
-def test_french_with_english_names():
-    """Test French text with English names containing initials."""
-    test_cases = [
-        {
-            'input': 'j\'aime lire C. S. Lewis parce qu\'il a écrit des livres intéressants',
-            'description': 'C.S. Lewis in French context',
-            'should_contain': 'C.S. Lewis'
-        },
-        {
-            'input': 'J. K. Rowling a écrit Harry Potter',
-            'description': 'J.K. Rowling in French context',
-            'should_contain': 'J.K. Rowling'
-        },
-    ]
+@pytest.mark.xfail(reason="WIP: spaCy _apply_spacy_capitalization re-spaces initials downstream")
+def test_person_initials_survive_full_pipeline():
+    """Person initials should survive the full restore_punctuation pipeline.
 
-    for test in test_cases:
-        result = restore_punctuation(test['input'], 'fr')
-
-        assert test['should_contain'] in result, \
-            f"[{test['description']}] Expected pattern '{test['should_contain']}' not found in '{result}'"
-
-
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
-def test_german_with_english_names():
-    """Test German text with English names containing initials."""
-    test_cases = [
-        {
-            'input': 'ich lese gerne C. S. Lewis weil er interessante Bücher geschrieben hat',
-            'description': 'C.S. Lewis in German context',
-            'should_contain': 'C.S. Lewis'
-        },
-        {
-            'input': 'J. R. R. Tolkien hat Der Herr der Ringe geschrieben',
-            'description': 'J.R.R. Tolkien in German context',
-            'should_contain': 'J.R.R. Tolkien'
-        },
-    ]
-
-    for test in test_cases:
-        result = restore_punctuation(test['input'], 'de')
-
-        assert test['should_contain'] in result, \
-            f"[{test['description']}] Expected pattern '{test['should_contain']}' not found in '{result}'"
-
-
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
-def test_edge_cases():
-    """Test edge cases for initial normalization."""
-    test_cases = [
-        {
-            'input': 'el autor C. S. Lewis nació en Belfast y vivió en Oxford',
-            'language': 'es',
-            'description': 'Name at beginning of clause with location',
-        },
-        {
-            'input': 'conocí a C. S. Lewis en una conferencia sobre literatura',
-            'language': 'es',
-            'description': 'Name after preposition "a"',
-        },
-        {
-            'input': 'me gusta C. S. Lewis y también J. K. Rowling',
-            'language': 'es',
-            'description': 'Multiple names with initials in same sentence',
-        },
-    ]
-
-    for test in test_cases:
-        result = restore_punctuation(test['input'], test['language'])
-
-        period_count = result.count('.')
-        assert period_count <= 2, \
-            f"[{test['description']}] Too many periods ({period_count}) in output - possible incorrect splits: '{result}'"
+    Currently fails because spaCy's tokenizer/detokenizer re-inserts spaces
+    during _apply_spacy_capitalization(), undoing the normalization.
+    See AGENT.md 'Person Initials Normalization (WIP - Partial)'.
+    """
+    result = restore_punctuation(
+        'es a C. S. Lewis porque él escribió muchos libros', 'es'
+    )
+    assert 'C.S. Lewis' in result, \
+        f"Expected compact 'C.S. Lewis' in pipeline output, got: '{result}'"

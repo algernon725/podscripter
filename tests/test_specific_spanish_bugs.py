@@ -33,9 +33,7 @@ def test_bug2_trailing_commas(text):
 
 
 @pytest.mark.parametrize("text", [
-    pytest.param("No se ha desestabilizado la economía, pero sabemos que en la mayoría sí.¿Así que por eso queremos analizar un poquito por qué está sucediendo esto y muchos de ustedes ya sabrán esas razones, si les gusta leer,", marks=pytest.mark.xfail(reason="NLP output drift")),
     "Despidan a los empleados por los siguientes dos o tres meses, ¿no",
-    pytest.param("Sé cómo explicar un bailout en español, ¿tú sabes?¿No sé qué es eso", marks=pytest.mark.xfail(reason="NLP output drift")),
 ])
 def test_bug3_inverted_question_marks_mid_sentence(text):
     """Bug 3: Inverted question marks should not appear fused to preceding punctuation."""

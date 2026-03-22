@@ -52,7 +52,6 @@ def test_dedupe_segments_basic():
     assert round(new_last, 2) == 1.7
 
 
-@pytest.mark.xfail(reason="Pre-existing: test expectations predate API changes")
 def test_accumulate_segments_with_offset_and_dedupe():
     class FakeSeg:
         def __init__(self, start, end, text):
@@ -69,5 +68,5 @@ def test_accumulate_segments_with_offset_and_dedupe():
     assert len(out) == 2
     assert out[0]["start"] == 2.5 and out[0]["end"] == 2.7 and out[0]["text"] == "t2"
     assert out[1]["start"] == 5.0 and out[1]["end"] == 5.4 and out[1]["text"] == "t3"
-    assert text == "t2 t3"
+    assert text == "t2\nt3"
     assert round(new_last, 2) == 5.4
