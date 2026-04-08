@@ -1,4 +1,4 @@
-## 🧪 Running the Test Suite
+## Running the Test Suite
 
 All tests must be run inside Docker with model caches mounted.
 
@@ -8,7 +8,7 @@ All tests must be run inside Docker with model caches mounted.
 docker build -t podscripter .
 ```
 
-### Run all default tests
+### Run all default tests (core + multilingual)
 
 ```bash
 docker run --rm \
@@ -16,31 +16,12 @@ docker run --rm \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
-  podscripter python3 /app/tests/run_all_tests.py
+  podscripter pytest
 ```
 
-The default selection runs core English/Spanish/French/German punctuation and splitting tests, plus key checks like environment variables and deprecation warnings.
+Runs tests marked `core` and `multilingual` by default (configured in `pyproject.toml`).
 
-### Optional groups via environment flags
-
-- `RUN_ALL=1`: run the entire suite
-- `RUN_MULTILINGUAL=1`: include extra multilingual tests
-- `RUN_TRANSCRIPTION=1`: include longer end-to-end transcription tests
-- `RUN_DEBUG=1`: include any debug-focused tests
-
-Example:
-
-```bash
-docker run --rm \
-  -e RUN_ALL=1 \
-  -v $(pwd):/app \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
-  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
-  -v $(pwd)/audio-files:/app/audio-files \
-  podscripter python3 /app/tests/run_all_tests.py
-```
-
-### Run a single test file
+### Run all tests including transcription (opt-in)
 
 ```bash
 docker run --rm \
@@ -48,34 +29,37 @@ docker run --rm \
   -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
-  podscripter python3 /app/tests/test_spanish_questions.py
+  podscripter pytest -m ''
 ```
 
-### Notable tests (Spanish-focused by default)
+### Useful pytest options
 
-- `tests/test_spanish_embedded_questions.py`: preserves embedded `¿ … ?` mid-sentence
-- `tests/test_human_vs_program_intro.py`: human vs program intro + extended lines; token-level F1 thresholds
-- `tests/test_spanish_helpers.py`: unit tests for `_es_*` helpers (tags, collocations, merges, pairing, greetings)
-- `tests/test_transcribe_helpers.py`: unit tests for transcription helpers (`_split_audio_with_overlap`, `_dedupe_segments`, `_accumulate_segments`)
+| Command | Description |
+|---------|-------------|
+| `pytest` | Run core + multilingual tests (default) |
+| `pytest -m ''` | Run all tests including transcription |
+| `pytest -m multilingual` | Only multilingual tests |
+| `pytest -m transcription` | Only transcription integration tests |
+| `pytest tests/test_spanish_bug_fixes.py` | Run a single test file |
+| `pytest -k "question"` | Filter by keyword |
+| `pytest -x` | Stop on first failure |
+| `pytest --lf` | Re-run only previously failed tests |
 
-#### Domain handling and masking
-- `tests/test_domain_utils.py`: centralized domain detection/masking; language-aware behavior (e.g., Spanish-only `.de` exclusion), spaced-domain repair, mask→process→unmask roundtrip.
-- `tests/test_spanish_false_domains.py`: prevents common Spanish words from being treated as domains (e.g., `uno.de` → `uno. de`, `tratada.de` → `tratada. de`).
-- `tests/test_spanish_domains_and_ellipses.py`: preserves single/compound TLDs (`.com`, `.co.uk`, `.com.ar`), ellipsis continuation, and triple merge across sentence boundaries.
+### Test markers
 
-#### Sentence assembly edge cases
-- `tests/test_sentence_assembly_unit.py`: domain triple-merge (`label.` + `Com.` + `Y …`) and decimal merges (`99.` + `9%`, `121.` + `73`).
-- `tests/test_spanish_runon_fix.py`, `tests/test_french_runon_fix.py`, `tests/test_german_runon_fix.py`: run‑on sentence regressions.
+Tests are categorized using pytest markers (defined in `pyproject.toml`):
 
-#### Output normalization
-- `tests/test_srt_normalization.py`: trims lingering SRT cues and enforces timing constraints.
-- `tests/test_punctuation_preservation.py`: general punctuation integrity checks.
+- `@pytest.mark.core` — primary language tests, bug-fix regressions, unit tests (run by default)
+- `@pytest.mark.multilingual` — cross-language aggregate tests (run by default)
+- `@pytest.mark.transcription` — integration tests requiring models/media files (opt-in)
 
-#### Health and environment
-- `tests/test_environment_variables.py`: validates required env vars and cache usage.
-- `tests/test_no_deprecation_warning.py`: guards against noisy deprecation warnings.
+### Shared test infrastructure
+
+- `tests/conftest.py` — shared fixtures (`MockConfig`, language-specific `SentenceSplitter` instances, `restore_punctuation` wrapper)
+- `pyproject.toml` — pytest configuration, marker definitions, and default run options
 
 ### Caching and rate limiting
 
-- Always mount model cache volumes to avoid repeated downloads and HTTP 429s
-- The suite is designed to operate offline when caches are present (HuggingFace/Whisper/Sentence-Transformers)
+- Always mount model cache volumes to avoid repeated downloads and HTTP 429 errors
+- The suite is designed to operate offline when caches are present (HuggingFace / Whisper / Sentence-Transformers)
+- To run fully offline with warm caches: pass `-e HF_HUB_OFFLINE=1` to `docker run`

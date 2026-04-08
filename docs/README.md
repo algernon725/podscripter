@@ -6,7 +6,7 @@
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). 
 
-`podscripter` enables users to generate accurate transcriptions locally, making it perfect for platforms like [LingQ](https://www.lingq.com/) where text and audio integration can boost comprehension.
+`podscripter` enables users to generate accurate transcriptions locally, making it perfect for learning platforms where text and audio integration can boost comprehension.
 
 ---
 
@@ -65,7 +65,7 @@ Notes:
 
 Make sure you have the following tools installed on your system:
 
-- [Docker](https://www.docker.com) — need help installing? See the beginner guide: [Docker installation for Windows, macOS, and Ubuntu](docs/docker-installation.md)
+- [Docker](https://www.docker.com) — need help installing? See the beginner guide: [Docker installation for Windows, macOS, and Ubuntu](docker-installation.md)
 - [Git](https://git-scm.com/downloads)
 
 ### 2. Clone the Repository
@@ -128,7 +128,7 @@ python podscripter.py <media_file> --output_dir <output_dir> \
   [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
   [--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
   [--enable-diarization] [--min-speakers <int>] [--max-speakers <int>] \
-  [--hf-token <str>] [--quiet|--verbose]
+  [--hf-token <str>] [--quiet|--verbose|--debug]
 ```
 
 **Example:**
@@ -229,7 +229,7 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | `--min-speakers`     | Minimum number of speakers (optional, auto-detect if not specified) |
 | `--max-speakers`     | Maximum number of speakers (optional, auto-detect if not specified) |
 | `--hf-token`         | Hugging Face token for pyannote models (required for first-time download) |
-| `--quiet`/`--verbose`| Toggle log verbosity (default `--verbose`) |
+| `--quiet`/`--verbose`/`--debug` | Log verbosity: `--quiet` suppresses output, `--verbose` is default, `--debug` shows detailed sentence splitting decisions |
 
 
 ## Supported Languages
@@ -287,26 +287,6 @@ rm -rf models/sentence-transformers/* models/huggingface/*
 
 ## Output
 Transcriptions are saved in sentence-separated `.txt` or `.srt`
-
----
-
-## Testing
-
-Run the test suite inside Docker with caches mounted. See `tests/README.md` for details.
-
-Quick run (default selection):
-
-```bash
-docker run --rm \
-  -e NLP_CAPITALIZATION=1 \
-  -v $(pwd):/app \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
-  -v $(pwd)/models/huggingface:/root/.cache/huggingface \
-  -v $(pwd)/audio-files:/app/audio-files \
-  podscripter python3 /app/tests/run_all_tests.py
-```
-
-Optional groups via env flags: `RUN_ALL=1`, `RUN_MULTILINGUAL=1`, `RUN_TRANSCRIPTION=1`, `RUN_DEBUG=1`.
 
 ---
 

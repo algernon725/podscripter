@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-04-07
+
+### Changed
+- **Removed outdated Testing section from README** — instructions referenced the pre-pytest `run_all_tests.py` runner which was deleted in v0.8.0; replaced with a pointer to `tests/README.md`
+- **Rewrote `tests/README.md`** — replaced all references to the deleted `run_all_tests.py` script and `RUN_ALL=1`-style environment flags with accurate pytest commands, a table of common options, and descriptions of the three test markers (`core`, `multilingual`, `transcription`)
+- **Added `--debug` flag to README and `docs/README.md`** — CLI synopsis and Options table now document the `--debug` verbosity option (added in v0.3.1) alongside `--quiet` and `--verbose`
+- **Fixed broken relative link in `docs/README.md`** — Docker installation link corrected from `docs/docker-installation.md` to `docker-installation.md`
+
 ## [0.8.2] - 2026-03-22
 
 ### Fixed
