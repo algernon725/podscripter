@@ -6,7 +6,7 @@
 
 `podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). 
 
-`podscripter` enables users to generate accurate transcriptions locally, making it perfect for learning platforms like where text and audio integration can boost comprehension.
+`podscripter` enables users to generate accurate transcriptions locally, making it perfect for learning platforms where text and audio integration can boost comprehension.
 
 ---
 
