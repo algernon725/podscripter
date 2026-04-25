@@ -324,7 +324,30 @@ class SentenceFormatter:
                     # This prevents "jugar." + "Es que..." from being merged as "jugar.es"
                     is_short_sentence = len(cur) < 50
                     is_capitalized_label = label[0].isupper() if label else False
-                    
+
+                    # Spanish-specific guard (v0.8.5):
+                    # The TLD `es` collides with the extremely common Spanish verb
+                    # "es" (3rd-person singular of "ser"). When a Spanish sentence
+                    # ends with a capitalized proper noun (e.g., "Nate.", "Pedro.")
+                    # and the next sentence starts with "Es ...", the capitalized
+                    # label heuristic above would incorrectly justify a domain
+                    # merge ("Nate.es"). Real spoken brand mentions like
+                    # "marca." + "es ..." use a lowercase label, so for Spanish we
+                    # require the label to be lowercase before allowing a `.es`
+                    # merge regardless of capitalization.
+                    if (
+                        self.language == 'es'
+                        and tld == 'es'
+                        and is_capitalized_label
+                    ):
+                        logger.debug(
+                            "Skipping Spanish .es domain merge (proper-noun guard): "
+                            f"'{cur}' + '{nxt}'"
+                        )
+                        merged.append(cur_obj)
+                        i += 1
+                        continue
+
                     if not (is_short_sentence or is_capitalized_label):
                         # Skip this merge - likely natural language, not a domain
                         logger.debug(f"Skipping domain merge (natural language guard): '{cur}' + '{nxt}'")

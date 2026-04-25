@@ -96,6 +96,71 @@ def test_domain_merge_short_sentence():
     assert "google.com" in result[0], f"Expected 'google.com' in: {result[0]}"
 
 
+def test_domain_merge_spanish_proper_noun_guard():
+    """
+    Regression for v0.8.5: Spanish .es should not merge proper nouns.
+
+    The Spanish TLD `es` collides with the verb "es" (3rd-person singular
+    of "ser"). When a Spanish sentence ends with a proper noun like
+    "Nate." or "Pedro." and the next sentence starts with "Es ...", the
+    capitalized-label heuristic must NOT justify a domain merge such as
+    "Nate.es" or "Pedro.es".
+    """
+    cases = [
+        (
+            "Que es otro sitio interesante de Bolivia como lo decía Nate.",
+            "Es considerada la carretera más peligrosa del mundo pero a la "
+            "gente que le encanta la adrenalina y la aventura.",
+            "Nate.es",
+        ),
+        (
+            "Hablamos con nuestro amigo Pedro.",
+            "Es un experto en cocina italiana de toda la vida.",
+            "Pedro.es",
+        ),
+    ]
+
+    for first, second, forbidden in cases:
+        sentences = [first, second]
+        formatter = SentenceFormatter('es', speaker_segments=None)
+        result, metadata = formatter.format(sentences)
+        result = _texts(result)
+
+        assert len(result) == 2, (
+            f"Expected 2 sentences (no merge) for {first!r} + {second!r}, "
+            f"got {len(result)}: {result}"
+        )
+        joined = ' '.join(result)
+        assert forbidden not in joined, (
+            f"Should not contain '{forbidden}': {result}"
+        )
+
+        domain_merges = [
+            m for m in metadata
+            if m.merge_type == 'domain' and not m.reason.startswith('skipped')
+        ]
+        assert len(domain_merges) == 0, (
+            f"Expected 0 domain merges, got {len(domain_merges)}"
+        )
+
+
+def test_domain_merge_spanish_lowercase_brand_still_merges():
+    """
+    Real Spanish brand mentions with lowercase labels must still merge.
+
+    The proper-noun guard added in v0.8.5 only blocks capitalized labels.
+    A genuine spoken brand reference like "Consulta marca." + "es para
+    noticias" should still merge into "marca.es".
+    """
+    sentences = ["Consulta marca.", "es para noticias."]
+    formatter = SentenceFormatter('es', speaker_segments=None)
+    result, metadata = formatter.format(sentences)
+    result = _texts(result)
+
+    assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
+    assert "marca.es" in result[0], f"Expected 'marca.es' in: {result[0]}"
+
+
 def test_domain_merge_capitalized_label():
     """Test domain merge works for capitalized labels (brand names)"""
     sentences = ["Check out Google.", "Com for search"]

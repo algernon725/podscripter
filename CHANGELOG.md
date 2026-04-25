@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-04-25
+
+### Fixed
+- **Spanish proper-noun + `Es` incorrectly merged as a `.es` domain (`Nate.es`)** — when `--enable-diarization` was enabled and a Whisper segment ended with a capitalized proper noun (e.g., `"...como lo decía Nate."`) and the next sentence began with `"Es ..."`, the post-processing formatter merged them into a fake domain (`"Nate.es"`) and lowercased the `E`, producing the broken text `"...decía Nate. es considerada..."` in the final transcript. Reproduced in `audio-files/Episodio269.txt` (line 373) for `Episodio269.mp3`.
+  - **Root Cause**: In `SentenceFormatter._merge_domains()` (`sentence_formatter.py`), the natural-language guard added in v0.4.4 allowed a domain merge whenever EITHER the previous sentence was short (< 50 chars) OR its trailing label was capitalized. The TLD `es` collides with the very common Spanish verb "es" (3rd-person singular of *ser*), so any Spanish sentence ending with a capitalized proper noun (`"Nate."`, `"Pedro."`, `"María."`, etc.) followed by `"Es ..."` matched the domain pattern, passed the capitalized-label branch of the guard, was concatenated into `"<Name>.es"`, and then `_lowercase_first_letter()` lowered the `E` of the next sentence. A subsequent space-after-period regex restored the visible space, leaving the lowercase `e` behind.
+  - **Fix**: Added a Spanish-specific proper-noun guard in `_merge_domains()`: when `language == 'es'` and `tld == 'es'`, a capitalized label is no longer accepted as evidence of a domain mention. Real spoken brand references like `"Consulta marca." + "es para noticias"` use a lowercase label and continue to merge into `"marca.es"` as before. The fix is narrowly scoped to the only TLD in the formatter's list that collides with a high-frequency Spanish word.
+  - **Tests**: `tests/test_sentence_formatter.py` — added `test_domain_merge_spanish_proper_noun_guard` (covers the `"Nate."` and `"Pedro."` regressions and asserts no `domain_pattern_match` merges are recorded) and `test_domain_merge_spanish_lowercase_brand_still_merges` (asserts that lowercase-label brand mentions like `"marca." + "es ..."` still merge into `"marca.es"`). All existing domain, formatter, and Spanish false-domain tests continue to pass (459 passed in the default suite).
+
 ## [0.8.4] - 2026-04-25
 
 ### Fixed

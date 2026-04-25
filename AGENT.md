@@ -430,6 +430,29 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Resolved Issues (Recent)
 
+#### Spanish Proper-Noun + `Es` Falsely Merged as `.es` Domain — `Nate.es` (RESOLVED - v0.8.5)
+**Problem**: When `--enable-diarization` was enabled and a Whisper segment ended with a capitalized proper noun followed by a sentence beginning with `"Es ..."`, the post-processing formatter merged them into a fake `.es` domain and lowercased the leading `E`, producing fragmented output.
+- Reproduced in `audio-files/Episodio269.txt` (line 373) for `Episodio269.mp3 --language es --enable-diarization`: the user-visible artifact was `"...como lo decía Nate. es considerada la carretera más peligrosa del mundo..."`. The intended sentences are `"...como lo decía Nate."` and `"Es considerada la carretera más peligrosa del mundo..."`.
+- Also reproduces deterministically for any `"<Capitalized proper noun>." + "Es ..."` pair in Spanish (e.g., `"Pedro." + "Es un experto..."` → `"Pedro.es un experto..."`).
+
+**Root Cause**: In `SentenceFormatter._merge_domains()` (`sentence_formatter.py`), the v0.4.4 natural-language guard allowed a domain merge whenever EITHER the previous sentence was short (< 50 chars) OR the trailing label was capitalized (`is_short_sentence or is_capitalized_label`). The TLD `es` collides with the very common Spanish verb "es" (3rd-person singular of *ser*), so any Spanish sentence ending with a capitalized proper noun (`"Nate."`, `"Pedro."`, `"María."`, etc.) followed by `"Es ..."` matched the formatter's domain regex (`label\.$` followed by an `^(es|com|...)\b` start), passed the capitalized-label branch of the guard, and was concatenated into `"<Name>.es"`. The merge logic then called `_lowercase_first_letter()` on the next sentence, lowering the `E` of `"Es"` to `"e"`. A subsequent space-after-period regex in `_finalize_text_common()` (and `_sanitize_sentence_output()` in `podscripter.py`) restored the visible space between `.` and `e`, leaving the lowercase `e` behind — producing the broken `"Nate. es considerada..."` output.
+
+**Why earlier guards did not catch this**:
+- `domain_utils.fix_spaced_domains()` already excludes `es|de` from the Spanish TLD set to avoid false positives like `"uno.de"` and `"este.es"` when re-joining text within a single sentence — but this exclusion lives in `domain_utils`, not in `SentenceFormatter`.
+- The `SentenceFormatter` operates on already-segmented sentences (post `SentenceSplitter`) and re-merges adjacent ones it suspects were split across a real domain. Its `tlds` list still includes `es`, on the assumption that the v0.4.4 short-sentence guard was sufficient. For natural-language pairs ending in lowercase verbs (`"jugar." + "Es que..."`) the guard works, but a capitalized proper noun ending the previous sentence trivially defeats it.
+
+**Solution Implemented (v0.8.5)**:
+- Added a Spanish-specific proper-noun guard in `_merge_domains()`: when `self.language == 'es'` AND `tld == 'es'` AND `is_capitalized_label`, skip the merge. The skip is logged via `logger.debug(...)` for observability and the unmerged sentence is appended unchanged.
+- The guard is narrowly scoped: it only blocks the one TLD (`es`) in the formatter's TLD list (`com|net|org|co|es|io|edu|gov|uk|us|ar|mx`) that collides with a high-frequency Spanish word. All other TLDs (including `com`/`org` brand names like `"Google.com"`, `"Pinterest.com"`) continue to merge normally for any language.
+- Real spoken brand references in Spanish — which use a lowercase label, e.g. `"Consulta marca." + "es para noticias"` — still merge into `"marca.es"` because `is_capitalized_label` is `False` for them.
+
+**Key Insight**: When a TLD collides with a high-frequency natural-language word in the target language, the "capitalized label" heuristic (designed to capture brand names like `"Google."` + `"com"`) becomes actively harmful. In Spanish, capitalized words at the end of a sentence are overwhelmingly proper nouns starting a real sentence boundary, not brand labels preceding `.es`. Domain-merge heuristics that mix natural-language and URL signals must be language-aware for any TLD that overlaps with a common verb, preposition, or article in the target language.
+
+**Tests**: `tests/test_sentence_formatter.py` — added two regression tests:
+- `test_domain_merge_spanish_proper_noun_guard` — covers the `"Nate."` (long sentence, exact transcript wording from `Episodio269.txt`) and `"Pedro."` (short sentence) cases; asserts that no merge occurs and that the formatter records zero `domain_pattern_match` merges.
+- `test_domain_merge_spanish_lowercase_brand_still_merges` — asserts that `"Consulta marca." + "es para noticias."` still merges into `"marca.es para noticias."`, protecting the legitimate-brand path.
+- Full default suite continues to pass (459 passed, 84 xfailed). Existing `test_domain_merge_natural_language_guard` (the `"jugar.es"` regression from v0.4.4), `test_domain_merge_capitalized_label` (English `"Google.com"`), and `tests/test_spanish_false_domains.py::test_real_domains_preserved` (`"marca.es"`, `"github.de"`) all remain green.
+
 #### Spanish Exclamation/Question Artifacts After Speaker Splits — `Bueno,!` (RESOLVED - v0.8.4)
 **Problem**: When `--enable-diarization` was enabled and a Whisper segment was split mid-clause at a speaker boundary, the leading fragment retained its trailing comma and got terminal punctuation appended after it, producing artifacts like `"Bueno,!"` and `"Qué tal,?"`.
 - Reproduced in `audio-files/Episodio270.txt` (line 103): Whisper segment 105 (`"Bueno, más o menos."`, 403.78s–405.78s) was correctly split by `SentenceSplitter` at the speaker boundary at 404.31s into `"Bueno,"` (SPEAKER_01) and `"Más o menos."` (SPEAKER_00). The leading fragment `"Bueno,"` was then mis-formatted as `"Bueno,!"`.
