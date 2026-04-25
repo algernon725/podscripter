@@ -2873,13 +2873,19 @@ def _apply_semantic_punctuation(sentence: str, model, language: str, sentence_in
     # Check if it's a question using semantic similarity
     if is_question_semantic(sentence, model, language):
         if not sentence.endswith('?'):
-            sentence = sentence.rstrip('.!') + '?'
+            # Strip trailing punctuation (including , ; :) before appending
+            # to avoid artifacts like "Bueno,?" when the segment was split mid-clause
+            # at a speaker/Whisper boundary leaving a dangling comma.
+            sentence = sentence.rstrip('.!,;: ') + '?'
         return sentence
     
     # Check for exclamation patterns
     if is_exclamation_semantic(sentence, model, language):
         if not sentence.endswith('!'):
-            sentence = sentence.rstrip('.?') + '!'
+            # Strip trailing punctuation (including , ; :) before appending
+            # to avoid artifacts like "Bueno,!" when the segment was split mid-clause
+            # at a speaker/Whisper boundary leaving a dangling comma.
+            sentence = sentence.rstrip('.?,;: ') + '!'
         return sentence
     
     # Use centralized punctuation logic

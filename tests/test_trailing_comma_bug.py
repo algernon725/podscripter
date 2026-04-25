@@ -81,3 +81,79 @@ class TestTrailingCommaBug(unittest.TestCase):
                         "Should not have double periods")
 
 
+class TestApplySemanticPunctuationTrailingComma(unittest.TestCase):
+    """
+    Test that _apply_semantic_punctuation strips trailing commas before
+    appending terminal punctuation.
+
+    Bug: When a Whisper segment was split mid-clause at a speaker boundary
+    (e.g. "Bueno, más o menos." → "Bueno," + "Más o menos."), the leading
+    fragment "Bueno," was classified as an exclamation by semantic similarity
+    to "¡Qué bueno!" and the code appended '!' without stripping the trailing
+    comma, producing "Bueno,!".
+
+    Found in Episodio270.txt (line 103) when running with --enable-diarization.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from punctuation_restorer import _load_sentence_transformer
+        cls.model = _load_sentence_transformer(
+            'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
+        )
+
+    def _apply(self, text, language='es'):
+        from punctuation_restorer import _apply_semantic_punctuation
+        return _apply_semantic_punctuation(text, self.model, language, 0, 1)
+
+    def test_spanish_bueno_with_trailing_comma(self):
+        """The exact regression case: "Bueno," must not become "Bueno,!"."""
+        out = self._apply("Bueno,", 'es')
+        self.assertNotIn(',!', out, f"Should not contain ',!' artifact: {out!r}")
+        self.assertNotIn(',?', out, f"Should not contain ',?' artifact: {out!r}")
+        self.assertNotIn(',.', out, f"Should not contain ',.' artifact: {out!r}")
+        self.assertTrue(
+            out.endswith(('.', '!', '?')),
+            f"Should end with terminal punctuation: {out!r}",
+        )
+        # Stripped comma + terminal punctuation: "Bueno!" / "Bueno." / "Bueno?"
+        self.assertEqual(out.rstrip('.!?'), 'Bueno', f"Unexpected body: {out!r}")
+
+    def test_no_dangling_punct_before_terminal_es(self):
+        """Multiple Spanish fragments with trailing commas/semicolons/colons."""
+        cases = ["Bueno,", "Hola,", "Sin embargo,", "O sea,", "Pues bien;", "Listo:"]
+        for text in cases:
+            with self.subTest(text=text):
+                out = self._apply(text, 'es')
+                self.assertNotIn(',!', out, f"{text!r} -> {out!r}")
+                self.assertNotIn(',?', out, f"{text!r} -> {out!r}")
+                self.assertNotIn(';!', out, f"{text!r} -> {out!r}")
+                self.assertNotIn(';?', out, f"{text!r} -> {out!r}")
+                self.assertNotIn(':!', out, f"{text!r} -> {out!r}")
+                self.assertNotIn(':?', out, f"{text!r} -> {out!r}")
+                self.assertTrue(
+                    out.endswith(('.', '!', '?')),
+                    f"Should end with terminal punctuation: {out!r}",
+                )
+
+    def test_no_dangling_punct_before_terminal_multilingual(self):
+        """Same guarantee should hold for the other primary languages."""
+        cases = [
+            ('en', "Well,"),
+            ('en', "Hello,"),
+            ('fr', "Bon,"),
+            ('fr', "Bonjour,"),
+            ('de', "Gut,"),
+            ('de', "Hallo,"),
+        ]
+        for lang, text in cases:
+            with self.subTest(lang=lang, text=text):
+                out = self._apply(text, lang)
+                self.assertNotIn(',!', out, f"[{lang}] {text!r} -> {out!r}")
+                self.assertNotIn(',?', out, f"[{lang}] {text!r} -> {out!r}")
+                self.assertTrue(
+                    out.endswith(('.', '!', '?')),
+                    f"[{lang}] Should end with terminal punctuation: {out!r}",
+                )
+
+

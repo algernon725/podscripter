@@ -430,6 +430,21 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
 
 ### 5. Known Resolved Issues (Recent)
 
+#### Spanish Exclamation/Question Artifacts After Speaker Splits — `Bueno,!` (RESOLVED - v0.8.4)
+**Problem**: When `--enable-diarization` was enabled and a Whisper segment was split mid-clause at a speaker boundary, the leading fragment retained its trailing comma and got terminal punctuation appended after it, producing artifacts like `"Bueno,!"` and `"Qué tal,?"`.
+- Reproduced in `audio-files/Episodio270.txt` (line 103): Whisper segment 105 (`"Bueno, más o menos."`, 403.78s–405.78s) was correctly split by `SentenceSplitter` at the speaker boundary at 404.31s into `"Bueno,"` (SPEAKER_01) and `"Más o menos."` (SPEAKER_00). The leading fragment `"Bueno,"` was then mis-formatted as `"Bueno,!"`.
+- Affected both exclamation and question detection paths.
+
+**Root Cause**: In `_apply_semantic_punctuation()` (`punctuation_restorer.py`, lines 2873–2887), the question and exclamation branches used `sentence.rstrip('.!') + '?'` and `sentence.rstrip('.?') + '!'` respectively. These rstrip character classes only stripped terminal punctuation marks, not trailing commas/semicolons/colons/whitespace. When `is_exclamation_semantic()` classified `"Bueno,"` as an exclamation (cosine similarity > 0.7 to the Spanish pattern `"¡Qué bueno!"`), the function appended `'!'` directly after the comma. The centralized `_should_add_terminal_punctuation()` helper already strips `,;: ` correctly; this code path simply inherited an outdated rstrip set.
+
+**Solution Implemented (v0.8.4)**:
+- Expanded the rstrip character classes in both branches to `'.!,;: '` (question branch) and `'.?,;: '` (exclamation branch), bringing them in line with `_should_add_terminal_punctuation()`.
+- Added inline comments documenting the speaker-boundary scenario that motivates stripping trailing commas before terminal punctuation.
+
+**Key Insight**: Any place that appends terminal punctuation to a sentence fragment must strip ALL trailing non-terminal punctuation first (commas, semicolons, colons, whitespace) — not just other terminal marks. The diarization pipeline is the most common source of fragments with trailing commas because speaker boundaries can fall mid-clause, but the bug existed independently of diarization (any short fragment ending in `,` could trigger it once `is_exclamation_semantic()` matched).
+
+**Tests**: `tests/test_trailing_comma_bug.py` — added `TestApplySemanticPunctuationTrailingComma` class with 3 new tests (12 subtests total): the exact `"Bueno,"` regression case, multiple Spanish fragments with trailing `,`/`;`/`:`, and multilingual coverage (EN/FR/DE).
+
 #### Semantic Split Preempting Nearby Whisper Boundary (RESOLVED - v0.7.1)
 **Problem**: Sentences were incorrectly split mid-phrase when the semantic coherence check (PRIORITY 5) fired a few words before a legitimate Whisper segment boundary (PRIORITY 4). The semantic model's 10-word lookahead window would cross a real sentence boundary, producing a false-positive low-similarity score at the current word.
 - Spanish example: `"...para de verdad tomar."` | `"Su español al siguiente nivel."` (incorrect)

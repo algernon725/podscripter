@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-04-25
+
+### Fixed
+- **Spanish exclamation/question artifacts after speaker splits (`Bueno,!`)** — when `--enable-diarization` was enabled and a Whisper segment was split mid-clause at a speaker boundary (e.g., `"Bueno, más o menos."` → `"Bueno,"` + `"Más o menos."`), the leading fragment with a trailing comma was incorrectly punctuated as `"Bueno,!"`. Reproduced in `audio-files/Episodio270.txt` (line 103).
+  - **Root Cause**: In `_apply_semantic_punctuation()` (`punctuation_restorer.py`), both the question and exclamation branches used `sentence.rstrip('.!') + '?'` and `sentence.rstrip('.?') + '!'` respectively. These rstrip character classes only stripped terminal punctuation marks, NOT trailing commas, semicolons, colons, or whitespace. When `is_exclamation_semantic()` classified `"Bueno,"` as an exclamation (cosine similarity > 0.7 to the Spanish pattern `"¡Qué bueno!"`), the function appended `'!'` directly after the comma, producing `"Bueno,!"`. The same bug existed for question detection (`"Qué tal,"` → `"Qué tal,?"`).
+  - **Fix**: Expanded the rstrip character classes in both branches to `'.!,;: '` (question) and `'.?,;: '` (exclamation), matching the behavior already used by the centralized `_should_add_terminal_punctuation()` helper. Now `"Bueno,"` correctly becomes `"Bueno!"` and `"Qué tal,"` becomes `"Qué tal?"`.
+  - **Tests**: `tests/test_trailing_comma_bug.py` — added `TestApplySemanticPunctuationTrailingComma` class with 3 new tests (12 subtests total) covering the exact `"Bueno,"` regression case, multiple Spanish fragments with trailing `,`/`;`/`:`, and multilingual coverage (EN/FR/DE).
+
 ## [0.8.3] - 2026-04-07
 
 ### Changed
