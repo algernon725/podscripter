@@ -16,7 +16,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
 ## Goals and non-goals
 
 - **Goals**
-  - Accurate, readable transcripts across EN/ES/FR/DE
+  - Accurate, readable transcripts across EN/ES/FR (primary). DE is now considered experimental while project focus shifts to romance languages, but all German code paths remain in place and continue to function.
   - Deterministic runs via containerization and caching
   - CPU-friendly defaults with support for long audio
   - Generalizable punctuation/formatting improvements over one-off fixes
@@ -255,7 +255,7 @@ flowchart TD
 
 ## Known limitations
 
-- Non EN/ES/FR/DE languages are experimental
+- Non EN/ES/FR languages are experimental (DE was demoted from primary in v0.8.7; German processing code is still present and functional)
 - spaCy capitalization requires language models; disabled if unavailable
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
 - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.

@@ -25,7 +25,7 @@ SOFTWARE.
 
 """
 Transcribe audio files into sentences and save as TXT or SRT files.
-Primary language focus: English (en), Spanish (es), French (fr), German (de).
+Primary language focus: English (en), Spanish (es), French (fr).
 Other languages are considered experimental.
 """
 
@@ -49,7 +49,7 @@ from punctuation_restorer import (
 from domain_utils import fix_spaced_domains, mask_domains, unmask_domains
 from sentence_splitter import Sentence, Utterance
 
-FOCUS_LANGS = {"en", "es", "fr", "de"}
+FOCUS_LANGS = {"en", "es", "fr"}
 
 DEFAULT_CHUNK_SEC = 480
 DEFAULT_OVERLAP_SEC = 3
@@ -128,7 +128,7 @@ def validate_language_code(language_code: str | None) -> str | None:
         return language_code
     logger.warning(f"Language code '{language_code}' not in common list.")
     logger.info("Primary language codes:")
-    for code in ["en","es","fr","de"]:
+    for code in ["en","es","fr"]:
         if code in supported:
             logger.info(f"  {code}: {supported[code]}")
     logger.info("Experimental language codes:")
@@ -1506,7 +1506,7 @@ def main():
     parser = argparse.ArgumentParser(description="Transcribe audio/video to sentences (TXT) or subtitles (SRT).")
     parser.add_argument("media_file", help="Path to the media file to transcribe")
     parser.add_argument("--output_dir", required=True, help="Directory where output will be written")
-    parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr, de). Use 'auto' for auto-detect")
+    parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr). Use 'auto' for auto-detect")
     parser.add_argument(
         "--model",
         dest="model_name",

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7] - 2026-05-24
+
+### Changed
+- **Demoted German (`de`) from primary supported languages** — project direction is shifting toward focused support for romance languages, so German is no longer advertised as a primary supported language. All German-specific transcription, punctuation, sentence-splitting, and capitalization code paths are intact and continue to function when `--language de` is requested or when Whisper auto-detects German; the change is documentation- and CLI-help-only.
+  - **README.md** and **docs/README.md**: removed German from the Overview blurb, the "Primary Language Support" feature bullet, the `--language` Options-table description, the Supported Languages reference table (now lists English/Spanish/French and the note reads "the three listed above"), and the Automatic NLP Capitalization paragraph.
+  - **podscripter.py**: module docstring now reads `Primary language focus: English (en), Spanish (es), French (fr).`; `FOCUS_LANGS` is now `{"en", "es", "fr"}`; the hardcoded primary-language list inside `validate_language_code()` is now `["en","es","fr"]`; the `--language` argparse `help=` text reads `(e.g., en, es, fr)`. `get_supported_languages()` still includes `'de': 'German'`, so passing `--language de` continues to validate (with a warning that lists `de` under "Experimental language codes") and run the existing German processing logic unchanged.
+  - **AGENT.md** and **ARCHITECTURE.md**: updated the user-facing "Supported Languages"/Goals/Known-limitations statements; technical descriptions of EN/ES/FR/DE code paths (German preposition guards, auxiliary verbs, past-participle detection, greeting commas, location appositive normalization, etc.) were intentionally left in place because the corresponding code is unchanged.
+  - **No behavior change**: no source code in `punctuation_restorer.py`, `sentence_splitter.py`, `sentence_formatter.py`, `domain_utils.py`, `speaker_diarization.py`, or any test was modified. All existing German tests (`tests/test_german_*`, German cases in multilingual tests) continue to run and pass as before.
+
 ## [0.8.6] - 2026-05-24
 
 ### Fixed

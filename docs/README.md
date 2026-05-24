@@ -4,7 +4,7 @@
 
 ## Overview
 
-`podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), French (`fr`), and German (`de`). 
+`podscripter` is a lightweight tool designed to transcribe audio using OpenAI's Whisper model inside a Docker container. It supports multiple languages with automatic language detection, including English (`en`), Spanish (`es`), and French (`fr`). 
 
 `podscripter` enables users to generate accurate transcriptions locally, making it perfect for learning platforms where text and audio integration can boost comprehension.
 
@@ -17,7 +17,7 @@
 - **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
 - **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
-- **Primary Language Support**: English (en), Spanish (es), French (fr), German (de). Other languages are experimental.
+- **Primary Language Support**: English (en), Spanish (es), French (fr). Other languages are experimental.
 - **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with automatic spaCy-based capitalization.
 - **Optional Speaker Diarization**: Detect speaker changes for improved sentence boundaries in multi-speaker content (interviews, conversations, podcasts).
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
@@ -218,7 +218,7 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | -------------------- | ----------- |
 | `media_file`         | Path to the audio or video file (e.g. `audio-files/example.mp3` or `audio-files/example.mp4`) |
 | `--output_dir`       | Directory where the transcription file will be saved |
-| `--language`         | Language code. Primary: `en`, `es`, `fr`, `de`. Others are experimental. Default `auto` (auto-detect) |
+| `--language`         | Language code. Primary: `en`, `es`, `fr`. Others are experimental. Default `auto` (auto-detect) |
 | `--output_format`    | Output format: `txt` or `srt` (default `txt`) |
 | `--single`           | Bypass manual chunking and process the full file in one call |
 | `--compute-type`     | Compute type for faster-whisper: `auto`, `int8`, `int8_float16`, `int8_float32`, `float16`, `float32` (default `auto`) |
@@ -239,13 +239,13 @@ PodScripter supports automatic language detection and manual language selection 
 | Language | Code | Language | Code |
 |----------|------|----------|------|
 | English  | `en` | Spanish  | `es` |
-| French   | `fr` | German   | `de` |
+| French   | `fr` |          |      |
 
-**Note**: Whisper can transcribe many additional languages, but only the four listed above have project-level optimization and tests. Other languages are considered experimental.
+**Note**: Whisper can transcribe many additional languages, but only the three listed above have project-level optimization and tests. Other languages are considered experimental.
 
 ## Automatic NLP Capitalization (spaCy)
 
-Punctuation restoration uses Sentence-Transformers with automatic spaCy-based capitalization that capitalizes named entities and proper nouns for English, Spanish, French, and German.
+Punctuation restoration uses Sentence-Transformers with automatic spaCy-based capitalization that capitalizes named entities and proper nouns for English, Spanish, and French.
 
 - Always enabled - spaCy models are included in the Docker image.
 - Automatically capitalizes names, places, and organizations while preserving language-specific connectors like "de", "del", "y", etc.

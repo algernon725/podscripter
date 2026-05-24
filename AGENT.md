@@ -13,7 +13,8 @@
 - **Python 3.10+**: Primary development language
 
 ### Supported Languages
-- Primary focus: English (en), Spanish (es), French (fr), German (de)
+- Primary focus: English (en), Spanish (es), French (fr)
+- German (de) was previously a primary language and is now considered experimental while project focus shifts to romance languages. German-specific code paths (preposition guards, auxiliary verbs, past-participle detection, greeting commas, capitalization, etc.) and tests remain in place, so `--language de` and Whisper auto-detection of German continue to function.
 - Other languages may work via Whisper auto-detect but are considered experimental
 
 ## Architectural Principles
