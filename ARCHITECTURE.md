@@ -353,6 +353,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
    - **v0.4.2**: `SentenceSplitter` only extracts boundaries where speaker changes (not from all segments)
    - **v0.4.3**: Speaker boundaries ALWAYS create splits, even if next word is a connector (different speakers must be separated)
    - **v0.6.1**: Removed connector word checks that were incorrectly blocking speaker splits; reduced threshold from 4 to 1 word
+   - **v0.8.6**: Spanish inverted `¡...!`/`¿...?` protection — `_convert_segments_to_word_boundaries()` calls `_shift_boundary_past_unclosed_mark()` which moves any speaker boundary that lands inside an unclosed Spanish inverted exclamation/question forward to the word containing the closing mark (25-word lookahead). The split still happens (the v0.4.3 guarantee is preserved), but it lands after the construct is balanced. Prevents bugs like `"Así que, ¡empecemos, Nate!"` being broken into `"Así que, ¡empecemos."` and `" Nate! ..."` when diarization places a speaker change between `"empecemos,"` and `"Nate!"`
 2. Grammatical guards (never break on conjunctions/prepositions/auxiliary verbs)
    - **v0.6.3**: Expanded `CONTINUATIVE_AUXILIARY_VERBS` to include infinitives (`ser`, `estar`, `be`, `have`, `être`, `avoir`, `sein`, `haben`, etc.) and preterite forms (`fue`, `fueron`, `was`, `were`, `fut`, `furent`, `wurde`, etc.)
    - **v0.6.3**: Added guard for numbers followed by time/measurement units (prevents "a los 18. Años" → keeps "a los 18 años")
@@ -373,6 +374,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 - **v0.4.3**: Speaker boundaries are never skipped, ensuring different speakers are always separated even with connector words
 - **v0.6.1**: Period removal before connectors only happens when SAME speaker continues (verified via `_get_speaker_at_word()`); `end_word` in speaker segments is treated as EXCLUSIVE (like Python slices)
 - **v0.6.2**: Spanish unclosed inverted question/exclamation protection prevents splits inside `¿...?` and `¡...!` constructs at Whisper boundaries
+- **v0.8.6**: Spanish unclosed inverted question/exclamation protection extended to speaker boundaries via `_shift_boundary_past_unclosed_mark()`. Instead of deferring the split (as the v0.6.2 Whisper-boundary protection does), speaker boundaries that fall inside an unclosed `¡...!`/`¿...?` are shifted forward to the word containing the closing mark, so the speaker change still produces a sentence break — just at a grammatically valid position.
 
 **Opt-in**: Disabled by default, enabled via `--enable-diarization` flag.
 

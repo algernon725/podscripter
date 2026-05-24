@@ -360,7 +360,7 @@ class SentenceSplitter:
             for i in range(len(segments) - 1):
                 current_seg = segments[i]
                 next_seg = segments[i + 1]
-                
+
                 # Only add boundary if speaker changes
                 if current_seg.get('speaker') != next_seg.get('speaker'):
                     if 'end_word' in current_seg:
@@ -369,6 +369,16 @@ class SentenceSplitter:
                         # so the boundary should be at end_word - 1 (the last word of current speaker)
                         boundary_word = current_seg['end_word'] - 1
                         if boundary_word >= 0:
+                            # Spanish: if the boundary falls inside an unclosed
+                            # ¡...! or ¿...?, shift it forward to the word that
+                            # closes the construct. This preserves grammatical
+                            # integrity when diarization places a speaker change
+                            # in the middle of a Spanish exclamation/question
+                            # (e.g., "Así que, ¡empecemos, Nate!" should not be
+                            # split between "empecemos," and "Nate!").
+                            boundary_word = self._shift_boundary_past_unclosed_mark(
+                                boundary_word, words
+                            )
                             boundaries.add(boundary_word)
         else:
             # For Whisper segments, we need to calculate word positions
@@ -984,6 +994,72 @@ class SentenceSplitter:
         
         return False
     
+    def _shift_boundary_past_unclosed_mark(
+        self,
+        boundary_word: int,
+        words: List[str]
+    ) -> int:
+        """
+        Shift a speaker boundary past the closing mark of an unclosed Spanish
+        inverted exclamation (``¡...!``) or question (``¿...?``) so the
+        sentence break does not happen mid-construct.
+
+        Spanish grammar requires each ``¡``/``¿`` to be paired with a closing
+        ``!``/``?``. Diarization can place a speaker change inside such a
+        construct (often a misalignment by a few hundred milliseconds, but
+        sometimes a genuine interruption). Splitting at the raw boundary
+        orphans the closing mark on the next sentence (e.g.
+        ``"Así que, ¡empecemos."`` / ``" Nate! Bueno..."``). Shifting the
+        boundary to the word containing the closing mark preserves the
+        construct while still honouring the speaker change.
+
+        Args:
+            boundary_word: Original word index where the speaker boundary falls.
+            words: All words in the text (whitespace-split).
+
+        Returns:
+            The original ``boundary_word`` if no shift is needed or the
+            language is not Spanish; otherwise the index of the word
+            containing the closing mark.
+        """
+        if self.language != 'es' or boundary_word < 0 or boundary_word >= len(words):
+            return boundary_word
+
+        # Determine whether the chunk up to (and including) the boundary word
+        # leaves an unclosed inverted exclamation or question. Counting opens
+        # vs. closes handles earlier balanced constructs in the same text.
+        text_so_far = ' '.join(words[: boundary_word + 1])
+        open_excl = text_so_far.count('¡') > text_so_far.count('!')
+        open_quest = text_so_far.count('¿') > text_so_far.count('?')
+        if not (open_excl or open_quest):
+            return boundary_word
+
+        # Scan forward for the closing mark. Spanish exclamations/questions are
+        # typically short; cap the lookahead to avoid runaway shifts when an
+        # opener is never closed (mis-transcription/typo).
+        max_lookahead = 25
+        for offset in range(1, max_lookahead + 1):
+            idx = boundary_word + offset
+            if idx >= len(words):
+                break
+            word = words[idx]
+            if open_excl and '!' in word:
+                self.logger.debug(
+                    f"Shifted speaker boundary from word {boundary_word} to "
+                    f"word {idx} (past closing '!' in '{word}')"
+                )
+                return idx
+            if open_quest and '?' in word:
+                self.logger.debug(
+                    f"Shifted speaker boundary from word {boundary_word} to "
+                    f"word {idx} (past closing '?' in '{word}')"
+                )
+                return idx
+
+        # Closing mark not found within lookahead — fall back to the original
+        # boundary. Losing the speaker hint is worse than splitting mid-construct.
+        return boundary_word
+
     def _is_inside_unclosed_question(
         self,
         current_chunk: List[str],

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] - 2026-05-24
+
+### Fixed
+- **Spanish `¡...!`/`¿...?` split mid-construct by a speaker boundary** — when `--enable-diarization` was enabled and the diarizer placed a speaker change inside a single Whisper segment containing an unclosed Spanish inverted exclamation/question, the sentence splitter broke the construct in half, orphaning the closing mark on the next sentence. Reproduced in `audio-files/Episodio272.txt`, where Whisper segment 19 (`"Así que, ¡empecemos, Nate!"`) and segment 20 (`"Bueno, Andrea, antes de empezar, ..."`) were emitted as `"Así que, ¡empecemos."` and `" Nate! Bueno, Andrea, antes de empezar, ..."` instead of the expected `"Así que, ¡empecemos, Nate!"` and `"Bueno, Andrea, antes de empezar, ..."`.
+  - **Root Cause**: In `SentenceSplitter._should_end_sentence_here()` (`sentence_splitter.py`), PRIORITY 1 (speaker boundary) returns `True` unconditionally per the v0.4.3 policy that "speaker boundaries ALWAYS create splits". The v0.6.2 protection added to honor unclosed Spanish `¡...!`/`¿...?` via `_is_inside_unclosed_question()` was only wired into PRIORITY 4 (Whisper boundary), not PRIORITY 1. When the v0.5.2 multi-speaker Whisper segment splitter placed the speaker change at the word `"¡empecemos,"` (boundary index inside the open `¡`), PRIORITY 1 fired and split between `"¡empecemos,"` and `"Nate!"`, leaving the trailing comma to be converted to a period by downstream punctuation logic.
+  - **Fix**: Added `SentenceSplitter._shift_boundary_past_unclosed_mark()`, invoked from `_convert_segments_to_word_boundaries()` when building the speaker-boundary set. If the Spanish boundary word leaves more `¡`/`¿` than `!`/`?` in the chunk up to it, the boundary is shifted forward (up to a 25-word lookahead) to the word containing the closing mark. The speaker change still produces a sentence break, but it now lands after the construct is balanced. Falls back to the original boundary if no closing mark is found within the lookahead and is a no-op for non-Spanish languages, so the v0.4.3 "speaker boundaries always split" guarantee is preserved everywhere else.
+  - **Tests**: `tests/test_episodio272_speaker_split_exclamation.py` — added `TestSpeakerBoundaryInsideSpanishExclamation` (Episodio272 regression + `¿...?` analogue + sanity check that boundaries outside inverted marks still split) and `TestShiftBoundaryHelper` (5 unit tests covering shift past `!`, shift past `?`, no-shift when balanced, no-shift when already past close, no-shift for non-Spanish, no-shift when closing mark missing). All 468 existing tests continue to pass (`pytest` default suite).
+
 ## [0.8.5] - 2026-04-25
 
 ### Fixed
