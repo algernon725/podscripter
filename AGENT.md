@@ -249,6 +249,81 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `test_spanish_false_domains.py`: prevention of Spanish words being treated as domains
   - `test_domain_utils.py`: centralized domain detection, masking, and exclusion utilities
   - `test_initials_normalization.py`: person initial normalization like "C.S. Lewis" (WIP)
+  - `test_audio_fixtures.py`: end-to-end EN/FR real-audio regression (Tier 1 corpus); see EN/FR test corpus below
+
+#### EN/FR test corpus
+
+Real-audio regression coverage for EN and FR (extensible to other languages) lives in
+three tiers documented in `tests/README.md` and `tests/fixtures/audio/README.md`:
+
+- **Tier 1 — regression** (`tests/test_audio_fixtures.py`, marker `transcription`):
+  Per-clip `.expected.json` metadata under `tests/fixtures/audio/<lang>/` paired with
+  audio hosted in the public HF dataset
+  [`podscripter-project/test-fixtures`](https://huggingface.co/datasets/podscripter-project/test-fixtures),
+  pinned to a specific commit revision in `tests/fixtures/audio/download.py`. Every
+  fixture runs with the same flags as a typical manual podscripter command
+  (`enable_diarization=True`, `model_name="medium"`, `beam_size=3`,
+  `single_call=True`); long fixtures (with `"modes": ["single","chunked"]`) also
+  exercise the chunked-mode path. Default thresholds: WER ≤ 0.15, DER ≤ 0.20 (single)
+  / WER ≤ 0.17, DER ≤ 0.22 (chunked).
+- **Tier 2 — quality benchmark** (`tests/benchmarks/`): pulls ~30 min/lang of public
+  subsets (FLEURS, LibriSpeech, VoxPopuli) and tracks WER / DER over time against
+  `tests/benchmarks/baseline.json`. Not run per-PR; intended for nightly CI or pre-release.
+- **Tier 3 — bug fixtures**: trim the offending audio, push to the same HF dataset,
+  bump `HF_REVISION`, add `.expected.json` + focused test (mirrors the existing
+  `tests/test_episodio272_speaker_split_exclamation.py` Spanish pattern).
+- License compliance: only `CC-BY-4.0`, `CC0-1.0`, or `public-domain` clips are accepted.
+  `tests/fixtures/audio/_validate_licensing.py` (marker `core`, no audio download
+  required) enforces per-fixture metadata fields and the permissive allowlist on every
+  PR. Aggregate dataset license: CC-BY 4.0. See
+  [`tests/fixtures/audio/LICENSES.md`](tests/fixtures/audio/LICENSES.md).
+- Useful env overrides for local iteration: `PODSCRIPTER_TEST_MODEL=small` to speed up
+  development; `PODSCRIPTER_TEST_FIXTURES_PATTERN="en/*short*"` to filter; `HF_HUB_OFFLINE=1`
+  to run fully offline with warm caches.
+
+##### Bringing up the EN/FR test corpus locally
+
+When the corpus is changed (new fixtures added or `HF_REVISION` bumped), or when first
+checking out a branch that introduces it, run these steps once. Full Docker commands
+with all required volume mounts are in `tests/README.md`.
+
+1. **Rebuild the image** — required whenever `Dockerfile` changes (e.g., the v0.9.0 `jiwer`
+   addition for WER computation):
+
+   ```
+   docker build -t podscripter .
+   ```
+
+2. **Prime the HF fixtures cache** — one-shot download of the pinned revision into the same
+   `HF_HOME` cache that already holds Whisper and pyannote models:
+
+   ```
+   python -m tests.fixtures.audio.download
+   ```
+
+   Idempotent; honors `HF_HUB_OFFLINE=1` once warm.
+
+3. **Run the license validator + every default test** — confirms metadata is well-formed
+   and the existing suite still passes (4 new validator checks are included automatically;
+   no audio download required for this step):
+
+   ```
+   pytest
+   ```
+
+4. **Opt in to the real-audio Tier 1 regression run** — requires `HF_TOKEN` for the pyannote
+   diarization model download (one-time; subsequent runs use the cache):
+
+   ```
+   pytest -m transcription tests/test_audio_fixtures.py
+   ```
+
+   Expect ~10–30 min on CPU at the default `medium` model. Use
+   `PODSCRIPTER_TEST_MODEL=small` to speed up local iteration; production CI should keep
+   the default `medium`.
+
+For Tier 2 nightly benchmarks (Tier 2 is not required for normal development), see
+`tests/benchmarks/README.md`.
 - Known pre-existing test failures (142 xfail test invocations across 32 files):
   - xfail markers are now **per-parameter** on parametrized tests (not function-level), so only the specific failing inputs are marked
   - Two xfail reasons:

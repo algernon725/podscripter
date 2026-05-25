@@ -1,0 +1,5 @@
+{
+  "_comment": "Tier 2 benchmark baseline. Populated by the first nightly run of run_benchmark.py on a clean image. Bump deliberately when accepting drift (e.g., after a model upgrade). See tests/benchmarks/README.md.",
+  "model": "medium",
+  "results": {}
+}

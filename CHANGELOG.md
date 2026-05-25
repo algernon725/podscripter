@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-05-24
+
+### Added
+- **Three-tier EN/FR real-audio test corpus** — first end-to-end regression coverage for the full pipeline (ASR + diarization + punctuation + formatting) on real audio for English and French (and extensible to other languages). Existing unit/multilingual tests catch logic regressions; this tier catches model-output drift.
+  - **Tier 1 (regression)**: `tests/test_audio_fixtures.py` parametrizes over every `tests/fixtures/audio/<lang>/<name>.expected.json` and runs the full pipeline via the `podscripter.transcribe(...)` library API with the same flags as typical manual usage (`enable_diarization=True`, `model_name="medium"`, `beam_size=3`, `single_call=True`). Long fixtures with `"modes": ["single", "chunked"]` exercise both `--single` and the chunked-mode code paths (`_split_audio_with_overlap` / `_dedupe_segments` / `_accumulate_segments`). Asserts WER (via `jiwer`) and DER (via `pyannote.metrics`) against per-fixture loose thresholds that absorb pyannote/Whisper non-determinism; default bounds WER ≤ 0.15 / DER ≤ 0.20 (single) and WER ≤ 0.17 / DER ≤ 0.22 (chunked). Marked `@pytest.mark.transcription` so it stays opt-in.
+  - **Tier 2 (quality benchmark)**: `tests/benchmarks/{download_subsets,run_benchmark,compare_baseline}.py` plus `baseline.json`. Pulls ~30 min/lang of public dataset subsets (FLEURS, LibriSpeech, optionally VoxPopuli), runs the pipeline in both `single` and `chunked` modes for multi-speaker subsets, and gates regressions against the committed baseline with separate WER/DER tolerances per mode so chunked-specific drift surfaces independently from generic ASR drift. Not run per-PR; intended for nightly CI or pre-release.
+  - **Tier 3 (bug-reproduction fixtures)**: documented workflow in `tests/README.md` (trim clip → push to HF dataset → bump `HF_REVISION` → add `.expected.json` → add focused test mirroring `tests/test_episodio272_speaker_split_exclamation.py`).
+- **Public HuggingFace dataset `podscripter-project/test-fixtures`** (CC-BY 4.0) — newly owned project artifact that hosts all Tier 1 audio. Repo stays binary-free (matches the existing `.gitignore` policy for `audio-files/` and `models/`); only per-clip `.expected.json` metadata lives in git. Audio is downloaded into the same `HF_HOME` cache that already holds Whisper and pyannote models, so no new docker mounts are required. MVP corpus uploaded at revision `4ae10183adde47c1706adb346bc0e9ad26b34545`:
+  - `en/librispeech_test_clean_1089_134686_0000.wav` (~10 s, single speaker; LibriSpeech test-clean)
+  - `en/librispeech_two_speakers_long.flac` (~9 min 17 s, two speakers, FLAC; LibriSpeech 1089 + 61 concatenated with a 0.5 s silence gap — exercises chunked mode)
+  - `fr/fleurs_fr_test_7105431834829365765.wav` (~9.4 s, single speaker; FLEURS `fr_fr` test split)
+- **`tests/fixtures/audio/download.py`** — HF dataset downloader that pins `HF_REVISION` to a specific commit hash. Idempotent (no-op when the snapshot is already cached) and honors `HF_HUB_OFFLINE=1` for fully offline test runs once warm. Pre-warmable via `python -m tests.fixtures.audio.download`.
+- **License-metadata validator** — `tests/fixtures/audio/_validate_licensing.py` runs on every default `pytest` invocation (under the `core` marker) and enforces that every `.expected.json` declares `source`, `source_url`, `license`, `license_url`, `audio_file`, `duration_sec`, `expected_text`, `expected_speaker_count`, and `thresholds` in the documented shape. The `license` field is restricted to a permissive allowlist (`CC-BY-4.0`, `CC0-1.0`, `public-domain`); non-CC0 sources additionally require `attribution` and `modifications`. Prevents accidental ingestion of an NC/ND-licensed clip in a future PR.
+- **Per-clip and consolidated license attribution** — `tests/fixtures/audio/LICENSES.md` (consolidated NOTICE for every source corpus: LibriSpeech, Common Voice, VoxPopuli, AMI, VoxConverse, MLS) and per-fixture `attribution` + `modifications` fields in every `.expected.json`. The HF dataset card mirrors the same provenance table for downstream redistributors.
+- **Local-iteration env-var controls** — `PODSCRIPTER_TEST_MODEL` overrides the default `medium` Whisper model (e.g. `small`, `tiny`) for fast dev iteration; `PODSCRIPTER_TEST_FIXTURES_PATTERN` is a glob filter (e.g. `en/*short*`) to run a subset of fixtures. Production defaults stay at `medium`, all fixtures.
+- **`jiwer` Python dependency** in `Dockerfile` for Word Error Rate computation. `pyannote.metrics` (DER) was already transitively available via `pyannote.audio==4.0.4`. The Docker image needs one `docker build` before the new tests can run.
+- **Documentation updates** — `tests/README.md` gains Tier 1/2/3 sections including the bug-fixture convention; `AGENT.md` Testing Requirements gains an "EN/FR test corpus" subsection (tiers, thresholds, env overrides, bring-up commands); `ARCHITECTURE.md` Testing-and-quality-gates section gains a three-tier paragraph; `tests/fixtures/audio/README.md` documents the full `.expected.json` schema, threshold shapes (flat vs per-mode), and recognized pattern tags.
+
+### Changed
+- **No behavior change** to `podscripter.transcribe(...)` or the CLI. All existing tests continue to pass (468 passing in the default `pytest` suite, including the 4 new license-validator checks; 84 xfail unchanged).
+
+### Notes
+- **Action required after pulling**: rebuild the Docker image (`docker build -t podscripter .`) so the new `jiwer` dependency is installed before running tests.
+- **License compliance for the new HF dataset**: aggregate license is CC-BY 4.0 (most restrictive of components). Downstream users redistributing the dataset must comply with CC-BY 4.0 (attribution, license notice, indication of changes, no DRM). See `tests/fixtures/audio/LICENSES.md`.
+
 ## [0.8.7] - 2026-05-24
 
 ### Changed

@@ -255,7 +255,8 @@ This feature is CPU-only and uses cached spaCy "sm" models baked into the image.
 
 ## Development
 
-See `tests/README.md` for details on running tests.
+See `tests/README.md` for details on running tests, including the opt-in
+EN/FR real-audio regression corpus (Tier 1) and the Tier 2 quality benchmarks.
 
 ## Batch Transcription: All Media Files
 

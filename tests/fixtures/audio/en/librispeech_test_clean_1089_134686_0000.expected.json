@@ -1,0 +1,23 @@
+{
+  "language": "en",
+  "audio_file": "en/librispeech_test_clean_1089_134686_0000.wav",
+
+  "source": "LibriSpeech test-clean (speaker 1089, chapter 134686, utterance 0000)",
+  "source_url": "https://www.openslr.org/12",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Panayotov, G. Chen, D. Povey, S. Khudanpur. LibriSpeech: An ASR corpus based on public domain audio books. IEEE ICASSP, 2015.",
+  "modifications": "Extracted single FLAC from test-clean/1089/134686/1089-134686-0000.flac; converted to 16 kHz mono signed-16-bit WAV. No trimming.",
+
+  "duration_sec": 10.44,
+  "modes": ["single"],
+
+  "expected_text": "He hoped there would be stew for dinner, turnips and carrots and bruised potatoes and fat mutton pieces to be ladled out in thick peppered flour fattened sauce.",
+  "speaker_turns": [
+    {"start": 0.0, "end": 10.44, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}
