@@ -264,12 +264,16 @@ three tiers documented in `tests/README.md` and `tests/fixtures/audio/README.md`
   fixture runs with the same flags as a typical manual podscripter command
   (`enable_diarization=True`, `model_name="medium"`, `beam_size=3`,
   `single_call=True`); long fixtures (with `"modes": ["single","chunked"]`) also
-  exercise the chunked-mode path. Default thresholds for EN/FR: WER ≤ 0.15, DER ≤ 0.20
-  (single) / WER ≤ 0.17, DER ≤ 0.22 (chunked). ES uses slightly looser bounds for the
-  long MLS audiobook concat (WER ≤ 0.17 / 0.19, DER ≤ 0.22 / 0.25 single/chunked) because
-  Spanish audiobook narration has more punctuation/cap variability than LibriSpeech English.
-  Spanish fixtures also exercise the `spanish-questions` pattern assertion (both `¿` and
-  `?` must appear in the output).
+  exercise the chunked-mode path. Default thresholds for short fixtures: WER ≤ 0.15,
+  DER ≤ 0.20. The ES + FR long MLS audiobook concats (`mls_es_two_speakers_long.flac`,
+  `mls_fr_two_speakers_long.flac`) use slightly looser bounds (WER ≤ 0.17 / 0.19,
+  DER ≤ 0.22 / 0.25 single/chunked) because Spanish + French audiobook narration has
+  more punctuation/capitalization variability than the LibriSpeech English equivalent.
+  A handful of individual short fixtures have per-fixture threshold loosening with a
+  justifying note in `modifications` (e.g., proper-name transliteration drift on the
+  Indian-names FLEURS clip); see `git log -- tests/fixtures/audio/` for the worked
+  examples. Spanish fixtures also exercise the `spanish-questions` pattern assertion
+  (both `¿` and `?` must appear in the output).
 - **Tier 2 — quality benchmark** (`tests/benchmarks/`): pulls ~30 min/lang of public
   subsets (FLEURS en_us/es_419/fr_fr, LibriSpeech, MLS Spanish, optionally VoxPopuli) and
   tracks WER / DER over time against `tests/benchmarks/baseline.json`. Not run per-PR;
@@ -309,8 +313,9 @@ with all required volume mounts are in `tests/README.md`.
    Idempotent; honors `HF_HUB_OFFLINE=1` once warm.
 
 3. **Run the license validator + every default test** — confirms metadata is well-formed
-   and the existing suite still passes (4 new validator checks are included automatically;
-   no audio download required for this step):
+   and the existing suite still passes. The license validator (one parametrization per
+   `.expected.json` fixture, plus an at-least-one-fixture-present check) runs automatically
+   as part of the default `core` marker; no audio download required for this step:
 
    ```
    pytest
@@ -323,7 +328,10 @@ with all required volume mounts are in `tests/README.md`.
    pytest -m transcription tests/test_audio_fixtures.py
    ```
 
-   Expect ~10–30 min on CPU at the default `medium` model. Use
+   Expect ~80–90 min on CPU at the default `medium` model for the full 27-invocation
+   sweep (24 fixtures: 21 short single-mode invocations + 3 long fixtures × 2 modes each).
+   For inner-loop development use `pytest -k '<filter>'` to narrow to a single language
+   (`-k 'es/'`) or fixture (`-k 'mls_es_two_speakers_long'`); use
    `PODSCRIPTER_TEST_MODEL=small` to speed up local iteration; production CI should keep
    the default `medium`.
 
