@@ -88,20 +88,27 @@ def _enumerate_mls_spanish(mls_root: Path) -> Iterable[dict[str, Any]]:
     """Yield MLS Spanish test items by reading `transcripts.txt` lazily.
 
     Layout after extracting `mls_spanish_opus.tar.gz`:
-        mls_spanish/test/transcripts.txt   tab-separated: <utt_id>\t<reference text>
-        mls_spanish/test/audio/<speaker>/<book>/<utt_id>.opus
+        mls_spanish_opus/test/transcripts.txt   tab-separated: <utt_id>\t<reference text>
+        mls_spanish_opus/test/audio/<speaker>/<book>/<utt_id>.opus
     `<utt_id>` is `<speaker>_<book>_<utt>` so the audio path is reconstructable from id.
+
+    Note: the upstream archive's top-level directory is `mls_spanish_opus/` (not
+    `mls_spanish/` as the v0.9.1 wiring assumed). Both layouts are accepted here so
+    pre-extracted caches from either convention work.
 
     Single-speaker audiobook clips → modes=["single"], expected_speakers=1.
     """
     import tarfile
 
     archive = mls_root / "mls_spanish_opus.tar.gz"
-    extract_dir = mls_root / "mls_spanish"
-    if archive.exists() and not extract_dir.exists():
+    extract_dir = mls_root / "mls_spanish_opus"
+    legacy_extract_dir = mls_root / "mls_spanish"
+    if archive.exists() and not extract_dir.exists() and not legacy_extract_dir.exists():
         extract_dir.parent.mkdir(parents=True, exist_ok=True)
         with tarfile.open(archive, "r:gz") as tf:
             tf.extractall(mls_root)
+    if not extract_dir.exists() and legacy_extract_dir.exists():
+        extract_dir = legacy_extract_dir
 
     transcripts = extract_dir / "test" / "transcripts.txt"
     if not transcripts.exists():

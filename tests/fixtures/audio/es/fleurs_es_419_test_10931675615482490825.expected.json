@@ -1,0 +1,23 @@
+{
+  "language": "es",
+  "audio_file": "es/fleurs_es_419_test_10931675615482490825.wav",
+
+  "source": "FLEURS es_419 test set (utterance 10931675615482490825, sentence id 1748, female speaker)",
+  "source_url": "https://huggingface.co/datasets/google/fleurs",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "A. Conneau, M. Ma, S. Khanuja, Y. Zhang, V. Axelrod, S. Dalmia, J. Riesa, C. Rivera, A. Bapna. FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech. arXiv:2205.12446, 2022.",
+  "modifications": "Extracted single WAV from fleurs/data/es_419/audio/test.tar.gz; re-encoded as 16 kHz mono signed-16-bit WAV. No trimming. Threshold note: wer_max loosened from 0.15 to 0.22 because (1) the FLEURS verbatim reference contains a single-letter typo (\u201cantincendios\u201d) that Whisper correctly outputs as \u201cantiincendios\u201d (~7% WER from one substitution), and (2) the time format \u201c11:35 p. m.\u201d is normalized by Whisper to \u201c11.35 PM\u201d (~14% WER from two substitutions). Keeping the FLEURS reference verbatim per the contribution policy.",
+
+  "duration_sec": 8.64,
+  "modes": ["single"],
+
+  "expected_text": "Los equipos de rescate antincendios lograron extinguir el fuego a las 11:35 p. m.",
+  "speaker_turns": [
+    {"start": 0.0, "end": 8.64, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short", "numbers"],
+  "thresholds": {"wer_max": 0.22, "der_max": 0.20}
+}
