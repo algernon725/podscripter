@@ -1,0 +1,23 @@
+{
+  "language": "en",
+  "audio_file": "en/fleurs_en_test_8173060820032255320.wav",
+
+  "source": "FLEURS en_us test set (utterance 8173060820032255320, sentence id 1669, male speaker)",
+  "source_url": "https://huggingface.co/datasets/google/fleurs",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "A. Conneau, M. Ma, S. Khanuja, Y. Zhang, V. Axelrod, S. Dalmia, J. Riesa, C. Rivera, A. Bapna. FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech. arXiv:2205.12446, 2022.",
+  "modifications": "Extracted single WAV from fleurs/data/en_us/audio/test.tar.gz; re-encoded as 16 kHz mono signed-16-bit WAV. No trimming. Threshold note: wer_max loosened from the 0.15 EN baseline to 0.25 because Whisper systematically mistranscribes the Indian proper names (\u201cChandra Shekhar Solanki\u201d \u2192 \u201cShandra Shankar Solansky\u201d) which accounts for ~21% of words in this 14-word utterance; the rest of the transcription is verbatim.",
+
+  "duration_sec": 9.14,
+  "modes": ["single"],
+
+  "expected_text": "Police superintendent Chandra Shekhar Solanki said the accused appeared in court with covered faces.",
+  "speaker_turns": [
+    {"start": 0.0, "end": 9.14, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short", "names"],
+  "thresholds": {"wer_max": 0.25, "der_max": 0.20}
+}

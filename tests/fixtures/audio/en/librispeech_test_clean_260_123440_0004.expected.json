@@ -1,0 +1,23 @@
+{
+  "language": "en",
+  "audio_file": "en/librispeech_test_clean_260_123440_0004.wav",
+
+  "source": "LibriSpeech test-clean (speaker 260, chapter 123440, utterance 0004)",
+  "source_url": "https://www.openslr.org/12",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Panayotov, G. Chen, D. Povey, S. Khudanpur. LibriSpeech: An ASR corpus based on public domain audio books. IEEE ICASSP, 2015.",
+  "modifications": "Extracted single FLAC from test-clean/260/123440/260-123440-0004.flac; re-encoded to 16 kHz mono signed-16-bit WAV via ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le. No trimming.",
+
+  "duration_sec": 12.02,
+  "modes": ["single"],
+
+  "expected_text": "Alice took up the fan and gloves, and as the hall was very hot, she kept fanning herself all the time she went on talking. Dear, dear, how queer everything is to-day!",
+  "speaker_turns": [
+    {"start": 0.0, "end": 12.02, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}

@@ -1,0 +1,23 @@
+{
+  "language": "es",
+  "audio_file": "es/fleurs_es_419_test_4963359825952343829.wav",
+
+  "source": "FLEURS es_419 test set (utterance 4963359825952343829, sentence id 1942, male speaker)",
+  "source_url": "https://huggingface.co/datasets/google/fleurs",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "A. Conneau, M. Ma, S. Khanuja, Y. Zhang, V. Axelrod, S. Dalmia, J. Riesa, C. Rivera, A. Bapna. FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech. arXiv:2205.12446, 2022.",
+  "modifications": "Extracted single WAV from fleurs/data/es_419/audio/test.tar.gz; re-encoded as 16 kHz mono signed-16-bit WAV. No trimming.",
+
+  "duration_sec": 13.44,
+  "modes": ["single"],
+
+  "expected_text": "Construimos nuestras casas a partir de las plantas y con ellas también fabricamos ropa. La mayoría de los alimentos que ingerimos son plantas. Sin ellas, los animales no sobrevivirían.",
+  "speaker_turns": [
+    {"start": 0.0, "end": 13.44, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}

@@ -1,0 +1,23 @@
+{
+  "language": "es",
+  "audio_file": "es/mls_es_test_10667_6706_000001.wav",
+
+  "source": "MLS Spanish test split (speaker 10667, book 6706, utterance 000001)",
+  "source_url": "https://www.openslr.org/94/",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Pratap, Q. Xu, A. Sriram, G. Synnaeve, R. Collobert. MLS: A Large-Scale Multilingual Dataset for Speech Research. Interspeech 2020.",
+  "modifications": "Transcoded single .opus file from mls_spanish_opus/test/audio/10667/6706/10667_6706_000001.opus to 16 kHz mono signed-16-bit WAV via ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le. No trimming.",
+
+  "duration_sec": 12.79,
+  "modes": ["single"],
+
+  "expected_text": "Ahora bien, en medio de esta felicidad sucedió que una tarde de lluvia salió por fin el sol después de cinco días de temporal, y Pedrito se puso a volar gritando: ¡qué lindo día, lorito!",
+  "speaker_turns": [
+    {"start": 0.0, "end": 12.79, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short", "names"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}

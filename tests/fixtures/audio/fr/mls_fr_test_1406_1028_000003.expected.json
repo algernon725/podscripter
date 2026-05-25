@@ -1,0 +1,23 @@
+{
+  "language": "fr",
+  "audio_file": "fr/mls_fr_test_1406_1028_000003.wav",
+
+  "source": "MLS French test split (speaker 1406, book 1028, utterance 000003)",
+  "source_url": "https://www.openslr.org/94/",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Pratap, Q. Xu, A. Sriram, G. Synnaeve, R. Collobert. MLS: A Large-Scale Multilingual Dataset for Speech Research. Interspeech 2020.",
+  "modifications": "Transcoded single .opus file from mls_french_opus/test/audio/1406/1028/1406_1028_000003.opus to 16 kHz mono signed-16-bit WAV via ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le. No trimming.",
+
+  "duration_sec": 10.67,
+  "modes": ["single"],
+
+  "expected_text": "À l'aspect d'un monstre d'une grandeur si démesurée, le pêcheur voulut prendre la fuite, mais il se trouva si troublé et si effrayé qu'il ne put marcher. Salomon...",
+  "speaker_turns": [
+    {"start": 0.0, "end": 10.67, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}

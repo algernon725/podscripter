@@ -1,0 +1,23 @@
+{
+  "language": "es",
+  "audio_file": "es/mls_es_test_3471_1378_000006.wav",
+
+  "source": "MLS Spanish test split (speaker 3471, book 1378, utterance 000006)",
+  "source_url": "https://www.openslr.org/94/",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Pratap, Q. Xu, A. Sriram, G. Synnaeve, R. Collobert. MLS: A Large-Scale Multilingual Dataset for Speech Research. Interspeech 2020.",
+  "modifications": "Transcoded single .opus file from mls_spanish_opus/test/audio/3471/1378/3471_1378_000006.opus to 16 kHz mono signed-16-bit WAV via ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le. No trimming.",
+
+  "duration_sec": 11.45,
+  "modes": ["single"],
+
+  "expected_text": "Señor, un caudaloso río dividía dos términos de un mismo señorío, y esté vuestra merced atento, porque el caso es de importancia y algo dificultoso.",
+  "speaker_turns": [
+    {"start": 0.0, "end": 11.45, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}

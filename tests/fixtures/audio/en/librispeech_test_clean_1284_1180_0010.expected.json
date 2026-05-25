@@ -1,0 +1,23 @@
+{
+  "language": "en",
+  "audio_file": "en/librispeech_test_clean_1284_1180_0010.wav",
+
+  "source": "LibriSpeech test-clean (speaker 1284, chapter 1180, utterance 0010)",
+  "source_url": "https://www.openslr.org/12",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Panayotov, G. Chen, D. Povey, S. Khudanpur. LibriSpeech: An ASR corpus based on public domain audio books. IEEE ICASSP, 2015.",
+  "modifications": "Extracted single FLAC from test-clean/1284/1180/1284-1180-0010.flac; re-encoded to 16 kHz mono signed-16-bit WAV via ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le. No trimming.",
+
+  "duration_sec": 8.635,
+  "modes": ["single"],
+
+  "expected_text": "Unc knocked at the door of the house, and a chubby, pleasant-faced woman dressed all in blue opened it and greeted the visitors with a smile.",
+  "speaker_turns": [
+    {"start": 0.0, "end": 8.635, "speaker": "A"}
+  ],
+  "expected_speaker_count": 1,
+
+  "patterns": ["single-speaker", "short"],
+  "thresholds": {"wer_max": 0.15, "der_max": 0.20}
+}

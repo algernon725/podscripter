@@ -1038,7 +1038,7 @@ The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all 
        -o /home/computer/podscripter-mls-staging/mls_spanish_opus.tar.gz \
        https://dl.fbaipublicfiles.com/mls/mls_spanish_opus.tar.gz
    ```
-   Layout inside the archive: `mls_spanish/test/transcripts.txt` (tab-separated `<utt_id>\t<reference text>`) and `mls_spanish/test/audio/<speaker>/<book>/<utt_id>.opus`. Same layout `_enumerate_mls_spanish()` in [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py) already expects, so the Tier 2 wiring is reusable.
+   Layout inside the archive: `mls_spanish_opus/test/transcripts.txt` (tab-separated `<utt_id>\t<reference text>`) and `mls_spanish_opus/test/audio/<speaker>/<book>/<utt_id>.opus`. Same layout `_enumerate_mls_spanish()` in [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py) accepts (both `mls_spanish_opus/` and the legacy `mls_spanish/` paths are honored).
 
 2. **Pick two distinct MLS Spanish test speakers** and stitch their utterances:
    - Target ~4.5 min per speaker (~9 min total) so `duration_sec > 480` to force chunked mode (the chunk threshold in `podscripter.py`). The tighter ~2–3 min/speaker option is also workable if reviewing the WER reference text by hand becomes painful.
@@ -1068,6 +1068,54 @@ The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all 
 **Why this was deferred rather than dropped**: ES is now a primary supported language (per [`ARCHITECTURE.md`](ARCHITECTURE.md) line 19). Tier 1 coverage without a chunked-mode-exercising fixture for ES means a chunked-mode regression affecting Spanish would only surface in the EN long concat (which has no Spanish text) — false confidence. Adding the MLS concat closes that gap.
 
 **Status**: DEFERRED. Ready to pick up; all dependencies (Tier 2 MLS Spanish downloader + enumerate function in [`tests/benchmarks/download_subsets.py`](tests/benchmarks/download_subsets.py) and [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py), MLS+FLEURS attribution entries in [`tests/fixtures/audio/LICENSES.md`](tests/fixtures/audio/LICENSES.md), `EN/ES/FR` language references in all docs) already shipped with the ES MVP PR. The only remaining work is the audio concat itself, the matching `.expected.json`, and the second `HF_REVISION` bump.
+
+#### Phase 1.5 Tier 1 corpus — Common Voice CC0 shorts + multi-speaker shorts (DEFERRED - Phase 1 follow-up, May 2026)
+
+**Problem**: Phase 1 (v0.9.2) shipped 18 new short fixtures via the A+ scope (3 LibriSpeech + 3 FLEURS for EN, 3 FLEURS + 3 MLS for each of ES/FR). The original Phase 1 target was 10 short clips per language, including 2 Common Voice (CC0) clips per lang for accent variety AND 1 multi-speaker short per lang exercising diarization on a sub-30 s span. Both axes were deferred because (1) Common Voice CC0 splits are tens of GB and clip selection benefits from per-clip listening — agent sessions don't afford that, and (2) AMI/VoxPopuli multi-speaker short selection requires careful span editing from longer source recordings, which is also human-curation-heavy. The A+ scope (clean studio-recorded audiobook/read text from LibriSpeech + FLEURS + MLS) is the high-confidence subset that ships cleanly in one session; this DEFERRED entry covers the harder remaining 4 fixtures per lang.
+
+**Background**: Phase 1 plan ([`.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md`](.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md)) specified 9 new shorts per lang (3 LibriSpeech/MLS + 3 FLEURS + 2 Common Voice + 1 AMI/FLEURS-diverse/VoxPopuli multi-speaker short). During execution the user selected the A+ scoping which dropped Common Voice + multi-speaker shorts to a follow-up. With v0.9.2 landed, Tier 1 short coverage is 7 EN + 7 ES + 7 FR (1 v0.9.0 baseline + 6 v0.9.2 = 7 each); reaching the 10-short target requires this follow-up.
+
+**Follow-up work checklist** (one PR per language batch, or one combined PR — author's choice; existing per-language flow used in v0.9.2 works either way):
+
+1. **2 Common Voice clips per lang (6 total)** — preferred shape: 1 male + 1 female, 5–15 s, no profanity, distinct accents. CC0 license so attribution is recommended but not enforced by the validator.
+   - **Per-lang source URLs** (require Mozilla account registration to download but the audio itself is CC0 once obtained):
+     - EN: `https://commonvoice.mozilla.org/en/datasets` → choose latest `en` clips bundle
+     - ES: same site → `es` bundle
+     - FR: same site → `fr` bundle
+   - **Selection criteria** (from `validated.tsv` row filtering): `up_votes >= 2 AND down_votes == 0`, duration 5–15 s. Mozilla's per-row `path` column points to the `.mp3` file inside `clips/`. The bundle's `clips/` dir is multi-GB even after filtering, so pre-filter via `awk` before downloading individual clips.
+   - **Re-encode**: `ffmpeg -i <input.mp3> -ac 1 -ar 16000 -c:a pcm_s16le <output.wav>`. Verbatim reference is the row's `sentence` column.
+   - **`.expected.json` shape**: `language`, `audio_file: <lang>/cv_<lang>_<row_id>.wav`, `source: "Mozilla Common Voice (CC0) <lang> validated subset (clip <client_id>)"`, `license: "CC0-1.0"` (no `attribution` field required by the validator), `modifications: "Re-encoded MP3 from clips/<path> to 16 kHz mono signed-16-bit WAV via ffmpeg."`, `patterns: ["single-speaker", "short"]`, `thresholds: {"wer_max": 0.17, "der_max": 0.22}` (slightly looser than FLEURS+LibriSpeech because Common Voice is spontaneous read-aloud and noisier).
+   - **`LICENSES.md`**: the top-level Common Voice (CC0) entry already exists (added in v0.9.0); no edit needed — just add the new per-clip rows in the HF dataset README.
+
+2. **1 multi-speaker short per lang (3 total)** — fills the gap of no multi-speaker short in the current corpus (the only multi-speaker fixture is `en/librispeech_two_speakers_long.flac`, which is exclusively long).
+   - **EN — AMI Headset Mix excerpt** (~20–30 s, two speakers):
+     - Source: `https://groups.inf.ed.ac.uk/ami/corpus/` — pick a single meeting recording from `amicorpus.idiap.ch` (e.g., `EN2001a.Mix-Headset.wav`).
+     - Extract a 20–30 s segment where exactly two speakers are active (cross-reference the AMI annotation `.xml` files for speaker turns — choose a span where the same two speaker IDs appear continuously).
+     - `ffmpeg -ss <start> -to <end> -ac 1 -ar 16000 -c:a pcm_s16le ami_<meeting>_<start>_<end>.wav`.
+     - `.expected.json`: `patterns: ["multi-speaker", "short"]`, `expected_speaker_count: 2`, `speaker_turns`: derived from AMI annotation `.xml` mapped into the trimmed span, `thresholds: {"wer_max": 0.20, "der_max": 0.25}` (spontaneous meeting speech is noisy; AMI WER is typically higher than read text).
+   - **ES — FLEURS pattern-diverse short** (~10–15 s, single speaker, but with an under-represented pattern like `numbers` or `names` not covered in v0.9.2):
+     - Re-pull `data/es_419/test.tsv` from FLEURS (already cached in v0.9.2 staging), filter rows for `dur ∈ [10, 15]` and `text` containing 2+ digits or 3+ proper nouns.
+     - This is technically a single-speaker fixture but fills the "1 pattern-diverse" slot from the original plan (the multi-speaker option for ES short would be VoxConverse Spanish, which doesn't have a clean per-lang split).
+   - **FR — VoxPopuli FR multi-speaker short** (~20–30 s, two distinct speaker IDs):
+     - Source: `https://github.com/facebookresearch/voxpopuli` — `transcribed_data/fr/asr_train.tsv` has per-utterance speaker IDs and timestamps.
+     - Pick a contiguous span from `audios/fr/<year>/<file>.ogg` containing two speaker IDs in sequence (parse `asr_train.tsv` for two adjacent rows from same file with different speaker IDs).
+     - `ffmpeg -ss <start> -to <end> -ac 1 -ar 16000 -c:a pcm_s16le vp_fr_<file>_<start>_<end>.wav`.
+     - `.expected.json`: `patterns: ["multi-speaker", "short"]`, `expected_speaker_count: 2`, `speaker_turns`: derived from `asr_train.tsv` rows for the chosen span, `thresholds: {"wer_max": 0.20, "der_max": 0.25}`.
+
+3. **Push 6+3=9 new audio files + updated dataset README to HF** in a single atomic commit (same `HfApi.create_commit()` pattern used in v0.9.2 — see `upload_to_hf.py` in the v0.9.2 staging dir). Capture the new `info.oid` and bump `HF_REVISION` in [`tests/fixtures/audio/download.py`](tests/fixtures/audio/download.py) to that SHA.
+
+4. **Update `tests/fixtures/audio/LICENSES.md`** if new top-level corpora rows are needed (Common Voice, AMI, VoxPopuli headers exist; only per-clip rows are new — those live in the HF dataset README, not in `LICENSES.md`).
+
+5. **Validate**:
+   - `pytest tests/fixtures/audio/_validate_licensing.py -v` — should grow from 23 to 32 parametrizations (29 fixtures + 1 discovery + 2 from existing) all passing.
+   - `pytest -m transcription tests/test_audio_fixtures.py -v` — full Tier 1 re-run; expect +9 invocations × ~30–60 s ≈ +5–10 min on top of v0.9.2's ~40–50 min, total ~45–60 min.
+   - Tune thresholds with a justifying note in the `.expected.json`'s `modifications` field if any clip blows past the assigned bounds. If a clip is genuinely too hard for the thresholds (>0.25 WER), replace it rather than relaxing thresholds beyond 0.25.
+
+6. **CHANGELOG bump**: `[0.9.3]` is reserved for the Phase 2 longs (MLS Spanish + MLS French two-speaker concats). Phase 1.5 should land as `[0.9.2.1]` (patch release if landed before Phase 2) or get folded into `[0.9.3]` (if landed together with Phase 2). The Phase 2 longs are likely to ship first because they have higher per-clip value (chunked-mode coverage for ES + FR which is currently EN-only).
+
+**Why this was deferred rather than dropped**: 10 short clips per language is the corpus density that gives diverse-source regression coverage. The current v0.9.2 7-per-lang state is workable but heavily weighted to clean read-text audio (LibriSpeech, FLEURS, MLS audiobooks). Common Voice adds spontaneous-speech accent variety; the multi-speaker shorts close a real coverage gap (no Tier 1 fixture exercises multi-speaker diarization on a < 30 s span; the only multi-speaker fixture is the EN long concat at ~9 min). Both fill specific regression-coverage roles, neither is purely cosmetic.
+
+**Status**: DEFERRED. The Phase 1 (v0.9.2) HF dataset revision (`2c169d04c9f7aa56c55e9aec69e6dbccc9e6bad5`) is the current base. Phase 1.5 work bumps to a new revision built on top. No code dependencies need to land first — all prerequisites (license validator, HF download mechanism, attribution-table conventions) shipped in v0.9.0.
 
 ## Recent Refactors
 
