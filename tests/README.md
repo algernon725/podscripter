@@ -64,11 +64,11 @@ Tests are categorized using pytest markers (defined in `pyproject.toml`):
 - The suite is designed to operate offline when caches are present (HuggingFace / Whisper / Sentence-Transformers)
 - To run fully offline with warm caches: pass `-e HF_HUB_OFFLINE=1` to `docker run`
 
-## EN/FR audio fixtures (Tier 1 regression)
+## EN/ES/FR audio fixtures (Tier 1 regression)
 
 `tests/test_audio_fixtures.py` runs the full pipeline (ASR + diarization + punctuation +
-formatting) on a small corpus of real audio for English and French. Each fixture is
-described by a JSON file under `tests/fixtures/audio/<lang>/<name>.expected.json` and the
+formatting) on a small corpus of real audio for English, Spanish, and French. Each fixture
+is described by a JSON file under `tests/fixtures/audio/<lang>/<name>.expected.json` and the
 matching audio lives in the public HuggingFace dataset
 [`podscripter-project/test-fixtures`](https://huggingface.co/datasets/podscripter-project/test-fixtures),
 pinned to a specific revision in `tests/fixtures/audio/download.py`. See
@@ -121,7 +121,7 @@ nightly CI or pre-release validation, not per-PR.
 
 ## Tier 3 bug-reproduction fixtures
 
-When you hit a specific EN/FR (or other-language) bug worth pinning regression coverage
+When you hit a specific EN/ES/FR (or other-language) bug worth pinning regression coverage
 for, follow this convention so the bug fixture lives in the same corpus as Tier 1:
 
 1. Trim the offending audio to the shortest clip that reproduces the bug:

@@ -1,6 +1,6 @@
 # Audio fixtures corpus
 
-Real-audio test fixtures for the podscripter transcription pipeline (ASR + diarization + punctuation + formatting). Used by `tests/test_audio_fixtures.py` to catch regressions on real audio across EN and FR (and future languages).
+Real-audio test fixtures for the podscripter transcription pipeline (ASR + diarization + punctuation + formatting). Used by `tests/test_audio_fixtures.py` to catch regressions on real audio across EN, ES, and FR (and future languages).
 
 ## Where the audio lives
 
@@ -24,6 +24,8 @@ tests/fixtures/audio/
   _validate_licensing.py          # core-marker test enforcing license metadata
   en/
     <name>.expected.json          # one metadata file per audio fixture
+  es/
+    <name>.expected.json
   fr/
     <name>.expected.json
 ```

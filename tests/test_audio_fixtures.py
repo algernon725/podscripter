@@ -267,7 +267,13 @@ def test_audio_fixture(case: FixtureCase) -> None:
         )
 
     sentences = result.get("sentences") or []
-    actual_text = " ".join(s.strip() for s in sentences if s and s.strip())
+    actual_text = " ".join(
+        text
+        for text in (
+            (s.text if hasattr(s, "text") else str(s)).strip() for s in sentences if s
+        )
+        if text
+    )
 
     wer_max = float(thresholds["wer_max"])
     wer = _compute_wer(expected_text, actual_text)

@@ -249,26 +249,31 @@ Audio Input → Chunking (overlap) → Whisper Transcription (with language dete
   - `test_spanish_false_domains.py`: prevention of Spanish words being treated as domains
   - `test_domain_utils.py`: centralized domain detection, masking, and exclusion utilities
   - `test_initials_normalization.py`: person initial normalization like "C.S. Lewis" (WIP)
-  - `test_audio_fixtures.py`: end-to-end EN/FR real-audio regression (Tier 1 corpus); see EN/FR test corpus below
+  - `test_audio_fixtures.py`: end-to-end EN/ES/FR real-audio regression (Tier 1 corpus); see EN/ES/FR test corpus below
 
-#### EN/FR test corpus
+#### EN/ES/FR test corpus
 
-Real-audio regression coverage for EN and FR (extensible to other languages) lives in
+Real-audio regression coverage for EN, ES, and FR (extensible to other languages) lives in
 three tiers documented in `tests/README.md` and `tests/fixtures/audio/README.md`:
 
 - **Tier 1 — regression** (`tests/test_audio_fixtures.py`, marker `transcription`):
-  Per-clip `.expected.json` metadata under `tests/fixtures/audio/<lang>/` paired with
-  audio hosted in the public HF dataset
+  Per-clip `.expected.json` metadata under `tests/fixtures/audio/<lang>/` (currently
+  `en/`, `es/`, `fr/`) paired with audio hosted in the public HF dataset
   [`podscripter-project/test-fixtures`](https://huggingface.co/datasets/podscripter-project/test-fixtures),
   pinned to a specific commit revision in `tests/fixtures/audio/download.py`. Every
   fixture runs with the same flags as a typical manual podscripter command
   (`enable_diarization=True`, `model_name="medium"`, `beam_size=3`,
   `single_call=True`); long fixtures (with `"modes": ["single","chunked"]`) also
-  exercise the chunked-mode path. Default thresholds: WER ≤ 0.15, DER ≤ 0.20 (single)
-  / WER ≤ 0.17, DER ≤ 0.22 (chunked).
+  exercise the chunked-mode path. Default thresholds for EN/FR: WER ≤ 0.15, DER ≤ 0.20
+  (single) / WER ≤ 0.17, DER ≤ 0.22 (chunked). ES uses slightly looser bounds for the
+  long MLS audiobook concat (WER ≤ 0.17 / 0.19, DER ≤ 0.22 / 0.25 single/chunked) because
+  Spanish audiobook narration has more punctuation/cap variability than LibriSpeech English.
+  Spanish fixtures also exercise the `spanish-questions` pattern assertion (both `¿` and
+  `?` must appear in the output).
 - **Tier 2 — quality benchmark** (`tests/benchmarks/`): pulls ~30 min/lang of public
-  subsets (FLEURS, LibriSpeech, VoxPopuli) and tracks WER / DER over time against
-  `tests/benchmarks/baseline.json`. Not run per-PR; intended for nightly CI or pre-release.
+  subsets (FLEURS en_us/es_419/fr_fr, LibriSpeech, MLS Spanish, optionally VoxPopuli) and
+  tracks WER / DER over time against `tests/benchmarks/baseline.json`. Not run per-PR;
+  intended for nightly CI or pre-release.
 - **Tier 3 — bug fixtures**: trim the offending audio, push to the same HF dataset,
   bump `HF_REVISION`, add `.expected.json` + focused test (mirrors the existing
   `tests/test_episodio272_speaker_split_exclamation.py` Spanish pattern).
@@ -281,7 +286,7 @@ three tiers documented in `tests/README.md` and `tests/fixtures/audio/README.md`
   development; `PODSCRIPTER_TEST_FIXTURES_PATTERN="en/*short*"` to filter; `HF_HUB_OFFLINE=1`
   to run fully offline with warm caches.
 
-##### Bringing up the EN/FR test corpus locally
+##### Bringing up the EN/ES/FR test corpus locally
 
 When the corpus is changed (new fixtures added or `HF_REVISION` bumped), or when first
 checking out a branch that introduces it, run these steps once. Full Docker commands
@@ -505,6 +510,44 @@ For Tier 2 nightly benchmarks (Tier 2 is not required for normal development), s
 **Tests**: Verified with Episodio212.mp3 (33-minute Spanish podcast with 3 speakers, 86 speaker changes). Result: Zero sentences starting with connector words. All 34+ connector word boundaries correctly merged when same speaker continues.
 
 ### 5. Known Resolved Issues (Recent)
+
+#### Tier 1 audio fixture test assumes `sentences` is `list[str]` instead of `list[Sentence]` (RESOLVED - ES MVP, May 2026)
+
+**Problem**: `tests/test_audio_fixtures.py` failed on every EN/ES/FR Tier 1 transcription invocation with:
+
+```
+AttributeError: 'Sentence' object has no attribute 'strip'
+```
+
+at line 270:
+
+```python
+sentences = result.get("sentences") or []
+actual_text = " ".join(s.strip() for s in sentences if s and s.strip())
+```
+
+**Root Cause**: The v0.6.0 Speaker-Aware Output refactor changed `transcribe(...)` to return `result["sentences"]` as `list[Sentence]` (the dataclass that bundles text + utterances + primary speaker; see `ARCHITECTURE.md` "v0.6.0 Speaker-Aware Output"). `podscripter.py` line 1487 emits these `Sentence` objects in the return dict. `tests/test_audio_fixtures.py` was written in v0.9.0 (commit `cdd3b85`, "Add three-tier EN/FR real-audio test corpus") under the assumption that `sentences` was still `list[str]` and called `.strip()` directly on each element, which raised `AttributeError` on the dataclass.
+
+**Why we didn't catch this until now**: The Tier 1 corpus is gated by `@pytest.mark.transcription`, so the default `pytest` invocation skips it. Tier 1 only runs under `pytest -m transcription tests/test_audio_fixtures.py`, which requires `HF_TOKEN` and ~10–30 min CPU time — and had not been run in CI or developer flow since v0.9.0 landed. The bug surfaced when validating the ES MVP corpus expansion (a new ES FLEURS clip was added to the dataset and the full Tier 1 suite was re-run for the first time since v0.9.0; all 4 pre-existing EN/FR invocations failed the same way as the new ES invocation).
+
+**Solution Implemented (ES MVP, May 2026)**: Replaced the single line with a backward-compatible extraction that handles both shapes:
+
+```python
+sentences = result.get("sentences") or []
+actual_text = " ".join(
+    text
+    for text in (
+        (s.text if hasattr(s, "text") else str(s)).strip() for s in sentences if s
+    )
+    if text
+)
+```
+
+The `hasattr(s, "text")` guard preserves backward compatibility in case any caller still emits `list[str]`. The fix is local to `tests/test_audio_fixtures.py` line 269-275; no production code changed.
+
+**Tests**: `pytest -m transcription tests/test_audio_fixtures.py` now passes all 5 invocations (3 EN single/single/chunked + 1 ES single + 1 FR single) end-to-end in ~27 min on CPU at `model=medium`. The new ES FLEURS fixture (`es/fleurs_es_419_test_7285658688146080595.expected.json`) clears its `wer_max=0.15` / `der_max=0.20` thresholds and satisfies the `spanish-questions` pattern assertion (both `¿` and `?` present in the output).
+
+**Key Insight**: When a return-type evolves under one feature flag path (here, speaker diarization in v0.6.0), every consumer in the codebase — including opt-in test markers — needs to be exercised to catch the drift. The `@pytest.mark.transcription` gating was working as intended for normal PR throughput but hid this for two releases (v0.6.0 → v0.9.0+). For future API-shape changes, consider adding a fast no-network smoke test in the default `core` marker that just asserts the type of `result["sentences"]` (and any other documented return-dict keys) using a tiny stub audio file, so the type contract is locked at every PR.
 
 #### Spanish Proper-Noun + `Es` Falsely Merged as `.es` Domain — `Nate.es` (RESOLVED - v0.8.5)
 **Problem**: When `--enable-diarization` was enabled and a Whisper segment ended with a capitalized proper noun followed by a sentence beginning with `"Es ..."`, the post-processing formatter merged them into a fake `.es` domain and lowercased the leading `E`, producing fragmented output.
@@ -980,6 +1023,51 @@ The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all 
 3. Convert MP3 to WAV via `pydub`/`ffmpeg` before loading
 
 **Files Affected**: `speaker_diarization.py` (audio pre-loading and warning suppression), `Dockerfile` (`libsndfile1` + `soundfile` dependencies)
+
+#### MLS Spanish long multi-speaker Tier 1 fixture (DEFERRED - ES MVP follow-up, May 2026)
+
+**Problem**: The ES MVP Tier 1 corpus currently has only the short FLEURS `es_419` single-speaker fixture (`tests/fixtures/audio/es/fleurs_es_419_test_7285658688146080595.expected.json`). The long multi-speaker concat fixture (`es/mls_es_two_speakers_long.flac`) that mirrors the EN `librispeech_two_speakers_long` fixture was descoped from the MVP because the off-repo concat work + ~2 GB MLS Spanish download did not fit the session budget. Without this fixture, the chunked-mode path is not exercised for ES (Tier 1 EN/FR cover chunked mode for English via the long concat clip; Spanish has no equivalent until this lands).
+
+**Background**: The ES MVP plan ([`.cursor/plans/es_mvp_test_corpus_4869735b.plan.md`](.cursor/plans/es_mvp_test_corpus_4869735b.plan.md)) originally specified both clips, but during execution the user chose `mls_scope=fleurs_only_now` to ship the FLEURS clip + HF revision bump first and revisit MLS in a follow-up PR. The MLS placeholder `.expected.json` that was staged during planning was removed before the `HF_REVISION` bump (it would have caused two `FileNotFoundError` test failures the moment the revision was bumped, since the MLS audio is not in the dataset yet).
+
+**Follow-up work checklist** (one PR, lockstep with the HF dataset update):
+
+1. **Download MLS Spanish test split** (~2 GB compressed):
+   ```bash
+   curl -L --max-time 1800 \
+       -o /home/computer/podscripter-mls-staging/mls_spanish_opus.tar.gz \
+       https://dl.fbaipublicfiles.com/mls/mls_spanish_opus.tar.gz
+   ```
+   Layout inside the archive: `mls_spanish/test/transcripts.txt` (tab-separated `<utt_id>\t<reference text>`) and `mls_spanish/test/audio/<speaker>/<book>/<utt_id>.opus`. Same layout `_enumerate_mls_spanish()` in [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py) already expects, so the Tier 2 wiring is reusable.
+
+2. **Pick two distinct MLS Spanish test speakers** and stitch their utterances:
+   - Target ~4.5 min per speaker (~9 min total) so `duration_sec > 480` to force chunked mode (the chunk threshold in `podscripter.py`). The tighter ~2–3 min/speaker option is also workable if reviewing the WER reference text by hand becomes painful.
+   - Insert 0.5 s silence between the two speaker blocks.
+   - Transcode the joined Opus stream to 16 kHz mono FLAC via `ffmpeg -ac 1 -ar 16000 -c:a flac` (FLAC is roughly half the size of WAV for the same content; matches the existing EN `librispeech_two_speakers_long.flac` choice).
+   - Apply first-letter capitalization + trailing period to each MLS reference line and concatenate them with single-space separators for the `expected_text` field (mirrors the EN long fixture's `modifications` note).
+
+3. **Create `tests/fixtures/audio/es/mls_es_two_speakers_long.expected.json`** following the EN long fixture's schema:
+   - `language: "es"`, `audio_file: "es/mls_es_two_speakers_long.flac"`
+   - `source`: `"Multilingual LibriSpeech (MLS) Spanish test split, two audiobook speakers concatenated"`
+   - `license: "CC-BY-4.0"`, `attribution`: Pratap et al. 2020 citation (already in [`tests/fixtures/audio/LICENSES.md`](tests/fixtures/audio/LICENSES.md))
+   - `modifications`: real measured concat description with the chosen speaker IDs
+   - `duration_sec`: real measured value (`ffprobe -v quiet -of csv=p=0 -show_entries format=duration ...`)
+   - `modes: ["single", "chunked"]`
+   - `expected_text`: the actual concatenated MLS references, capitalized + period-terminated
+   - `speaker_turns`: `[{"start": 0.0, "end": <speakerA_end>, "speaker": "A"}, {"start": <speakerA_end + 0.5>, "end": <total>, "speaker": "B"}]`
+   - `expected_speaker_count: 2`, `patterns: ["multi-speaker", "long"]`
+   - `thresholds`: per-mode `{single: {wer_max: 0.17, der_max: 0.22}, chunked: {wer_max: 0.19, der_max: 0.25}}` (looser than EN equivalents because Spanish audiobook narration has more punctuation/cap variability; tune after the first end-to-end run if needed).
+
+4. **Push the FLAC and updated dataset README to HF** in a single commit (same workflow used for the FLEURS clip in the May 2026 ES MVP PR):
+   - Add a new attribution-table row and a `Modifications (per CC-BY 4.0 §3(a)(1)(B))` entry to [`podscripter-project/test-fixtures`](https://huggingface.co/datasets/podscripter-project/test-fixtures) `README.md` describing the new concat. Pattern to copy: the existing `en/librispeech_two_speakers_long.flac` rows.
+   - Use `huggingface_hub.HfApi().create_commit(...)` with both file additions in one `CommitOperationAdd` list so the dataset's commit history stays clean.
+   - Capture the resulting `info.oid` and bump `HF_REVISION` in [`tests/fixtures/audio/download.py`](tests/fixtures/audio/download.py) to that new SHA. The PR with `mls_es_two_speakers_long.expected.json` must contain the matching `HF_REVISION` bump (lockstep policy in [`tests/README.md`](tests/README.md)).
+
+5. **Validate end-to-end**: `pytest -m transcription tests/test_audio_fixtures.py -k mls_es_two_speakers_long` should produce two passing invocations (one `[single]` + one `[chunked]`). Re-run the full Tier 1 suite (`pytest -m transcription tests/test_audio_fixtures.py`) to confirm no regression on EN/FR/ES FLEURS. Total wall-clock at `model=medium` on CPU: ~10 min for the long ES fixture single pass + ~10 min for the chunked pass on top of the existing ~27 min EN/FR/ES runtime. Threshold loosening may be needed on first run; tune deliberately in the same PR with a justifying note in the `.expected.json`'s `modifications` field.
+
+**Why this was deferred rather than dropped**: ES is now a primary supported language (per [`ARCHITECTURE.md`](ARCHITECTURE.md) line 19). Tier 1 coverage without a chunked-mode-exercising fixture for ES means a chunked-mode regression affecting Spanish would only surface in the EN long concat (which has no Spanish text) — false confidence. Adding the MLS concat closes that gap.
+
+**Status**: DEFERRED. Ready to pick up; all dependencies (Tier 2 MLS Spanish downloader + enumerate function in [`tests/benchmarks/download_subsets.py`](tests/benchmarks/download_subsets.py) and [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py), MLS+FLEURS attribution entries in [`tests/fixtures/audio/LICENSES.md`](tests/fixtures/audio/LICENSES.md), `EN/ES/FR` language references in all docs) already shipped with the ES MVP PR. The only remaining work is the audio concat itself, the matching `.expected.json`, and the second `HF_REVISION` bump.
 
 ## Recent Refactors
 

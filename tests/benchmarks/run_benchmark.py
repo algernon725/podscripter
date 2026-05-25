@@ -13,7 +13,7 @@ Metrics emitted per (dataset, file, mode):
 
 Usage:
 
-    python tests/benchmarks/run_benchmark.py --langs en,fr \
+    python tests/benchmarks/run_benchmark.py --langs en,es,fr \
         --output tests/benchmarks/results/2026-05-25.json
 """
 
@@ -38,13 +38,18 @@ DEFAULT_CACHE_DIR = Path(
 def _enumerate_items(cache_dir: Path, langs: list[str]) -> Iterable[dict[str, Any]]:
     """Yield benchmark items as dicts: dataset, lang, audio_path, expected_text, ...
 
-    This MVP recognizes the FLEURS layout (`<dataset>/data/<lang>/test.tsv` + audio tar).
+    Recognizes:
+      - FLEURS layout (`<dataset>/data/<lang>/test.tsv` + `test.tar.gz`) for en, es, fr.
+      - MLS Spanish layout (`mls-spanish-test/mls_spanish_opus.tar.gz` containing
+        `mls_spanish/test/transcripts.txt` and `mls_spanish/test/audio/<speaker>/<book>/...opus`).
+
     Extend with additional sources as they're integrated.
     """
     import tarfile
 
+    fleurs_lang_codes = {"en": "en_us", "es": "es_419", "fr": "fr_fr"}
     for lang in langs:
-        fleurs_lang_code = {"en": "en_us", "fr": "fr_fr"}.get(lang)
+        fleurs_lang_code = fleurs_lang_codes.get(lang)
         if not fleurs_lang_code:
             continue
         fleurs_root = cache_dir / f"fleurs-{lang}-test"
@@ -74,6 +79,55 @@ def _enumerate_items(cache_dir: Path, langs: list[str]) -> Iterable[dict[str, An
                 "expected_speakers": 1,
                 "modes": ["single"],
             }
+
+    if "es" in langs:
+        yield from _enumerate_mls_spanish(cache_dir / "mls-spanish-test")
+
+
+def _enumerate_mls_spanish(mls_root: Path) -> Iterable[dict[str, Any]]:
+    """Yield MLS Spanish test items by reading `transcripts.txt` lazily.
+
+    Layout after extracting `mls_spanish_opus.tar.gz`:
+        mls_spanish/test/transcripts.txt   tab-separated: <utt_id>\t<reference text>
+        mls_spanish/test/audio/<speaker>/<book>/<utt_id>.opus
+    `<utt_id>` is `<speaker>_<book>_<utt>` so the audio path is reconstructable from id.
+
+    Single-speaker audiobook clips → modes=["single"], expected_speakers=1.
+    """
+    import tarfile
+
+    archive = mls_root / "mls_spanish_opus.tar.gz"
+    extract_dir = mls_root / "mls_spanish"
+    if archive.exists() and not extract_dir.exists():
+        extract_dir.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive, "r:gz") as tf:
+            tf.extractall(mls_root)
+
+    transcripts = extract_dir / "test" / "transcripts.txt"
+    if not transcripts.exists():
+        return
+
+    audio_root = extract_dir / "test" / "audio"
+    for line in transcripts.read_text(encoding="utf-8").splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        utt_id, text = parts
+        id_parts = utt_id.split("_")
+        if len(id_parts) < 3:
+            continue
+        speaker, book = id_parts[0], id_parts[1]
+        audio_file = audio_root / speaker / book / f"{utt_id}.opus"
+        if not audio_file.exists():
+            continue
+        yield {
+            "dataset": "mls-spanish",
+            "lang": "es",
+            "audio_path": str(audio_file),
+            "expected_text": text,
+            "expected_speakers": 1,
+            "modes": ["single"],
+        }
 
 
 def _normalize(text: str) -> str:
@@ -116,7 +170,7 @@ def _run_one(item: dict[str, Any], mode: str, model_name: str) -> dict[str, Any]
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--langs", default="en,fr", help="Comma-separated languages (default: en,fr)")
+    parser.add_argument("--langs", default="en,es,fr", help="Comma-separated languages (default: en,es,fr)")
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR))
     parser.add_argument("--model", default=os.environ.get("PODSCRIPTER_TEST_MODEL", "medium"))
     parser.add_argument("--max-items-per-dataset", type=int, default=20, help="Limit per dataset for speed")

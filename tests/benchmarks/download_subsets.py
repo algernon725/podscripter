@@ -11,6 +11,10 @@ Datasets and licenses:
     librispeech-clean    CC-BY 4.0   https://www.openslr.org/12/
     fleurs-en-test       CC-BY 4.0   https://huggingface.co/datasets/google/fleurs
 
+  ES
+    fleurs-es-test       CC-BY 4.0   https://huggingface.co/datasets/google/fleurs
+    mls-spanish-test     CC-BY 4.0   https://www.openslr.org/94/
+
   FR
     voxpopuli-fr         CC0 1.0     https://github.com/facebookresearch/voxpopuli
     mls-french           CC-BY 4.0   https://www.openslr.org/94/
@@ -21,7 +25,7 @@ artifacts podscripter republishes (see tests/fixtures/audio/).
 
 Usage:
 
-    python tests/benchmarks/download_subsets.py --langs en,fr [--cache-dir <path>]
+    python tests/benchmarks/download_subsets.py --langs en,es,fr [--cache-dir <path>]
 
 Subsets are bounded by `--max-minutes` (default 30) per dataset so the total cache stays
 under ~3 GB at the defaults.
@@ -42,6 +46,10 @@ DATASETS = {
     "en": [
         "fleurs-en-test",
         "librispeech-test-clean",
+    ],
+    "es": [
+        "fleurs-es-test",
+        "mls-spanish-test",
     ],
     "fr": [
         "fleurs-fr-test",
@@ -86,6 +94,29 @@ def _download_librispeech(dest: Path) -> None:
     print(f"  librispeech: saved to {target}")
 
 
+def _download_mls_spanish(dest: Path) -> None:
+    """Download MLS Spanish test split (~2 GB; FLAC audiobook clips + transcripts.txt).
+
+    Source: Multilingual LibriSpeech (CC-BY 4.0), https://www.openslr.org/94/.
+    The archive ships as `mls_spanish_opus.tar.gz` (opus-compressed, ~2 GB) which contains
+    `mls_spanish/test/audio/<speaker>/<book>/<utterance>.opus` plus
+    `mls_spanish/test/transcripts.txt` mapping each utterance ID to its reference text.
+    The benchmark runner reads the transcripts.txt index lazily; downstream code can
+    transcode opus to wav on the fly via faster-whisper / ffmpeg.
+    """
+    import urllib.request
+
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / "mls_spanish_opus.tar.gz"
+    if target.exists() and target.stat().st_size > 1_000_000_000:
+        print(f"  mls-spanish: cached at {target}")
+        return
+    url = "https://dl.fbaipublicfiles.com/mls/mls_spanish_opus.tar.gz"
+    print(f"  mls-spanish: downloading {url}")
+    urllib.request.urlretrieve(url, target)
+    print(f"  mls-spanish: saved to {target}")
+
+
 def _download_voxpopuli(lang_code: str, dest: Path, max_minutes: int) -> None:
     """VoxPopuli per-year archives are huge (5+ GB). Recommend using HF mirror subsets."""
     dest.mkdir(parents=True, exist_ok=True)
@@ -104,10 +135,14 @@ def _download_voxpopuli(lang_code: str, dest: Path, max_minutes: int) -> None:
 def _dispatch(subset: str, cache_dir: Path, max_minutes: int) -> None:
     if subset == "fleurs-en-test":
         _download_fleurs("en_us", cache_dir / "fleurs-en-test", max_minutes)
+    elif subset == "fleurs-es-test":
+        _download_fleurs("es_419", cache_dir / "fleurs-es-test", max_minutes)
     elif subset == "fleurs-fr-test":
         _download_fleurs("fr_fr", cache_dir / "fleurs-fr-test", max_minutes)
     elif subset == "librispeech-test-clean":
         _download_librispeech(cache_dir / "librispeech-test-clean")
+    elif subset == "mls-spanish-test":
+        _download_mls_spanish(cache_dir / "mls-spanish-test")
     elif subset == "voxpopuli-fr-test":
         _download_voxpopuli("fr", cache_dir / "voxpopuli-fr-test", max_minutes)
     else:
@@ -116,7 +151,7 @@ def _dispatch(subset: str, cache_dir: Path, max_minutes: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--langs", default="en,fr", help="Comma-separated languages (default: en,fr)")
+    parser.add_argument("--langs", default="en,es,fr", help="Comma-separated languages (default: en,es,fr)")
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR), help=f"Cache directory (default: {DEFAULT_CACHE_DIR})")
     parser.add_argument("--max-minutes", type=int, default=30, help="Approximate per-dataset budget in minutes")
     args = parser.parse_args(argv)

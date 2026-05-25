@@ -85,7 +85,20 @@ Excluded (do not add fixtures from these sources):
 - **License**: CC-BY 4.0 — <https://creativecommons.org/licenses/by/4.0/>
 - **Attribution**: V. Pratap, Q. Xu, A. Sriram, G. Synnaeve, R. Collobert, "MLS: A Large-Scale
   Multilingual Dataset for Speech Research", Interspeech 2020.
-- **Modifications**: French audiobook clips extracted; converted to 16 kHz mono WAV.
+- **Modifications**: French and Spanish audiobook clips extracted; converted to 16 kHz mono
+  WAV/FLAC. Long multi-speaker ES fixture is built off-repo by concatenating utterances
+  from two distinct MLS Spanish speakers with 0.5 s silence between speakers, then
+  re-encoding as a single FLAC.
+
+### FLEURS (CC-BY 4.0)
+
+- **Source**: <https://huggingface.co/datasets/google/fleurs>
+- **License**: CC-BY 4.0 — <https://creativecommons.org/licenses/by/4.0/>
+- **Attribution**: A. Conneau, M. Ma, S. Khanuja, Y. Zhang, V. Axelrod, S. Dalmia, J. Riesa,
+  C. Rivera, A. Bapna, "FLEURS: Few-shot Learning Evaluation of Universal Representations
+  of Speech", arXiv:2205.12446, 2022.
+- **Modifications**: Single-utterance WAV files extracted from the `es_419` / `fr_fr` test
+  splits' `audio/test.tar.gz`; re-encoded as 16 kHz mono signed-16-bit WAV. No trimming.
 
 ## Per-fixture attribution
 

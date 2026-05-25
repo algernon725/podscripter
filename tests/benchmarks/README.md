@@ -36,8 +36,8 @@ docker run --rm \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -e HF_TOKEN \
   podscripter bash -c "
-    python tests/benchmarks/download_subsets.py --langs en,fr &&
-    python tests/benchmarks/run_benchmark.py --langs en,fr --output tests/benchmarks/results/$(date +%Y-%m-%d).json &&
+    python tests/benchmarks/download_subsets.py --langs en,es,fr &&
+    python tests/benchmarks/run_benchmark.py --langs en,es,fr --output tests/benchmarks/results/$(date +%Y-%m-%d).json &&
     python tests/benchmarks/compare_baseline.py tests/benchmarks/results/$(date +%Y-%m-%d).json
   "
 ```
@@ -50,9 +50,12 @@ Tier 2 may use any of the Tier 1 source corpora plus additional permissive datas
 
 - **VoxConverse dev** (CC-BY 4.0) — EN multi-speaker
 - **AMI Headset Mix** (CC-BY 4.0) — EN multi-speaker, longer recordings
+- **FLEURS en_us / es_419 / fr_fr** (CC-BY 4.0) — EN/ES/FR short single-speaker utterances
+- **LibriSpeech test-clean** (CC-BY 4.0) — EN single-speaker audiobooks
 - **MLS French** (CC-BY 4.0) — FR single-speaker audiobooks
+- **MLS Spanish** (CC-BY 4.0) — ES single-speaker audiobooks
 - **VoxPopuli FR** (CC0) — FR multi-speaker parliament debates
-- **Common Voice EN/FR** (CC0) — short utterances
+- **Common Voice EN/ES/FR** (CC0) — short utterances
 
 `download_subsets.py` downloads each dataset into the local cache; it does **not** push to
 HuggingFace. The Tier 1 corpus (`podscripter-project/test-fixtures`) is the only thing
@@ -61,7 +64,7 @@ podscripter republishes.
 ## Modes per dataset
 
 - Multi-speaker datasets (VoxConverse, AMI, VoxPopuli) — run in both `single` and `chunked` modes.
-- Single-speaker datasets (LibriSpeech, MLS, Common Voice) — `single` only.
+- Single-speaker datasets (LibriSpeech, MLS, FLEURS, Common Voice) — `single` only.
 
 ## Baseline & regression detection
 
