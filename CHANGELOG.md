@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-05-25
+
+### Added
+- **EN/ES/FR Tier 1 corpus expansion — +2 long multi-speaker FLAC fixtures** (22 → 24 total), one each for ES and FR. Both follow the shape of the existing `en/librispeech_two_speakers_long.flac` (~9 min, two LibriVox-style audiobook speakers, 0.5 s silence between speaker blocks, 16 kHz mono FLAC) so chunked-mode regression coverage now exists for all three primary supported languages. Each fixture exercises both `--single` and chunked transcription modes; per-mode thresholds `single {wer_max: 0.17, der_max: 0.22}` / `chunked {wer_max: 0.19, der_max: 0.25}` (looser than the EN long because Spanish/French audiobook narration has more punctuation/capitalization variability).
+  - **`es/mls_es_two_speakers_long.flac`** (~9 min 5 s) — MLS Spanish test split, speaker 8306 (book 7405 + one utterance from book 8509) followed by speaker 97 (book 567, Don Quijote). 14 + 14 utterances, durations 5–25 s each, no trimming inside each utterance. Closes the ES MVP DEFERRED entry from v0.9.1 ("MLS Spanish long multi-speaker Tier 1 fixture").
+  - **`fr/mls_fr_two_speakers_long.flac`** (~9 min 8 s) — MLS French test split, speaker 10179 (book 11051, Jules Lemaître children's tales) followed by speaker 5790 (book 4893, Mme de Lafayette, *Princesse de Montpensier*). Same 14 + 14 utterance shape as the ES concat.
+- **HF dataset extension** — both FLACs (~18 MB combined) plus rebuilt dataset `README.md` (24 fixtures) pushed in a single atomic `HfApi.create_commit()` call. New dataset revision: `d007be782d831a1471dc51ef67e4c681dabe1a94`. Per-clip attribution + modifications rows added for both new entries.
+
+### Changed
+- **`tests/fixtures/audio/download.py` HF_REVISION bumped** — from `2c169d04c9f7aa56c55e9aec69e6dbccc9e6bad5` (v0.9.2, 22 fixtures) to `d007be782d831a1471dc51ef67e4c681dabe1a94` (v0.9.3, 24 fixtures including ES + FR longs).
+- **`AGENT.md` — MLS Spanish DEFERRED entry moved to Resolved** — the §6 "MLS Spanish long multi-speaker Tier 1 fixture (DEFERRED - ES MVP follow-up, May 2026)" entry is removed from §6 and a corresponding RESOLVED entry "MLS Spanish + French long multi-speaker Tier 1 fixtures (RESOLVED - Phase 2, v0.9.3, May 2026)" is added at the top of §5 covering the concrete deliverables (speakers picked, durations, HF revision, per-mode thresholds) and a Key Insight on why a chunked-mode long fixture per primary language is the minimum Tier 1 bar.
+- **`AGENT.md` — new DEFERRED entry for Tier 2 baseline work** — "Tier 2 `baseline.json` — populate with WER + DER and MLS French parity (DEFERRED - Phase 3 follow-up, May 2026)" added to §6. Documents the full pickup checklist: add DER metric to `tests/benchmarks/run_benchmark.py`, add MLS French enumeration mirroring ES, populate `baseline.json` with two stable runs, update `tests/benchmarks/README.md`, and bump to `[0.10.0]` when shipped. Explicitly lists sub-items excluded from that PR (sentence-F1, multi-speaker chunked benchmark mode, real VoxPopuli FR downloader, LibriSpeech enumeration in benchmark, nightly CI workflow) with rationale on why the Phase 3 work should ship alongside nightly CI rather than standalone.
+
+### Notes
+- **No production-code change**: only `tests/fixtures/audio/download.py` (revision pin), `tests/fixtures/audio/{es,fr}/mls_*_two_speakers_long.expected.json` (2 new metadata files), `AGENT.md` (Resolved entry + new DEFERRED entry), and `CHANGELOG.md`. `podscripter.py`, `sentence_splitter.py`, `sentence_formatter.py`, `punctuation_restorer.py`, `domain_utils.py`, `speaker_diarization.py` are untouched. The default `pytest` suite license-validator count grows from 23 to 25 (24 fixtures + at-least-one).
+- **No `Dockerfile` change**: existing images work as-is. The new FLACs are streamed via the existing HF cache mechanism (`HF_HOME` mount).
+- **Tier 1 transcription validation runtime estimate**: 2 new long clips × 2 modes (single + chunked) × ~10 min each at `model=medium` on CPU ≈ +40 min on top of v0.9.2's ~40–50 min → total ~80–90 min for the 27-invocation Tier 1 sweep (23 short single-mode + 2 short single+chunked = legacy + 2 new long single+chunked).
+- **`tests/fixtures/audio/LICENSES.md`** required no edit: the MLS section's "Modifications" line added anticipatorily in v0.9.2 already covers "Long multi-speaker ES/FR fixtures are built off-repo by concatenating utterances from two distinct MLS test speakers with 0.5 s silence between speakers, then re-encoding as a single FLAC."
+
 ## [0.9.2] - 2026-05-25
 
 ### Added

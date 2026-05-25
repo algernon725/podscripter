@@ -37,7 +37,7 @@ HF_DATASET = "podscripter-project/test-fixtures"
 # Pin a specific dataset revision (commit hash) so audio matches the test code exactly.
 # IMPORTANT: bump this whenever a new clip is added to the dataset, in the SAME PR as the
 # new `.expected.json` files referencing those clips.
-HF_REVISION = "2c169d04c9f7aa56c55e9aec69e6dbccc9e6bad5"
+HF_REVISION = "d007be782d831a1471dc51ef67e4c681dabe1a94"
 
 # Repo type for HF Hub helpers. Datasets and models use different URL prefixes.
 _HF_REPO_TYPE = "dataset"
