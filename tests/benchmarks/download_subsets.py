@@ -1,34 +1,36 @@
 """Tier 2 benchmark dataset downloader.
 
-Pulls small subsets (~30 min/language) of public, permissively-licensed corpora into the
-local benchmark cache. Idempotent: re-running skips already-cached subsets.
+Pulls small subsets of public, permissively-licensed corpora into the local benchmark
+cache. Idempotent: re-running skips already-cached subsets.
 
-Datasets and licenses:
+Datasets, licenses, and approximate download footprint at the defaults:
 
   EN
-    voxconverse-dev      CC-BY 4.0   https://www.robots.ox.ac.uk/~vgg/data/voxconverse/
-    ami-headset-mix      CC-BY 4.0   https://groups.inf.ed.ac.uk/ami/corpus/
-    librispeech-clean    CC-BY 4.0   https://www.openslr.org/12/
-    fleurs-en-test       CC-BY 4.0   https://huggingface.co/datasets/google/fleurs
+    librispeech-test-clean  CC-BY 4.0  https://www.openslr.org/12/                  (~346 MB whole archive)
+    fleurs-en-test          CC-BY 4.0  https://huggingface.co/datasets/google/fleurs (~1.3 GB test archive + tsv)
 
   ES
-    fleurs-es-test       CC-BY 4.0   https://huggingface.co/datasets/google/fleurs
-    mls-spanish-test     CC-BY 4.0   https://www.openslr.org/94/
+    fleurs-es-test          CC-BY 4.0  https://huggingface.co/datasets/google/fleurs (~1.3 GB test archive + tsv)
+    mls-spanish-test        CC-BY 4.0  facebook/multilingual_librispeech (streamed)  (~tens of MB; `--mls-max-items` clips)
 
   FR
-    voxpopuli-fr         CC0 1.0     https://github.com/facebookresearch/voxpopuli
-    mls-french           CC-BY 4.0   https://www.openslr.org/94/
-    fleurs-fr-test       CC-BY 4.0   https://huggingface.co/datasets/google/fleurs
+    fleurs-fr-test          CC-BY 4.0  https://huggingface.co/datasets/google/fleurs (~1.3 GB test archive + tsv)
+    mls-french-test         CC-BY 4.0  facebook/multilingual_librispeech (streamed)  (~tens of MB; `--mls-max-items` clips)
+    (voxpopuli-fr removed: raw archives are 5 GB+ per year and the multi-speaker FR slot
+     is covered by Tier 1; MLS French gives the FR Tier 2 WER signal at a tiny footprint.)
+
+MLS is *streamed* from the HuggingFace `facebook/multilingual_librispeech` test split
+(`--mls-max-items` clips per language, written as raw `.opus` + a `transcripts.tsv` index),
+NOT downloaded as the old ~2 GB+ monolithic `mls_<lang>_opus.tar.gz` archive. FLEURS still
+pulls its single per-language test archive via HF Hub. So the dominant footprint is FLEURS
+(~1.3 GB per language) and LibriSpeech (~346 MB), not MLS.
 
 This script ONLY downloads. It does not push anywhere. Tier 1 fixtures are the only
 artifacts podscripter republishes (see tests/fixtures/audio/).
 
 Usage:
 
-    python tests/benchmarks/download_subsets.py --langs en,es,fr [--cache-dir <path>]
-
-Subsets are bounded by `--max-minutes` (default 30) per dataset so the total cache stays
-under ~3 GB at the defaults.
+    python tests/benchmarks/download_subsets.py --langs en,es,fr [--cache-dir <path>] [--mls-max-items 30]
 """
 
 from __future__ import annotations
@@ -53,9 +55,12 @@ DATASETS = {
     ],
     "fr": [
         "fleurs-fr-test",
-        "voxpopuli-fr-test",
+        "mls-french-test",
     ],
 }
+
+# MLS HF config name per podscripter language code.
+MLS_CONFIGS = {"es": "spanish", "fr": "french"}
 
 
 def _download_fleurs(lang_code: str, dest: Path, max_minutes: int) -> None:
@@ -94,45 +99,53 @@ def _download_librispeech(dest: Path) -> None:
     print(f"  librispeech: saved to {target}")
 
 
-def _download_mls_spanish(dest: Path) -> None:
-    """Download MLS Spanish test split (~2 GB; FLAC audiobook clips + transcripts.txt).
+def _stream_mls(lang: str, dest: Path, max_items: int) -> None:
+    """Stream the first `max_items` clips of the MLS test split for `lang` into `dest`.
 
-    Source: Multilingual LibriSpeech (CC-BY 4.0), https://www.openslr.org/94/.
-    The archive ships as `mls_spanish_opus.tar.gz` (opus-compressed, ~2 GB) which contains
-    `mls_spanish/test/audio/<speaker>/<book>/<utterance>.opus` plus
-    `mls_spanish/test/transcripts.txt` mapping each utterance ID to its reference text.
-    The benchmark runner reads the transcripts.txt index lazily; downstream code can
-    transcode opus to wav on the fly via faster-whisper / ffmpeg.
+    Replaces the old ~2 GB+ monolithic `mls_<lang>_opus.tar.gz` download. Streams
+    `facebook/multilingual_librispeech` (CC-BY 4.0, https://www.openslr.org/94/) test split
+    with `datasets` (bounded by `islice(max_items)`), writing each clip's raw `.opus` bytes
+    to `<dest>/audio/<utt_id>.opus` and an index line to `<dest>/transcripts.tsv`
+    (`<utt_id>\t<reference text>`). Footprint is tens of MB, not gigabytes, and scales flat
+    as more languages are added (just register them in `MLS_CONFIGS` + `DATASETS`).
+
+    Idempotent: skips if `transcripts.tsv` already has >= `max_items` rows. Audio decoding
+    is deferred to run-time (the runner feeds `.opus` straight to the pipeline), so this
+    streams with `Audio(decode=False)` to avoid pulling in torchcodec here.
     """
-    import urllib.request
+    from itertools import islice
 
-    dest.mkdir(parents=True, exist_ok=True)
-    target = dest / "mls_spanish_opus.tar.gz"
-    if target.exists() and target.stat().st_size > 1_000_000_000:
-        print(f"  mls-spanish: cached at {target}")
+    config = MLS_CONFIGS.get(lang)
+    if not config:
+        raise SystemExit(f"no MLS config registered for lang={lang!r}")
+
+    transcripts = dest / "transcripts.tsv"
+    if transcripts.exists() and len(transcripts.read_text(encoding="utf-8").splitlines()) >= max_items:
+        print(f"  mls-{lang}: cached ({max_items} clips) at {dest}")
         return
-    url = "https://dl.fbaipublicfiles.com/mls/mls_spanish_opus.tar.gz"
-    print(f"  mls-spanish: downloading {url}")
-    urllib.request.urlretrieve(url, target)
-    print(f"  mls-spanish: saved to {target}")
+
+    from datasets import Audio, load_dataset
+
+    audio_dir = dest / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  mls-{lang}: streaming first {max_items} clips of facebook/multilingual_librispeech[{config}] test ...")
+    ds = load_dataset("facebook/multilingual_librispeech", config, split="test", streaming=True)
+    ds = ds.cast_column("audio", Audio(decode=False))
+
+    lines: list[str] = []
+    for ex in islice(ds, max_items):
+        audio = ex["audio"]
+        name = Path(audio["path"]).name  # e.g. 11266_10604_000000.opus
+        utt_id = Path(name).stem
+        (audio_dir / f"{utt_id}.opus").write_bytes(audio["bytes"])
+        text = " ".join(str(ex["transcript"]).split())
+        lines.append(f"{utt_id}\t{text}")
+
+    transcripts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"  mls-{lang}: wrote {len(lines)} clips + {transcripts}")
 
 
-def _download_voxpopuli(lang_code: str, dest: Path, max_minutes: int) -> None:
-    """VoxPopuli per-year archives are huge (5+ GB). Recommend using HF mirror subsets."""
-    dest.mkdir(parents=True, exist_ok=True)
-    note = dest / "INSTRUCTIONS.md"
-    note.write_text(
-        "VoxPopuli archives are 5+ GB per year. For Tier 2 use the `facebook/voxpopuli`\n"
-        "HuggingFace dataset with the `datasets` library streaming a small subset, or\n"
-        f"download a single year archive from\n"
-        f"  https://dl.fbaipublicfiles.com/voxpopuli/audios/{lang_code}_2020.tar\n"
-        f"and trim with ffmpeg to ~{max_minutes} minutes.\n",
-        encoding="utf-8",
-    )
-    print(f"  voxpopuli {lang_code}: see {note}")
-
-
-def _dispatch(subset: str, cache_dir: Path, max_minutes: int) -> None:
+def _dispatch(subset: str, cache_dir: Path, max_minutes: int, mls_max_items: int) -> None:
     if subset == "fleurs-en-test":
         _download_fleurs("en_us", cache_dir / "fleurs-en-test", max_minutes)
     elif subset == "fleurs-es-test":
@@ -142,9 +155,9 @@ def _dispatch(subset: str, cache_dir: Path, max_minutes: int) -> None:
     elif subset == "librispeech-test-clean":
         _download_librispeech(cache_dir / "librispeech-test-clean")
     elif subset == "mls-spanish-test":
-        _download_mls_spanish(cache_dir / "mls-spanish-test")
-    elif subset == "voxpopuli-fr-test":
-        _download_voxpopuli("fr", cache_dir / "voxpopuli-fr-test", max_minutes)
+        _stream_mls("es", cache_dir / "mls-spanish-test", mls_max_items)
+    elif subset == "mls-french-test":
+        _stream_mls("fr", cache_dir / "mls-french-test", mls_max_items)
     else:
         raise SystemExit(f"unknown subset: {subset}")
 
@@ -153,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--langs", default="en,es,fr", help="Comma-separated languages (default: en,es,fr)")
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR), help=f"Cache directory (default: {DEFAULT_CACHE_DIR})")
-    parser.add_argument("--max-minutes", type=int, default=30, help="Approximate per-dataset budget in minutes")
+    parser.add_argument("--max-minutes", type=int, default=30, help="Approximate per-dataset budget in minutes (FLEURS run-time clip)")
+    parser.add_argument("--mls-max-items", type=int, default=30, help="MLS clips to stream per language (>= run_benchmark --max-items-per-dataset)")
     args = parser.parse_args(argv)
 
     cache_dir = Path(args.cache_dir).expanduser()
@@ -168,10 +182,16 @@ def main(argv: list[str] | None = None) -> int:
             continue
         print(f"== {lang} ==")
         for subset in subsets:
-            _dispatch(subset, cache_dir, args.max_minutes)
+            _dispatch(subset, cache_dir, args.max_minutes, args.mls_max_items)
 
     return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(main())
+    rc = main()
+    # `datasets` streaming + torchcodec/aiohttp can segfault at interpreter teardown
+    # (PyGILState_Release) even after all work + file writes are complete. Flush and use
+    # os._exit so a successful download reports a clean exit code instead of 139.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(rc)

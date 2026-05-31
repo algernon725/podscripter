@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     spacy==3.8.11 \
     pyannote.audio==4.0.4 \
     pytest \
-    jiwer
+    jiwer \
+    datasets
 
 # Install spaCy language models (3.8.0 for spacy 3.8.x)
 RUN pip install --no-cache-dir \

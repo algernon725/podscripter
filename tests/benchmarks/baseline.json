@@ -1,5 +1,381 @@
 {
-  "_comment": "Tier 2 benchmark baseline. Populated by the first nightly run of run_benchmark.py on a clean image. Bump deliberately when accepting drift (e.g., after a model upgrade). See tests/benchmarks/README.md.",
+  "_comment": "Tier 2 WER drift baseline. Populated by running tests/benchmarks/run_benchmark.py twice on a clean image (medium model) and confirming bit-identical WER; the second run is committed here. This is a manual, ad-hoc gate (no nightly CI): regenerate and re-commit deliberately after a transcription-pipeline or model change once the new numbers are accepted. Compare a fresh run against this file with tests/benchmarks/compare_baseline.py. See tests/benchmarks/README.md.",
   "model": "medium",
-  "results": {}
+  "results": {
+    "fleurs-en|12741024238657315067.wav|single": {
+      "wer": 0.1875,
+      "elapsed_secs": 8.5,
+      "actual_chars": 114
+    },
+    "fleurs-en|9055240296608129734.wav|single": {
+      "wer": 0.125,
+      "elapsed_secs": 4.59,
+      "actual_chars": 114
+    },
+    "fleurs-en|621925716775998155.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 5.33,
+      "actual_chars": 104
+    },
+    "fleurs-en|10335587906469246566.wav|single": {
+      "wer": 0.0625,
+      "elapsed_secs": 6.66,
+      "actual_chars": 99
+    },
+    "fleurs-en|2589557553267364799.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.2,
+      "actual_chars": 163
+    },
+    "fleurs-en|17824557748066874904.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 8.11,
+      "actual_chars": 163
+    },
+    "fleurs-en|8173060820032255320.wav|single": {
+      "wer": 0.2143,
+      "elapsed_secs": 6.67,
+      "actual_chars": 101
+    },
+    "fleurs-en|15618717836108767541.wav|single": {
+      "wer": 0.0714,
+      "elapsed_secs": 7.06,
+      "actual_chars": 101
+    },
+    "fleurs-en|2652155470394119415.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.9,
+      "actual_chars": 82
+    },
+    "fleurs-en|14585898865749103727.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.73,
+      "actual_chars": 82
+    },
+    "fleurs-en|18066939864018796519.wav|single": {
+      "wer": 0.1111,
+      "elapsed_secs": 7.19,
+      "actual_chars": 141
+    },
+    "fleurs-en|15648812079343683412.wav|single": {
+      "wer": 0.1111,
+      "elapsed_secs": 7.18,
+      "actual_chars": 141
+    },
+    "fleurs-en|16847628585853049714.wav|single": {
+      "wer": 0.0909,
+      "elapsed_secs": 7.29,
+      "actual_chars": 124
+    },
+    "fleurs-en|8756381645087147947.wav|single": {
+      "wer": 0.1818,
+      "elapsed_secs": 11.25,
+      "actual_chars": 123
+    },
+    "fleurs-en|1596269393232229615.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.81,
+      "actual_chars": 151
+    },
+    "fleurs-es|7285658688146080595.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.91,
+      "actual_chars": 84
+    },
+    "fleurs-es|3716529552379606516.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.07,
+      "actual_chars": 84
+    },
+    "fleurs-es|10084850086754329587.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.79,
+      "actual_chars": 84
+    },
+    "fleurs-es|4963359825952343829.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.94,
+      "actual_chars": 183
+    },
+    "fleurs-es|951698268676408262.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.44,
+      "actual_chars": 183
+    },
+    "fleurs-es|5047945814639237534.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.87,
+      "actual_chars": 115
+    },
+    "fleurs-es|476260369020497509.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.87,
+      "actual_chars": 116
+    },
+    "fleurs-es|4659369048390038198.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.84,
+      "actual_chars": 118
+    },
+    "fleurs-es|11137049735103408221.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.79,
+      "actual_chars": 71
+    },
+    "fleurs-es|5539777671848636280.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.08,
+      "actual_chars": 71
+    },
+    "fleurs-es|16226798311994470335.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.32,
+      "actual_chars": 71
+    },
+    "fleurs-es|12431219804763611753.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.14,
+      "actual_chars": 100
+    },
+    "fleurs-es|1528362042872231265.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.84,
+      "actual_chars": 100
+    },
+    "fleurs-es|6008807196010902161.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.73,
+      "actual_chars": 100
+    },
+    "fleurs-es|8992992823346849455.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.58,
+      "actual_chars": 158
+    },
+    "fleurs-fr|7105431834829365765.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 10.25,
+      "actual_chars": 187
+    },
+    "fleurs-fr|8412394508646602569.wav|single": {
+      "wer": 0.069,
+      "elapsed_secs": 7.24,
+      "actual_chars": 186
+    },
+    "fleurs-fr|15519386366944716971.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.24,
+      "actual_chars": 187
+    },
+    "fleurs-fr|17999210160761730950.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.42,
+      "actual_chars": 65
+    },
+    "fleurs-fr|14682302550249108464.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 6.55,
+      "actual_chars": 65
+    },
+    "fleurs-fr|17467158799788389101.wav|single": {
+      "wer": 0.2083,
+      "elapsed_secs": 7.55,
+      "actual_chars": 152
+    },
+    "fleurs-fr|3661632639400662062.wav|single": {
+      "wer": 0.0833,
+      "elapsed_secs": 6.97,
+      "actual_chars": 150
+    },
+    "fleurs-fr|9118106854415790987.wav|single": {
+      "wer": 0.0833,
+      "elapsed_secs": 7.26,
+      "actual_chars": 141
+    },
+    "fleurs-fr|8969527857548188961.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 8.03,
+      "actual_chars": 137
+    },
+    "fleurs-fr|7989253100718399733.wav|single": {
+      "wer": 0.0526,
+      "elapsed_secs": 6.96,
+      "actual_chars": 109
+    },
+    "fleurs-fr|12907873963009218833.wav|single": {
+      "wer": 0.0526,
+      "elapsed_secs": 6.89,
+      "actual_chars": 109
+    },
+    "fleurs-fr|7073693305905105658.wav|single": {
+      "wer": 0.1579,
+      "elapsed_secs": 7.08,
+      "actual_chars": 106
+    },
+    "fleurs-fr|3186650348647403380.wav|single": {
+      "wer": 0.0652,
+      "elapsed_secs": 9.51,
+      "actual_chars": 331
+    },
+    "fleurs-fr|4339248674352394665.wav|single": {
+      "wer": 0.1087,
+      "elapsed_secs": 9.99,
+      "actual_chars": 323
+    },
+    "fleurs-fr|118005971910520590.wav|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.12,
+      "actual_chars": 123
+    },
+    "mls-spanish|11266_10604_000000.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 8.25,
+      "actual_chars": 167
+    },
+    "mls-spanish|11266_10604_000001.opus|single": {
+      "wer": 0.0488,
+      "elapsed_secs": 8.06,
+      "actual_chars": 225
+    },
+    "mls-spanish|11266_10604_000002.opus|single": {
+      "wer": 0.0732,
+      "elapsed_secs": 8.07,
+      "actual_chars": 224
+    },
+    "mls-spanish|11266_10604_000003.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 8.0,
+      "actual_chars": 223
+    },
+    "mls-spanish|11266_10604_000004.opus|single": {
+      "wer": 0.0435,
+      "elapsed_secs": 8.54,
+      "actual_chars": 231
+    },
+    "mls-spanish|11266_10604_000005.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.52,
+      "actual_chars": 143
+    },
+    "mls-spanish|11266_10604_000006.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.61,
+      "actual_chars": 182
+    },
+    "mls-spanish|11266_10604_000007.opus|single": {
+      "wer": 0.05,
+      "elapsed_secs": 7.16,
+      "actual_chars": 107
+    },
+    "mls-spanish|11266_10604_000008.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.4,
+      "actual_chars": 143
+    },
+    "mls-spanish|11266_10604_000009.opus|single": {
+      "wer": 0.0294,
+      "elapsed_secs": 8.14,
+      "actual_chars": 177
+    },
+    "mls-spanish|11266_10604_000010.opus|single": {
+      "wer": 0.0541,
+      "elapsed_secs": 8.54,
+      "actual_chars": 178
+    },
+    "mls-spanish|11266_10604_000011.opus|single": {
+      "wer": 0.0263,
+      "elapsed_secs": 7.98,
+      "actual_chars": 188
+    },
+    "mls-spanish|11266_10604_000012.opus|single": {
+      "wer": 0.0909,
+      "elapsed_secs": 7.11,
+      "actual_chars": 138
+    },
+    "mls-spanish|11266_10604_000013.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.93,
+      "actual_chars": 210
+    },
+    "mls-spanish|11266_10604_000014.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.78,
+      "actual_chars": 121
+    },
+    "mls-french|1406_1028_000000.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 8.08,
+      "actual_chars": 259
+    },
+    "mls-french|1406_1028_000001.opus|single": {
+      "wer": 0.0492,
+      "elapsed_secs": 9.47,
+      "actual_chars": 326
+    },
+    "mls-french|1406_1028_000002.opus|single": {
+      "wer": 0.1111,
+      "elapsed_secs": 8.65,
+      "actual_chars": 205
+    },
+    "mls-french|1406_1028_000003.opus|single": {
+      "wer": 0.1071,
+      "elapsed_secs": 9.02,
+      "actual_chars": 162
+    },
+    "mls-french|1406_1028_000004.opus|single": {
+      "wer": 0.0294,
+      "elapsed_secs": 7.78,
+      "actual_chars": 198
+    },
+    "mls-french|1406_1028_000005.opus|single": {
+      "wer": 0.2258,
+      "elapsed_secs": 9.37,
+      "actual_chars": 213
+    },
+    "mls-french|1406_1028_000006.opus|single": {
+      "wer": 0.0784,
+      "elapsed_secs": 9.34,
+      "actual_chars": 268
+    },
+    "mls-french|1406_1028_000007.opus|single": {
+      "wer": 0.1064,
+      "elapsed_secs": 13.72,
+      "actual_chars": 287
+    },
+    "mls-french|1406_1028_000008.opus|single": {
+      "wer": 0.0488,
+      "elapsed_secs": 9.22,
+      "actual_chars": 255
+    },
+    "mls-french|1406_1028_000009.opus|single": {
+      "wer": 0.0227,
+      "elapsed_secs": 8.81,
+      "actual_chars": 253
+    },
+    "mls-french|1406_1028_000010.opus|single": {
+      "wer": 0.0303,
+      "elapsed_secs": 8.86,
+      "actual_chars": 194
+    },
+    "mls-french|1406_1028_000011.opus|single": {
+      "wer": 0.24,
+      "elapsed_secs": 7.76,
+      "actual_chars": 147
+    },
+    "mls-french|1406_1028_000012.opus|single": {
+      "wer": 0.1667,
+      "elapsed_secs": 8.41,
+      "actual_chars": 217
+    },
+    "mls-french|1406_1028_000013.opus|single": {
+      "wer": 0.0,
+      "elapsed_secs": 7.59,
+      "actual_chars": 152
+    },
+    "mls-french|1406_1028_000014.opus|single": {
+      "wer": 0.2692,
+      "elapsed_secs": 8.33,
+      "actual_chars": 173
+    }
+  }
 }
