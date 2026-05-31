@@ -1,0 +1,36 @@
+{
+  "language": "fr",
+  "audio_file": "fr/mls_fr_two_speakers_short.wav",
+  "source": "MLS French test split, speaker 1406 (book 1028) + speaker 2154 (book 2576), concatenated",
+  "source_url": "https://www.openslr.org/94/",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "V. Pratap, Q. Xu, A. Sriram, G. Synnaeve, R. Collobert. MLS: A Large-Scale Multilingual Dataset for Speech Research. Interspeech 2020.",
+  "modifications": "Concatenated one MLS French test utterance from speaker 1406 (1406_1028_000002, ~12.66 s) followed by 0.5 s of silence and one from speaker 2154 (2154_2576_000019, ~13.86 s), each transcoded from .opus to 16 kHz mono signed-16-bit WAV via ffmpeg, total ~27.0 s. This fills the short multi-speaker diarization gap (DER on a sub-30 s two-speaker span) for FR. A clean MLS read-speech concat is used in place of the originally-planned VoxPopuli FR clip: VoxPopuli raw archives are 5 GB+ per year and its HF segments require fragile same-session consecutive-speaker stitching, whereas the EN AMI fixture already provides real conversational multi-speaker coverage; this FR clip's role is reliable short-span DER coverage in a second language. expected_text reflects both utterances in order with first-letter capitalization and sentence punctuation applied.",
+  "duration_sec": 27.02,
+  "modes": [
+    "single"
+  ],
+  "expected_text": "La nuit suivante, appela sa soeur quand il en fut temps. Si vous ne dormez pas, ma soeur, lui dit-elle, je vous prie, en attendant le jour qui paraîtra bientôt, de continuer le conte du pêcheur. Ils ne comprenaient point comment deux intimes, deux inséparables comme nous étions, avaient pu tout à coup devenir presque étrangers l'un à l'autre. Or, voici le secret de notre éloignement.",
+  "speaker_turns": [
+    {
+      "start": 0.0,
+      "end": 12.66,
+      "speaker": "A"
+    },
+    {
+      "start": 13.16,
+      "end": 27.02,
+      "speaker": "B"
+    }
+  ],
+  "expected_speaker_count": 2,
+  "patterns": [
+    "multi-speaker",
+    "short"
+  ],
+  "thresholds": {
+    "wer_max": 0.15,
+    "der_max": 0.25
+  }
+}

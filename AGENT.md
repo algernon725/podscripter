@@ -274,10 +274,14 @@ three tiers documented in `tests/README.md` and `tests/fixtures/audio/README.md`
   Indian-names FLEURS clip); see `git log -- tests/fixtures/audio/` for the worked
   examples. Spanish fixtures also exercise the `spanish-questions` pattern assertion
   (both `¿` and `?` must appear in the output).
-- **Tier 2 — quality benchmark** (`tests/benchmarks/`): pulls ~30 min/lang of public
-  subsets (FLEURS en_us/es_419/fr_fr, LibriSpeech, MLS Spanish, optionally VoxPopuli) and
-  tracks WER / DER over time against `tests/benchmarks/baseline.json`. Not run per-PR;
-  intended for nightly CI or pre-release.
+- **Tier 2 — quality benchmark** (`tests/benchmarks/`): runs the pipeline over bounded public
+  subsets (FLEURS en_us/es_419/fr_fr + MLS Spanish/French, the latter *streamed* clip-by-clip)
+  and tracks **WER** per clip against a committed, populated `tests/benchmarks/baseline.json`
+  (75 clips, `medium`, 15/dataset; see §5). WER-only by design — all Tier 2 datasets are
+  single-speaker, so DER is left to the Tier 1 multi-speaker fixtures. **Not run per-PR and not
+  in CI**: it's a manual, ad-hoc drift gate you run deliberately after a transcription/model
+  change (`compare_baseline.py` flags clips that regress beyond tolerance). Decoding is
+  deterministic, so two clean runs give bit-identical WER.
 - **Tier 3 — bug fixtures**: trim the offending audio, push to the same HF dataset,
   bump `HF_REVISION`, add `.expected.json` + focused test (mirrors the existing
   `tests/test_episodio272_speaker_split_exclamation.py` Spanish pattern).
@@ -328,15 +332,15 @@ with all required volume mounts are in `tests/README.md`.
    pytest -m transcription tests/test_audio_fixtures.py
    ```
 
-   Expect ~80–90 min on CPU at the default `medium` model for the full 27-invocation
-   sweep (24 fixtures: 21 short single-mode invocations + 3 long fixtures × 2 modes each).
+   Expect ~80–90 min on CPU at the default `medium` model for the full 29-invocation
+   sweep (26 fixtures: 23 short single-mode invocations + 3 long fixtures × 2 modes each).
    For inner-loop development use `pytest -k '<filter>'` to narrow to a single language
    (`-k 'es/'`) or fixture (`-k 'mls_es_two_speakers_long'`); use
    `PODSCRIPTER_TEST_MODEL=small` to speed up local iteration; production CI should keep
    the default `medium`.
 
-For Tier 2 nightly benchmarks (Tier 2 is not required for normal development), see
-`tests/benchmarks/README.md`.
+For the Tier 2 manual WER drift benchmark (ad-hoc, not required for normal development; run it
+deliberately after a transcription/model change), see `tests/benchmarks/README.md`.
 - Known pre-existing test failures (142 xfail test invocations across 32 files):
   - xfail markers are now **per-parameter** on parametrized tests (not function-level), so only the specific failing inputs are marked
   - Two xfail reasons:
@@ -518,6 +522,36 @@ For Tier 2 nightly benchmarks (Tier 2 is not required for normal development), s
 **Tests**: Verified with Episodio212.mp3 (33-minute Spanish podcast with 3 speakers, 86 speaker changes). Result: Zero sentences starting with connector words. All 34+ connector word boundaries correctly merged when same speaker continues.
 
 ### 5. Known Resolved Issues (Recent)
+
+#### Tier 2 WER drift baseline populated + MLS streaming (RESOLVED - Phase 3 trimmed, v0.10.0, May 2026)
+
+**Problem**: Tier 2 ([`tests/benchmarks/`](tests/benchmarks)) was scaffolded but the committed `baseline.json` was empty (`{}` + `_comment`), so `compare_baseline.py` had nothing to check against — Tier 2 could not detect drift. Two secondary gaps blocked populating it: MLS French was not enumerated for Tier 2 (only Spanish was), and the old MLS path pulled the multi-GB monolithic `mls_<lang>_opus.tar.gz` archive, which is too heavy for an ad-hoc benchmark.
+
+**Solution Implemented (v0.10.0)** — trimmed Phase 3 scope (WER-only baseline + MLS streaming; DER/chunked/VoxPopuli/LibriSpeech/CI deferred — see §6):
+
+1. **MLS streamed, not archived** ([`download_subsets.py`](tests/benchmarks/download_subsets.py)): new shared `_stream_mls(lang, dest, max_items)` streams the first `--mls-max-items` clips of `facebook/multilingual_librispeech` test split via `datasets` (`streaming=True`, `Audio(decode=False)` → raw `.opus` bytes + a `transcripts.tsv` index). Footprint is tens of MB vs multi-GB. Both ES and FR route through it; the old `_download_mls_spanish`/`_download_voxpopuli` helpers are gone. Required adding `datasets` to the `Dockerfile` (image rebuild). `datasets`+torchcodec/aiohttp can segfault at interpreter teardown (`PyGILState_Release`, exit 139) *after* all writes complete, so `download_subsets.py` flushes and calls `os._exit(rc)` to report a clean exit.
+2. **Shared MLS enumeration** ([`run_benchmark.py`](tests/benchmarks/run_benchmark.py)): `_enumerate_mls_spanish` replaced by a shared `_enumerate_mls(mls_root, lang, tag)` reading the streamed local cache (`transcripts.tsv` + `audio/*.opus`), used by both ES and FR. Also fixed a latent bug mirroring the Tier 1 fix: `_run_one` joined `result["sentences"]` (now `list[Sentence]`, since v0.6.0) as if they were `str` — it now extracts `.text` (with a `str()` fallback).
+3. **Baseline populated** ([`baseline.json`](tests/benchmarks/baseline.json)): 75 clips (`medium`, `--langs en,es,fr`, `--max-items-per-dataset 15` → 15 each of FLEURS en/es/fr + MLS es/fr). Decoding is greedy/deterministic, so two clean runs produced **bit-identical** per-clip WER (0/75 differ, max |Δ|=0.0000); the second run is committed. Per-dataset mean WER: FLEURS en 0.077, es 0.000, fr 0.059; MLS es 0.028, fr 0.099. `compare_baseline.py <run> ` exits 0 against it.
+
+**WER-only by design**: all Tier 2 datasets are single-speaker, so the runner emits WER and no DER; short-span DER is covered by the Tier 1 multi-speaker fixtures instead. `compare_baseline.py` still compares a `der` field if both sides have one, so a DER dataset can be added later without tooling changes.
+
+**No nightly CI** (maintainer runs the repo's tests ad-hoc, ~1–2×/month): Tier 2 is a **manual** drift gate run deliberately after a transcription/model change, not a scheduled job. The `_comment` and `README.md` document this manual refresh workflow.
+
+**Key Insight**: because decoding is deterministic, "run twice and confirm identical, commit the second" is a sufficient and cheap reliability check for the baseline — no statistical tolerance dance is needed at population time; the `--wer-tolerance` exists only to absorb cross-environment/library drift on later comparison runs.
+
+#### Tier 1 short multi-speaker fixtures (EN AMI + FR) (RESOLVED - Phase 1.5 trimmed, v0.9.4, May 2026)
+
+**Problem**: Through v0.9.3 no Tier 1 fixture exercised speaker diarization on a sub-30 s span — the only multi-speaker fixture was `en/librispeech_two_speakers_long.flac` (~9 min). Short-span diarization behaves differently from long-form (fewer turns, less context for clustering), so this was a real coverage gap.
+
+**Solution Implemented (v0.9.4)** — trimmed Phase 1.5 scope (multi-speaker shorts + a url attempt; Common Voice CC0 shorts de-scoped):
+
+1. **EN AMI conversational short** (`tests/fixtures/audio/en/ami_en2001b_1993_2020.wav`, ~25.85 s): real two-speaker exchange from AMI EN2001b Mix-Headset, speakers A + B, window 1993.87–2019.72 s. The window was selected programmatically from the AMI manual word-level annotations (`words/*.words.xml`) by a turn-based sweep that requires exactly two active speakers, snaps boundaries to silence gaps, and minimises annotated overlap — the chosen window is a five-turn A↔B exchange, zero overlap, balanced 33/33 words. `expected_text` + `speaker_turns` derive verbatim from the annotations. Thresholds `{wer_max: 0.20, der_max: 0.25}` (spontaneous speech). Validated PASSING at `medium`.
+2. **FR MLS two-speaker short** (`tests/fixtures/audio/fr/mls_fr_two_speakers_short.wav`, ~27.02 s): MLS French speakers 1406 + 2154, concatenated with 0.5 s silence. Thresholds `{wer_max: 0.15, der_max: 0.25}`. Validated PASSING at `medium`. **Substituted for the planned VoxPopuli FR clip** — VoxPopuli raw archives are 5 GB+ per year and its HF segments need fragile same-session consecutive-speaker stitching, whereas the EN AMI clip already supplies real conversational coverage, so the FR slot is reduced to reliable short-span DER coverage and an MLS concat delivers that deterministically.
+3. **url-pattern fixture attempted and dropped**: built from the MLS FR LibriVox intro line `…enregistré pour librivox point org…` (the only dictated-URL category in the cached corpora). The pipeline rendered the domain as `LibriVox.org` without splitting it (the `url` split-guard is sound), but WER was ~0.44 at `medium` (spelled-out numbers, dictated letters, proper-noun errors) — far over the 0.25 cap. Dropped per "replace, don't relax beyond 0.25"; no clean dictated-URL clip exists in the licensed corpora.
+
+**HF dataset**: 2 clips + README pushed (commit `53ae490ce0c2244c9882f591fc6e2edaf2b846b1`), then a cleanup commit (`6e1c1eced6e68bb35b1f1d89c56478229201a2f7`) removed the dropped url clip and re-synced the README to 26 fixtures. `HF_REVISION` in `download.py` points at the cleanup commit.
+
+**Key Insight**: AMI Mix-Headset (mixed close-talking IHM mics) is far cleaner than AMI far-field (SDM/MDM), so its WER is tractable for a regression gate (~0.20) — the corpus's high-WER reputation is a far-field property. Selecting the window from annotations *before* downloading audio keeps the download to a single meeting and lets the turn-structure/overlap criteria be enforced deterministically rather than by ear.
 
 #### MLS Spanish + French long multi-speaker Tier 1 fixtures (RESOLVED - Phase 2, v0.9.3, May 2026)
 
@@ -1061,9 +1095,11 @@ The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all 
 
 **Files Affected**: `speaker_diarization.py` (audio pre-loading and warning suppression), `Dockerfile` (`libsndfile1` + `soundfile` dependencies)
 
-#### Phase 1.5 Tier 1 corpus — Common Voice CC0 shorts + multi-speaker shorts (DEFERRED - Phase 1 follow-up, May 2026)
+#### Phase 1.5 Tier 1 corpus — Common Voice CC0 shorts (DE-SCOPED/optional; multi-speaker shorts RESOLVED in v0.9.4 — see §5)
 
-**Problem**: Phase 1 (v0.9.2) shipped 18 new short fixtures via the A+ scope (3 LibriSpeech + 3 FLEURS for EN, 3 FLEURS + 3 MLS for each of ES/FR). The original Phase 1 target was 10 short clips per language, including 2 Common Voice (CC0) clips per lang for accent variety AND 1 multi-speaker short per lang exercising diarization on a sub-30 s span. Both axes were deferred because (1) Common Voice CC0 splits are tens of GB and clip selection benefits from per-clip listening — agent sessions don't afford that, and (2) AMI/VoxPopuli multi-speaker short selection requires careful span editing from longer source recordings, which is also human-curation-heavy. The A+ scope (clean studio-recorded audiobook/read text from LibriSpeech + FLEURS + MLS) is the high-confidence subset that ships cleanly in one session; this DEFERRED entry covers the harder remaining 4 fixtures per lang.
+**Update (v0.9.4)**: The multi-speaker-short axis of this entry is **RESOLVED** — EN AMI + FR MLS two-speaker shorts shipped in v0.9.4 (see §5 for details and the VoxPopuli→MLS substitution rationale), and a url-pattern fixture was attempted and dropped (WER too high). The **Common Voice CC0 shorts** axis below was **de-scoped** from the active plan (the trimmed Phase 1.5 scope agreed with the maintainer was multi-speaker + url only). It remains documented here as optional future work, not committed scope.
+
+**Problem**: Phase 1 (v0.9.2) shipped 18 new short fixtures via the A+ scope (3 LibriSpeech + 3 FLEURS for EN, 3 FLEURS + 3 MLS for each of ES/FR). The original Phase 1 target was 10 short clips per language, including 2 Common Voice (CC0) clips per lang for accent variety AND 1 multi-speaker short per lang exercising diarization on a sub-30 s span. The multi-speaker axis is now done (v0.9.4). Common Voice was de-scoped because its CC0 splits are tens of GB and clip selection benefits from per-clip listening, which agent sessions don't afford; it adds spontaneous-speech accent variety but is the lowest-value remaining axis.
 
 **Background**: Phase 1 plan ([`.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md`](.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md)) specified 9 new shorts per lang (3 LibriSpeech/MLS + 3 FLEURS + 2 Common Voice + 1 AMI/FLEURS-diverse/VoxPopuli multi-speaker short). During execution the user selected the A+ scoping which dropped Common Voice + multi-speaker shorts to a follow-up. With v0.9.2 landed, Tier 1 short coverage is 7 EN + 7 ES + 7 FR (1 v0.9.0 baseline + 6 v0.9.2 = 7 each); reaching the 10-short target requires this follow-up.
 
@@ -1107,48 +1143,24 @@ The artifacts ranged from 0.56s to 1.28s, so 1.3s was chosen to filter them all 
 
 **Why this was deferred rather than dropped**: 10 short clips per language is the corpus density that gives diverse-source regression coverage. The current v0.9.2 7-per-lang state is workable but heavily weighted to clean read-text audio (LibriSpeech, FLEURS, MLS audiobooks). Common Voice adds spontaneous-speech accent variety; the multi-speaker shorts close a real coverage gap (no Tier 1 fixture exercises multi-speaker diarization on a < 30 s span; the only multi-speaker fixture is the EN long concat at ~9 min). Both fill specific regression-coverage roles, neither is purely cosmetic.
 
-**Status**: DEFERRED. The Phase 1 (v0.9.2) HF dataset revision (`2c169d04c9f7aa56c55e9aec69e6dbccc9e6bad5`) is the current base. Phase 1.5 work bumps to a new revision built on top. No code dependencies need to land first — all prerequisites (license validator, HF download mechanism, attribution-table conventions) shipped in v0.9.0.
+**Status**: Multi-speaker shorts RESOLVED (v0.9.4, dataset revision `6e1c1eced6e68bb35b1f1d89c56478229201a2f7`, 26 fixtures). Common Voice CC0 shorts (checklist item 1 above) DE-SCOPED/optional — pick up only if accent-variety spontaneous-speech coverage is wanted; all prerequisites (license validator, HF download mechanism, attribution-table conventions) already shipped, so it can land as an incremental dataset-revision bump at any time.
 
-#### Tier 2 `baseline.json` — populate with WER + DER and MLS French parity (DEFERRED - Phase 3 follow-up, May 2026)
+#### Tier 2 benchmark — remaining optional axes (DEFERRED; WER baseline + MLS streaming RESOLVED in v0.10.0 — see §5)
 
-**Problem**: Tier 2 ([`tests/benchmarks/`](tests/benchmarks)) is scaffolded but the committed `baseline.json` is empty (`{}` plus a `_comment`). [`compare_baseline.py`](tests/benchmarks/compare_baseline.py) is never invoked by any workflow today, so an empty baseline is harmless in the short term, but Tier 2 cannot detect regressions until a real baseline is committed. The benchmark also lacks a DER metric (only WER is computed) and lacks MLS French enumeration to mirror the MLS Spanish wiring shipped in v0.9.1.
+**Update (v0.10.0)**: The core Phase 3 work is **RESOLVED** — the WER `baseline.json` is populated (75 clips), MLS ES+FR now stream from HF, and the latent `Sentence`-join bug is fixed (see §5 for details and the deterministic two-run population method). The items below are the axes **explicitly excluded** from that trimmed scope. None is committed work; each is optional future enhancement, and the highest-leverage one (nightly CI) was deliberately ruled out by the maintainer (the repo is updated ~1–2×/month and Tier 2 is run ad-hoc).
 
-**Background**: Phase 3 of the EN/ES/FR corpus expansion plan ([`.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md`](.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md)) called for this work but it was explicitly deferred to a future development effort. The rationale was that Tier 1 expansion (Phases 1 + 2 — 18 short fixtures in v0.9.2 plus 2 long fixtures in v0.9.3 = 24 total Tier 1 fixtures) gives the highest near-term ROI: it gates every transcription PR with real-audio regression points. Tier 2 baseline work should ship only once nightly CI exists to actually run it, or when the maintainer wants pre-release validation; otherwise it's documentation that nothing checks.
+**Background**: Phase 3 of the EN/ES/FR corpus expansion plan ([`.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md`](.cursor/plans/en-es-fr-corpus-expansion_4ee73c74.plan.md)) originally bundled DER + multi-speaker modes + extra datasets with the baseline. Those were dropped to keep v0.10.0 a focused WER-drift gate; the rationale and pointers are preserved below so they survive across maintainers.
 
-**Follow-up work checklist** (one PR; the version bump should be `[0.10.0]` minor because going from "scaffold with empty baseline" to "first real Tier 2 regression baseline" is a public testing-API contract change):
+**Remaining optional axes** (each can land independently; none blocks anything today):
 
-1. **Add DER metric to [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py)** (mirror the Tier 1 pattern in [`tests/test_audio_fixtures.py`](tests/test_audio_fixtures.py)):
-   - Build a hypothesis `pyannote.core.Annotation` from `result["sentences"]` speaker labels (each `Sentence` carries `primary_speaker` and per-utterance timings).
-   - Build a reference `Annotation` — for FLEURS/MLS single-speaker items this is a single-speaker timeline over `[0, duration_sec]`. For any multi-speaker items, use the dataset's diarization labels if present, else skip DER for that item (write `null` under `metrics["der"]`).
-   - Compute DER via `pyannote.metrics.diarization.DiarizationErrorRate()` and store under `metrics["der"]` alongside the existing `wer`. Use the same options (`collar=0.25`, `skip_overlap=False`) used in `tests/test_audio_fixtures.py` so Tier 1 and Tier 2 DER numbers are comparable.
+- **DER metric in [`run_benchmark.py`](tests/benchmarks/run_benchmark.py)** — not added: all current Tier 2 datasets are single-speaker, so DER would be a trivial single-speaker timeline. It only becomes meaningful once a multi-speaker dataset is enumerated (below). When wanted: build hypothesis/reference `pyannote.core.Annotation`s and compute `DiarizationErrorRate(collar=0.25, skip_overlap=False)` (same options as [`tests/test_audio_fixtures.py`](tests/test_audio_fixtures.py)) under `metrics["der"]`. `compare_baseline.py` already diffs a `der` field if present, so no tooling change is needed. Short-span DER is meanwhile covered by the Tier 1 multi-speaker fixtures.
+- **Multi-speaker `chunked` benchmark mode** — needs a multi-speaker dataset (VoxConverse and/or AMI) enumerated in `DATASETS` first; currently none is. Pairs naturally with the DER axis above.
+- **Real VoxPopuli FR download/enumerate** — removed from `download_subsets.py` in v0.10.0 (raw archives are 5 GB+/year; the multi-speaker FR slot is covered by the Tier 1 MLS FR concat). Would need a real streaming downloader + enumerate before VoxPopuli items could land.
+- **LibriSpeech EN enumeration** in `_enumerate_items` — LibriSpeech is still downloaded by `download_subsets.py` but never enumerated/run; EN Tier 2 WER currently comes from FLEURS only. Add a `_enumerate_librispeech` if a second EN source is wanted.
+- **`sentence-F1` metric** — never wired; removed from the README intro in v0.10.0. Ship only with a concrete consumer.
+- **Nightly CI workflow** under `.github/workflows/` — **deliberately not pursued**. The maintainer runs Tier 2 ad-hoc after transcription/model changes rather than on a schedule (no `.github/` exists in the repo). The populated baseline is still useful precisely because the ad-hoc workflow now has something to compare against.
 
-2. **Add MLS French wiring** for FR Tier 2 parity with ES:
-   - New helper `_download_mls_french()` in [`tests/benchmarks/download_subsets.py`](tests/benchmarks/download_subsets.py) pulling `https://dl.fbaipublicfiles.com/mls/mls_french_opus.tar.gz` to `mls-french-test/` (same shape as `_download_mls_spanish()`; the layout `mls_french_opus/test/{transcripts.txt, audio/<spk>/<book>/*.opus}` already matches MLS Spanish).
-   - Add `_dispatch` route for `mls-french-test`.
-   - Add `"mls-french-test"` to `DATASETS["fr"]`.
-   - New `_enumerate_mls_french()` in [`tests/benchmarks/run_benchmark.py`](tests/benchmarks/run_benchmark.py) parsing `mls_french/test/transcripts.txt` + `audio/<spk>/<book>/*.opus`. Better: refactor `_enumerate_mls_spanish` into a shared `_enumerate_mls(root: Path, dataset_tag: str)` helper used by both languages; the path-fallback logic added in v0.9.2 (accepts both `mls_spanish_opus/` and legacy `mls_spanish/`) should be lifted into the shared helper.
-
-3. **Populate [`tests/benchmarks/baseline.json`](tests/benchmarks/baseline.json)**:
-   - Inside the container: `python tests/benchmarks/download_subsets.py --langs en,es,fr` (FLEURS needs `HF_TOKEN`).
-   - `python tests/benchmarks/run_benchmark.py --langs en,es,fr --output tests/benchmarks/results/initial.json --model medium --max-items-per-dataset 20`.
-   - Repeat the run on a fresh container; diff `results/*.json` to verify WER/DER delta is within `--wer-tolerance` (0.02) / `--der-tolerance` (0.03). Only commit the second run as `baseline.json` if stable. Preserve the existing `_comment` field.
-   - Verify: `python tests/benchmarks/compare_baseline.py tests/benchmarks/results/initial.json` exits 0 against the committed baseline.
-
-4. **Update [`tests/benchmarks/README.md`](tests/benchmarks/README.md)** to reflect what the populated baseline actually contains: WER + DER metrics, single-mode only, FLEURS + MLS sources for now. Remove the speculative `sentence-F1` mention from the intro (or move it to an explicit "Aspirational future work" section).
-
-5. **Version bump**: `[0.10.0]` in [`CHANGELOG.md`](CHANGELOG.md). Minor (not patch) because the committed `baseline.json` is part of the testing-API contract.
-
-**Sub-items explicitly excluded from this Phase 3 PR** (each gets its own DEFERRED entry under this one, or stays nested here — author's call when picking this up):
-
-- **`sentence-F1` metric** — mentioned exactly once in [`tests/benchmarks/README.md`](tests/benchmarks/README.md) intro; not wired anywhere. Aspirational; ship only if there's a concrete consumer.
-- **Multi-speaker `chunked` benchmark mode** — needs VoxConverse and/or AMI items in `DATASETS` first; currently no multi-speaker dataset is enumerated for Tier 2.
-- **Real VoxPopuli FR download helper** — today is a stub that writes `INSTRUCTIONS.md` only; would need a real downloader + enumerate function before VoxPopuli items can land in the benchmark.
-- **LibriSpeech EN enumeration** in `_enumerate_items` — currently downloaded but never run by the benchmark.
-- **Nightly CI workflow** under `.github/workflows/` to invoke the benchmark on schedule. No `.github/` directory exists today — would also be the first CI infra in the repo. This is the gating dependency for Tier 2 being useful: without scheduled execution, the committed baseline is documentation that nothing checks.
-
-**Why deferred (rationale captured here so the rationale survives across maintainers)**: Tier 2 has no PR-blocking role today. Tier 1 expansion (v0.9.2 + v0.9.3 = 24 Tier 1 fixtures) gives the strongest near-term ROI — it adds real-audio regression points that gate every transcription PR. Tier 2 baseline work should ship only once nightly CI exists to actually run it, or when the maintainer wants explicit pre-release validation. Until then, the empty baseline is harmless and the work is documentation that nothing checks.
-
-**Status**: DEFERRED. All Phase 3 dependencies (Tier 2 MLS Spanish enumerate + downloader, FLEURS downloader, license validator, HF download mechanism, attribution conventions, MLS path-fallback) shipped through v0.9.3. The only remaining work is the DER addition, MLS FR wiring, the baseline run/commit itself, and the documentation refresh. Pick this up alongside the nightly CI work (or immediately before a pre-release if pre-release validation is desired).
+**Status**: Core Tier 2 RESOLVED (v0.10.0). Remaining axes DEFERRED/optional — pick up DER + a multi-speaker dataset together if diarization drift tracking is wanted; the rest are low-value.
 
 ## Recent Refactors
 

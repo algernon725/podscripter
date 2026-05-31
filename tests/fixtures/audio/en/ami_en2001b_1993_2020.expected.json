@@ -1,0 +1,51 @@
+{
+  "language": "en",
+  "audio_file": "en/ami_en2001b_1993_2020.wav",
+  "source": "AMI Meeting Corpus, meeting EN2001b (Mix-Headset), speakers A + B",
+  "source_url": "https://groups.inf.ed.ac.uk/ami/corpus/",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "J. Carletta et al., \"The AMI Meeting Corpus: A pre-announcement\", MLMI 2005.",
+  "modifications": "Extracted the 1993.87-2019.72 s window (two-speaker exchange, speakers A and B, no overlapping speech) from EN2001b.Mix-Headset.wav and re-encoded as 16 kHz mono signed-16-bit WAV via ffmpeg. expected_text and speaker_turns derived verbatim from the AMI manual word-level annotations (words/*.words.xml), timestamps offset to the clip start. Threshold wer_max=0.20 is looser than read-speech fixtures because AMI is spontaneous, disfluent conversational speech.",
+  "duration_sec": 25.85,
+  "modes": [
+    "single"
+  ],
+  "expected_text": "Um and what well, what score would a word get that just occurs once in all the corpus for example? Probably one point zero is very high information value. Even though there are all the other same topics where it doesn't occur? Yeah, 'cause this would Yeah, in in a sense I mean this is a bit like the what like document frequency over total frequency.",
+  "speaker_turns": [
+    {
+      "start": 0.0,
+      "end": 7.89,
+      "speaker": "A"
+    },
+    {
+      "start": 7.89,
+      "end": 10.55,
+      "speaker": "B"
+    },
+    {
+      "start": 12.12,
+      "end": 16.59,
+      "speaker": "A"
+    },
+    {
+      "start": 17.37,
+      "end": 18.83,
+      "speaker": "B"
+    },
+    {
+      "start": 20.58,
+      "end": 25.85,
+      "speaker": "B"
+    }
+  ],
+  "expected_speaker_count": 2,
+  "patterns": [
+    "multi-speaker",
+    "short"
+  ],
+  "thresholds": {
+    "wer_max": 0.2,
+    "der_max": 0.25
+  }
+}

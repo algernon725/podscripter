@@ -40,8 +40,10 @@ def _enumerate_items(cache_dir: Path, langs: list[str]) -> Iterable[dict[str, An
 
     Recognizes:
       - FLEURS layout (`<dataset>/data/<lang>/test.tsv` + `test.tar.gz`) for en, es, fr.
-      - MLS Spanish layout (`mls-spanish-test/mls_spanish_opus.tar.gz` containing
-        `mls_spanish/test/transcripts.txt` and `mls_spanish/test/audio/<speaker>/<book>/...opus`).
+      - MLS test-split streamed cache (`mls-<lang>-test/transcripts.tsv` +
+        `mls-<lang>-test/audio/<utt_id>.opus`) for es + fr, produced by
+        `download_subsets.py` streaming `facebook/multilingual_librispeech` (no monolithic
+        tarball download).
 
     Extend with additional sources as they're integrated.
     """
@@ -81,55 +83,43 @@ def _enumerate_items(cache_dir: Path, langs: list[str]) -> Iterable[dict[str, An
             }
 
     if "es" in langs:
-        yield from _enumerate_mls_spanish(cache_dir / "mls-spanish-test")
+        yield from _enumerate_mls(cache_dir / "mls-spanish-test", lang="es", tag="mls-spanish")
+    if "fr" in langs:
+        yield from _enumerate_mls(cache_dir / "mls-french-test", lang="fr", tag="mls-french")
 
 
-def _enumerate_mls_spanish(mls_root: Path) -> Iterable[dict[str, Any]]:
-    """Yield MLS Spanish test items by reading `transcripts.txt` lazily.
+def _enumerate_mls(mls_root: Path, *, lang: str, tag: str) -> Iterable[dict[str, Any]]:
+    """Yield MLS test items from the streamed local cache produced by `download_subsets.py`.
 
-    Layout after extracting `mls_spanish_opus.tar.gz`:
-        mls_spanish_opus/test/transcripts.txt   tab-separated: <utt_id>\t<reference text>
-        mls_spanish_opus/test/audio/<speaker>/<book>/<utt_id>.opus
-    `<utt_id>` is `<speaker>_<book>_<utt>` so the audio path is reconstructable from id.
+    Layout (written by `download_subsets._stream_mls`, which streams the test split of
+    `facebook/multilingual_librispeech` bounded by `--mls-max-items` — no monolithic
+    tarball, footprint is tens of MB per language):
+        <mls_root>/transcripts.tsv     tab-separated: <utt_id>\t<reference text>
+        <mls_root>/audio/<utt_id>.opus
 
-    Note: the upstream archive's top-level directory is `mls_spanish_opus/` (not
-    `mls_spanish/` as the v0.9.1 wiring assumed). Both layouts are accepted here so
-    pre-extracted caches from either convention work.
-
+    `<utt_id>` is `<speaker>_<book>_<utt>`. The runner reads this index lazily and feeds
+    each `.opus` directly to the pipeline (faster-whisper decodes via ffmpeg/av).
     Single-speaker audiobook clips → modes=["single"], expected_speakers=1.
+
+    Identical for every MLS language: pass `lang`/`tag` and the per-language cache dir. To
+    add a language, register it in `download_subsets.DATASETS` and call this with the new
+    cache dir — no per-language enumeration code is needed.
     """
-    import tarfile
-
-    archive = mls_root / "mls_spanish_opus.tar.gz"
-    extract_dir = mls_root / "mls_spanish_opus"
-    legacy_extract_dir = mls_root / "mls_spanish"
-    if archive.exists() and not extract_dir.exists() and not legacy_extract_dir.exists():
-        extract_dir.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(archive, "r:gz") as tf:
-            tf.extractall(mls_root)
-    if not extract_dir.exists() and legacy_extract_dir.exists():
-        extract_dir = legacy_extract_dir
-
-    transcripts = extract_dir / "test" / "transcripts.txt"
+    transcripts = mls_root / "transcripts.tsv"
+    audio_root = mls_root / "audio"
     if not transcripts.exists():
         return
-
-    audio_root = extract_dir / "test" / "audio"
     for line in transcripts.read_text(encoding="utf-8").splitlines():
         parts = line.split("\t", 1)
         if len(parts) != 2:
             continue
         utt_id, text = parts
-        id_parts = utt_id.split("_")
-        if len(id_parts) < 3:
-            continue
-        speaker, book = id_parts[0], id_parts[1]
-        audio_file = audio_root / speaker / book / f"{utt_id}.opus"
+        audio_file = audio_root / f"{utt_id}.opus"
         if not audio_file.exists():
             continue
         yield {
-            "dataset": "mls-spanish",
-            "lang": "es",
+            "dataset": tag,
+            "lang": lang,
             "audio_path": str(audio_file),
             "expected_text": text,
             "expected_speakers": 1,
@@ -166,7 +156,14 @@ def _run_one(item: dict[str, Any], mode: str, model_name: str) -> dict[str, Any]
     )
     elapsed = time.time() - t0
 
-    actual = " ".join((result.get("sentences") or []))
+    # result["sentences"] is list[Sentence] (since the v0.6.0 Speaker-Aware Output refactor),
+    # not list[str]; extract .text (str() fallback keeps old list[str] callers working).
+    sentences = result.get("sentences") or []
+    actual = " ".join(
+        text
+        for text in ((s.text if hasattr(s, "text") else str(s)).strip() for s in sentences if s)
+        if text
+    )
     wer = float(jiwer.wer(_normalize(item["expected_text"]), _normalize(actual)))
     return {
         "wer": round(wer, 4),
