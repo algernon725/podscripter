@@ -245,7 +245,7 @@ flowchart TD
   - `multilingual`: cross-language aggregate tests (run by default)
   - `transcription`: integration tests requiring models/media (opt-in via `pytest -m transcription`)
 - Default run (`pytest`) executes core + multilingual; transcription tests are excluded unless explicitly requested
-- 83 test invocations across 10 files are marked `@pytest.mark.xfail` (per-parameter on parametrized tests). These are all verified NLP model limitations: 52 for implicit question detection (verb-first patterns without wh-words) and 31 for sentence splitting/formatting drift. Low-value xfail tests (run-on detection, initials, numbers, whisper boundaries) were removed in v0.8.2. See AGENT.md for root causes and remediation guidance.
+- 33 test invocations across 5 files are marked `@pytest.mark.xfail` (per-parameter on parametrized tests). These are all verified NLP model limitations: 31 for sentence splitting/formatting drift and 2 for inverted question-mark fusion cleanup. The 50 implicit/verb-first question-detection xfails were retired in v0.10.1 when that issue was closed as an accepted limitation (production relies on Whisper's native punctuation; text-only detection of verb-first questions is inherently ambiguous). Low-value xfail tests (run-on detection, initials, numbers, whisper boundaries) were removed in v0.8.2. See AGENT.md for root causes and rationale.
 
 ### Real-audio EN/ES/FR test corpus (three tiers)
 

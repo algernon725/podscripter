@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-06-01
+
+### Changed
+- **Verb-first / implicit question detection closed as an accepted limitation** — the issue previously tracked in `AGENT.md` §6 as "Question detection (52 xfails, HIGH priority)" is closed. No detection code in `punctuation_restorer.py` changed. Rationale: in the real pipeline the text handed to `restore_punctuation()` is Whisper output **with its native punctuation preserved verbatim** (`_accumulate_segments` → `all_text` in `podscripter.py`), and faster-whisper emits `¿`/`?` for Spanish from acoustic prosody, so verb-first questions normally already arrive punctuated. The retired tests fed `restore_punctuation()` lowercased, punctuation-stripped fragments via `tests/conftest.py`, exercising a text-only fallback that rarely fires in production and discards the prosodic signal. Verb-first phrases ("Puedes ayudarme") are syntactically identical as a question vs. a statement/command, so text-only disambiguation is inherently ambiguous; hard-triggering on the existing starter lists (`ES_QUESTION_STARTERS_EXTRA`, `has_question_indicators()`) would regress the negative cases (e.g. `test_spanish_non_question_not_detected`).
+- **`AGENT.md` §6 rewritten** — the "Question detection (52 xfails, HIGH priority)" entry is replaced by a CLOSED "Question detection — verb-first / implicit questions (accepted limitation)" entry documenting the production/Whisper rationale and why a text-only fix is not viable. The remaining-xfail header drops from **83 across 10 files** to **33 across 5 files**, and the 2 surviving `test_spanish_bug_fixes.py` bug3 xfails are reclassified as a separate LOW-priority "Inverted question-mark fusion cleanup" item (punctuation normalization, not verb-first detection).
+
+### Removed
+- **50 unrealistic/mislabeled question-detection xfail cases retired** from the test suite (was 52; the 2 `bug3` inverted-mark-fusion xfails are kept as a distinct limitation):
+  - `tests/test_spanish_questions.py` — 13 verb-first `pytest.param(... xfail)` entries; explicit wh-word cases and `test_spanish_non_question_not_detected` retained.
+  - `tests/test_spanish_inverted_questions.py` — 13 verb-first xfail params; passing cases and `test_transcription_pipeline_punctuation` retained.
+  - `tests/test_multilingual_questions.py` — 15 xfail params, including artificial romaji inputs Whisper never produces (`"kak dela segodnya"`); the 6 passing request/wh cases retained.
+  - `tests/test_spanish_bug_fixes.py` — 6 verb-first xfail params in `test_additional_question_detection`; explicit-word cases retained.
+  - `tests/test_spanish_embedded_questions.py` — `test_preserve_embedded_wh_question` and `test_preserve_por_que_embedded` (both labeled "test expectations predate API changes"); the 2 passing embedded tests retained.
+  - `tests/test_multilingual_runon_sentences.py` — `test_french_question_marks` (labeled "test expectations predate API changes").
+
+### Notes
+- **No production-code change** — only `AGENT.md`, `CHANGELOG.md`, and the six test files above are touched. `podscripter.py`, `punctuation_restorer.py`, and the rest of the pipeline are unchanged.
+- **Patch bump (0.10.1)** — documentation + test-suite cleanup only; no behavioral or API change.
+
 ## [0.10.0] - 2026-05-31
 
 ### Added

@@ -937,21 +937,30 @@ Implemented the sentence splitting consolidation refactor. The new `SentenceSpli
 ### 6. Known Limitations and Open Issues
 
 #### Remaining xfail Tests — NLP Output Drift (OPEN - v0.8.2)
-**83 xfail test invocations across 10 files** remain. These are all genuine NLP model limitations — verified by running every xfail in Docker (v0.8.2). All represent cases where the model produces incorrect or suboptimal output. The xfail markers are per-parameter on parametrized tests.
-
-**Question detection (52 xfails, HIGH priority)**
-The model detects questions starting with explicit question words (qué, cómo, cuándo) but misses implicit question patterns (verb-first without question words: puedes, tienes, quieres, crees, etc.). Also affects multilingual question detection (FR, DE, IT, PT, NL, JA, RU).
-
-Files: `test_spanish_questions.py` (13), `test_spanish_inverted_questions.py` (13), `test_multilingual_questions.py` (15), `test_spanish_bug_fixes.py` (8), `test_spanish_embedded_questions.py` (2), `test_multilingual_runon_sentences.py` (1 — French question marks)
-
-**Remediation**: Improve question detection heuristics in `punctuation_restorer.py` for verb-first patterns. The passing tests show the model handles explicit question words correctly.
+**33 xfail test invocations across 5 files** remain. These are all genuine NLP model limitations — verified by running every xfail in Docker (v0.8.2). All represent cases where the model produces incorrect or suboptimal output. The xfail markers are per-parameter on parametrized tests.
 
 **Sentence splitting / formatting (31 xfails, MEDIUM priority)**
 Exact-match tests where the model produces different output than expected: missing question marks on implicit questions, different comma placement, missing capitalization of proper nouns, German-specific issues (abbreviation handling, decimal preservation, colon/comma placement).
 
 Files: `test_english_sentence_splitting.py` (9), `test_german_sentence_splitting.py` (8), `test_spanish_sentence_splitting.py` (7), `test_french_sentence_splitting.py` (7)
 
-**Remediation**: Many overlap with question detection. German-specific issues (z.B. abbreviation, 3.5 decimal, colon in reported speech) are independent NLP gaps.
+**Remediation**: German-specific issues (z.B. abbreviation, 3.5 decimal, colon in reported speech) are independent NLP gaps. The implicit-question-mark cases share the root cause described in the closed question-detection item below and are not separately actionable on text-only input.
+
+**Inverted question-mark fusion cleanup (2 xfails, LOW priority)**
+`test_spanish_bug_fixes.py` bug3 cases where pre-existing `¿` marks fuse to adjacent punctuation (`.¿`, `?¿`) in malformed input. This is a punctuation-normalization gap, not verb-first question detection.
+
+#### Question detection — verb-first / implicit questions (CLOSED — accepted limitation, v0.10.1)
+**Decision**: Closed as an accepted limitation. Previously tracked (through v0.8.2) as 52 xfails ("Question detection, HIGH priority"). The 50 unrealistic/mislabeled xfail cases were retired from the suite in v0.10.1 (see CHANGELOG); the 2 remaining `test_spanish_bug_fixes.py` bug3 cases are reclassified above as inverted-mark fusion cleanup. No detection code was changed.
+
+**Why this does not affect production**:
+- Text passed to `restore_punctuation()` in the real pipeline is Whisper output **with its native punctuation preserved verbatim** (`podscripter.py` `_accumulate_segments` → `all_text`). faster-whisper emits `¿`/`?` for Spanish from acoustic prosody (rising intonation), so verb-first questions normally already arrive punctuated; `restore_punctuation()` only normalizes/pairs them (e.g. `_es_pair_inverted_questions`).
+- The retired tests fed `restore_punctuation()` **lowercased, punctuation-stripped fragments** (via `tests/conftest.py`), exercising a text-only fallback path that rarely fires in production and discards the prosodic signal the system relies on.
+
+**Why a clean fix is not viable on text-only input**:
+- Verb-first phrases ("Puedes ayudarme") are syntactically identical as a question vs. a statement/command; without prosody or punctuation, disambiguation is inherently ambiguous.
+- The starter word lists already exist (`ES_QUESTION_STARTERS_EXTRA`, `has_question_indicators()`) but are intentionally **not** used as hard triggers, because doing so regresses the negative cases (e.g. `test_spanish_non_question_not_detected`, "necesito más información" must NOT get `?`).
+
+**If revisited**: the only meaningful path is acoustic/prosodic signal (Whisper already provides this), not additional text-only heuristics.
 
 **Previously resolved (v0.8.2):** 59 xfails were eliminated from v0.8.1's 142:
 - 12 fixed by correcting API call mismatches (`_assemble_sentences` signature, `_accumulate_segments` text joining, `Sentence` object extraction)
