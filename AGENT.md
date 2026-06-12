@@ -1038,6 +1038,16 @@ The v0.6.1 fix reduced `min_words_speaker` from 4 to 1 specifically to allow sin
 - **Result**: `"¿Cuántos habitantes tiene? Guinea."` merged into one paragraph (both speakers)
 - **Expected**: Andrea's question on separate line from Nate's answer
 
+**Example 2 (Episodio282 — one-word interjection, near-miss on threshold)**:
+- Whisper segment 392 (1343.84s - 1346.84s): `"Ya me olvidé la palabra."` (Nate, SPEAKER_01)
+- Whisper segment 393 (1346.84s - 1348.84s): `"Tauromaquia."` (Andrea, SPEAKER_00)
+- Whisper segment 394 (1348.84s - 1350.84s): `"Bueno, tú puedes enseñarme"` (Nate, SPEAKER_01)
+- Pyannote diarization: SPEAKER_00 segment (1347.36s - 1348.65s) duration = **1.28s**; boundaries at 1346.66s and 1348.65s both marked ✓ INCLUDED
+- **Problem**: SPEAKER_00's `"Tauromaquia."` segment (1.28s) is filtered because 1.28s < 1.3s threshold; the `"Tauromaquia."` Whisper segment is then left with no overlapping speaker and is skipped, so the surrounding text reads as one uninterrupted SPEAKER_01 turn
+- **Result**: `"Ya me olvidé la palabra. Tauromaquia. Bueno, tú puedes enseñarme."` merged into one paragraph (three turns, A→B→A)
+- **Expected**: Nate / Andrea / Nate on separate lines
+- **Why this case matters**: It misses the threshold by only **0.02s** (1.28s vs 1.3s) and is a clean one-word answer, so it is unambiguously a legitimate turn. It also shows that **Option 1 (lower the threshold) cannot fix this without regressing** — the v0.6.0.1 changelog explicitly lists `1.28s` as a rapid-flip artifact it intended to filter. Only **Option 2 (context-aware filtering)** — preserving short segments flanked by *different* speakers while still filtering shorts sandwiched by the *same* speaker — cleanly separates this real interjection from the noise.
+
 **Root Cause Analysis**:
 1. **MIN_SEGMENT_DURATION threshold**: The 1.3s filter in `_convert_speaker_segments_to_char_ranges()` (line 851 of `podscripter.py`) removes all speaker segments shorter than 1.3 seconds
 2. **Legitimate segment filtered**: SPEAKER_01's segment 107 (1.25s) that covers Andrea's question is filtered out
