@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-06-13
+
+### Changed
+- **`AGENT.md` modularized into `.agent/` files** — pipeline architecture, CLI spec, and troubleshooting history were extracted from the ~2000-line `AGENT.md` into standalone dense files (`.agent/architecture/pipeline.md`, `.agent/architecture/cli-spec.md`, `.agent/troubleshooting/history.md`); `AGENT.md` is slimmed to a lean hub of cross-links (net +418/−1959 lines), with a reciprocal link added in `ARCHITECTURE.md`.
+- **`AGENT.md` curation + logging guidance** — added a lean-curation policy (keep the hub and `.agent/` docs lean; propose concise edits for human review; the one sanctioned exception is appending ledger-style entries to `history.md`) and a checklist item directing agents to record fixed undocumented quirks as `history.md` "Resolved bugs" bullets in the existing ledger format.
+- **`pipeline.md` cross-file symbol bindings + splitting-path correction** — disambiguated symbols referenced outside their owning section: `_sanitize_sentence_output()` bound to `podscripter.py`, and the Whisper boundary-threading description corrected to reflect the real production path (`_assemble_sentences` in `podscripter.py` → `restore_punctuation` → `_transformer_based_restoration` → `SentenceSplitter.split` / `SentenceSplitter._should_end_sentence_here` in `sentence_splitter.py`). Documented speaker-boundary minimum-word threshold as **1 word** to match the authoritative `SentenceSplitter` (`min_words_speaker = 1`, per v0.6.1); the prior docs incorrectly showed 2 (the value from the now-removed legacy copy). `ARCHITECTURE.md` references updated to point at the `SentenceSplitter` methods.
+
+### Removed
+- **Dead legacy splitting code in `punctuation_restorer.py`** (~628 lines) — removed the module-level `_semantic_split_into_sentences()` and `_should_end_sentence_here()`, their now-orphaned helpers `_get_speaker_at_word()` and `_check_semantic_break()`, and the unreferenced `_punctuate_semantic_sentences()`. These duplicated the splitting logic that moved into `SentenceSplitter` (`sentence_splitter.py`) in the v0.4.0 consolidation and were off the production path (`restore_punctuation` → `_transformer_based_restoration` → `SentenceSplitter.split`). The only live consumer, `tests/test_spanish_y_number_split.py::test_spanish_y_number`, was migrated to call `SentenceSplitter` directly. `_violates_grammatical_rules()` (covered by `tests/test_whisper_boundary_integration.py`) and `_apply_semantic_punctuation()` (still on the production path) were retained.
+
+### Notes
+- **`Episodio282` example added** to the short speaker-segment filtering limitation in `.agent/troubleshooting/history.md` — the one-word "Tauromaquia" interjection (1.28 s, missing the 1.3 s `MIN_SEGMENT_DURATION` threshold by 0.02 s) is documented as a second example under the existing OPEN issue, reinforcing that context-aware filtering (not a lower threshold) is the fix.
+- **Patch bump (0.10.2)** — no behavioral or API change. The only code change is dead-code removal (unreachable in production) plus a test migration; the rest is documentation. Version is tracked via this changelog and `vX.Y.Z:` commit prefixes (no separate version file).
+
 ## [0.10.1] - 2026-06-01
 
 ### Changed

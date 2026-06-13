@@ -9,6 +9,8 @@ This file is a lean hub. Detailed technical content lives in modular `.agent/` f
 - Release history -> [CHANGELOG.md](CHANGELOG.md)
 - Test corpus and bring-up -> [tests/README.md](tests/README.md)
 
+> Curation policy: Keep this hub and `.agent/` docs lean. Do not auto-append or restructure them; propose concise edits for human review. The one sanctioned exception is appending ledger-style bug entries to [history.md](.agent/troubleshooting/history.md) (see checklist).
+
 ## Project Overview
 
 **podscripter** is a multilingual audio transcription tool that generates accurate, punctuated transcriptions for language-learning platforms like LingQ. It uses Docker containerization and state-of-the-art NLP models for punctuation restoration.
@@ -79,6 +81,7 @@ Before submitting any changes:
 - [ ] Fixes are general, not specific hacks
 - [ ] Error handling included for edge cases
 - [ ] Code follows the project's architectural patterns
+- [ ] Undocumented quirk fixed? Append a ledger bullet to [history.md Resolved bugs](.agent/troubleshooting/history.md#resolved-bugs) in the existing format: `- <Bug> (Fixed vX.X.X): <technical cause>; functions changed. Tests: test_x.py.`
 
 ## Project Goals
 

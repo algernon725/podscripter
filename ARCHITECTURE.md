@@ -310,8 +310,8 @@ flowchart TD
 
 ### Whisper segment boundary integration
 
-- The orchestrator now passes `all_segments` into sentence assembly. `_assemble_sentences(all_text, all_segments, ...)` extracts Whisper segment end positions and forwards them to `restore_punctuation(text, language, whisper_boundaries=...)`.
-- The punctuation pipeline converts character boundaries to word indices and uses them as prioritized hints inside `_semantic_split_into_sentences(..., whisper_word_boundaries=...)` and `_should_end_sentence_here(...)`.
+- The orchestrator now passes `all_segments` into sentence assembly. `_assemble_sentences(all_text, all_segments, ...)` extracts Whisper segment end positions and forwards them to `restore_punctuation(text, language, whisper_segments=...)`.
+- `restore_punctuation` -> `_transformer_based_restoration` (both in `punctuation_restorer.py`) instantiates `SentenceSplitter` (`sentence_splitter.py`), which converts character boundaries to word indices and uses them as prioritized hints inside `SentenceSplitter.split(...)` and `SentenceSplitter._should_end_sentence_here(...)`. (The former module-level `_semantic_split_into_sentences()` / `_should_end_sentence_here()` in `punctuation_restorer.py` were removed once `SentenceSplitter` became the sole splitting path; see CHANGELOG 0.10.2.)
 - Hints are gated by grammatical rules and minimum chunk size; they are ignored for invalid break positions (e.g., conjunctions/prepositions/continuative verbs).
 - Thresholds (language-agnostic; in `_get_language_thresholds(language)`):
   - `min_words_whisper_break` (default 10)
@@ -357,7 +357,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
     - `_write_txt()`: Adds extra paragraph break (`\n\n\n`) when speaker changes between sentences
   - **Impact**: Visual separation of different speakers in output while preserving same-speaker grouping
 
-**Priority hierarchy** (in `_should_end_sentence_here`):
+**Priority hierarchy** (in `SentenceSplitter._should_end_sentence_here`, `sentence_splitter.py`):
 1. **Speaker boundaries** (HIGHEST priority - min 1 word, v0.6.1)
    - **v0.4.2**: `SentenceSplitter` only extracts boundaries where speaker changes (not from all segments)
    - **v0.4.3**: Speaker boundaries ALWAYS create splits, even if next word is a connector (different speakers must be separated)
@@ -405,7 +405,7 @@ Threading through pipeline:
 - Passed SEPARATELY to `restore_punctuation(..., whisper_boundaries=..., speaker_boundaries=...)`
 - Converted to word indices in `_transformer_based_restoration()`
 - Full speaker segments converted to word ranges and passed as `speaker_word_segments` parameter
-- Checked with low threshold (2 words) in `_should_end_sentence_here(..., speaker_word_boundaries=..., speaker_word_segments=...)`
+- Checked with low threshold (1 word, v0.6.1) in `SentenceSplitter._should_end_sentence_here(..., speaker_word_boundaries=..., speaker_word_segments=...)`
 - Used for connector word continuity checks: "Is the same speaker continuing with 'Y'?"
 
 Configuration:
