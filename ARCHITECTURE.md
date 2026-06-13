@@ -2,6 +2,8 @@
 
 PodScripter transcribes audio/video into punctuated, readable text and SRT subtitles. It uses Faster-Whisper for ASR and a hybrid semantic + rule approach for punctuation and formatting. The system is designed to run entirely in Docker with model caches mounted for reproducibility and offline operation.
 
+> This document is the canonical, human-facing architecture overview. For dense, agent-oriented quick references see the `.agent/` files: [pipeline.md](.agent/architecture/pipeline.md) (caching, mounts, orchestration, diarization), [cli-spec.md](.agent/architecture/cli-spec.md) (flags, exit codes, logging), and [history.md](.agent/troubleshooting/history.md) (bug history, edge cases, testing). When the pipeline changes, update both this file and `.agent/architecture/pipeline.md`.
+
 ## System context
 
 - **Inputs**: Audio/video files (e.g., MP3, MP4, WAV)
