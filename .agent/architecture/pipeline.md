@@ -106,7 +106,7 @@ Merge types:
 - Spanish appositive merges: ", de Texas. Estados Unidos" -> ", de Texas, Estados Unidos".
 - Emphatic word merges: "No. No. No." -> "No, no, no." (ES/FR/DE).
 
-Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` = formatting. `SentenceFormatter.format()` runs BEFORE `_sanitize_sentence_output()` to keep word-count alignment.
+Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` = formatting. `SentenceFormatter.format()` runs BEFORE `_sanitize_sentence_output()` (in `podscripter.py`) to keep word-count alignment.
 
 ## Formatting responsibilities (punctuation_restorer.py)
 
@@ -144,10 +144,11 @@ Language-agnostic across EN/ES/FR/DE:
 3. Configurable thresholds — minimum chunk length, overall length, capital/semantic break limits.
 4. Whisper segment boundaries — `all_segments` boundaries are prioritized hints, still gated by grammatical guards and minimum chunk size; ignored at grammatically invalid positions; backward compatible when absent.
 
-Whisper boundary threading:
-- Orchestrator passes `all_segments` to `_assemble_sentences(...)`.
-- `_assemble_sentences` extracts character boundary positions and calls `restore_punctuation(text, language, whisper_boundaries=...)`.
-- Punctuation converts character boundaries to word indices for `_semantic_split_into_sentences(..., whisper_word_boundaries=...)` and `_should_end_sentence_here(...)`.
+Whisper boundary threading (production path):
+- Orchestrator passes `all_segments` to `_assemble_sentences(...)` (in `podscripter.py`).
+- `_assemble_sentences` extracts character boundary positions and calls `restore_punctuation(text, language, whisper_segments=...)` (in `punctuation_restorer.py`).
+- `restore_punctuation` -> `_transformer_based_restoration` (in `punctuation_restorer.py`) instantiates `SentenceSplitter` and calls `SentenceSplitter.split(...)` (in `sentence_splitter.py`); boundary decisions live in `SentenceSplitter._should_end_sentence_here(...)`.
+- All splitting lives in `SentenceSplitter` (consolidated in v0.4.0). The legacy module-level `_semantic_split_into_sentences()` / `_should_end_sentence_here()` duplicates in `punctuation_restorer.py` were removed in v0.10.2.
 
 Whisper boundary thresholds (via `_get_language_thresholds(language)`):
 - `min_words_whisper_break` (default 10): minimum words in current chunk before honoring a Whisper boundary.
@@ -159,9 +160,9 @@ Optional, opt-in feature (disabled by default to avoid dependency bloat). Uses p
 
 Priority: Speaker boundaries > Whisper boundaries > Semantic coherence. Speaker boundaries are passed SEPARATELY to `restore_punctuation()` (not merged with Whisper boundaries) and converted via `_convert_speaker_timestamps_to_char_positions()`. Speaker boundary checks happen BEFORE the general `min_chunk_before_split` threshold so short phrases can break.
 
-Minimum word thresholds (in `_should_end_sentence_here`):
-- Speaker boundaries: 2 words (definitive signal).
-- Whisper boundaries: 10 words (acoustic pause hints).
+Minimum word thresholds (in `SentenceSplitter._should_end_sentence_here`, `sentence_splitter.py`):
+- Speaker boundaries: 1 word (definitive signal; `min_words_speaker = 1`, per history v0.6.1).
+- Whisper boundaries: 10 words (acoustic pause hints; `min_words_whisper_break`).
 - General semantic splitting: 20 words for Spanish, 15 for other languages.
 
 Module structure (`speaker_diarization.py`):

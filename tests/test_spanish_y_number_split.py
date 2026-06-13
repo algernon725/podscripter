@@ -6,7 +6,8 @@ Test the specific Spanish "y 184" splitting bug.
 import pytest
 
 from conftest import restore_punctuation
-from punctuation_restorer import _semantic_split_into_sentences, _load_sentence_transformer
+from punctuation_restorer import _get_language_config, _load_sentence_transformer
+from sentence_splitter import SentenceSplitter
 
 pytestmark = pytest.mark.core
 
@@ -19,7 +20,9 @@ def test_spanish_y_number():
     model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
 
     text_with_period = text + "."
-    sentences = _semantic_split_into_sentences(text_with_period, 'es', model)
+    splitter = SentenceSplitter('es', model, _get_language_config('es'))
+    sentence_objs, _ = splitter.split(text_with_period, mode='semantic')
+    sentences = [s.text for s in sentence_objs]
 
     assert not any(s.strip().endswith("y.") or s.strip().endswith("y") for s in sentences), \
         f"'y' was separated from '184': {sentences}"
