@@ -13,3 +13,6 @@ COMMIT_MESSAGE.txt
 # Temporary local secrets (never commit)
 .hf-token-tmp
 .bench-cache/
+
+# Local development files
+.devcontainer/
