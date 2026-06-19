@@ -86,7 +86,7 @@ class DiarizationResult(TypedDict):
     segments: list[SpeakerSegment]
     num_speakers: int
     speaker_boundaries: list[float]  # Speaker change timestamps
-    filtered_boundaries: list[dict]  # Detailed info about filtered boundaries
+    filtered_boundaries: list["BoundaryInfo"]  # Detailed info about filtered boundaries
 
 
 class DiarizationError(Exception):
@@ -136,7 +136,12 @@ def diarize_audio(
             "pyannote/speaker-diarization-community-1",
             token=token
         )
-        
+        if pipeline is None:
+            raise DiarizationError(
+                "Failed to load diarization pipeline "
+                "'pyannote/speaker-diarization-community-1' (check token/model access)"
+            )
+
         # Move to specified device
         if device == "cuda":
             import torch

@@ -76,7 +76,7 @@ import os
 import numpy as np
 import warnings
 from domain_utils import mask_domains, unmask_domains, apply_safe_text_processing, create_domain_aware_regex, SINGLE_TLDS, SINGLE_MASK
-from sentence_splitter import SentenceSplitter
+from sentence_splitter import SentenceSplitter, Sentence
 
 # Suppress PyTorch FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
@@ -112,6 +112,8 @@ try:
     from sklearn.metrics.pairwise import cosine_similarity
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
+    SentenceTransformer = None
+    cosine_similarity = None
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     logger.warning("SentenceTransformers not available. Advanced punctuation restoration may be limited.")
 
@@ -121,9 +123,10 @@ import spacy
 
 # Try to import language detection for mixed-language content
 try:
-    from spacy_language_detection import LanguageDetector
+    from spacy_language_detection import LanguageDetector  # type: ignore[reportMissingImports]
     SPACY_LANG_DETECTION_AVAILABLE = True
 except ImportError:
+    LanguageDetector = None
     SPACY_LANG_DETECTION_AVAILABLE = False
     logger.info("spacy-language-detection not available. Will use fallback heuristics for mixed-language content.")
 
@@ -997,66 +1000,6 @@ def _es_intro_location_appositive_commas(text: str) -> str:
 _QUESTION_PATTERN_EMBEDDINGS = {}
 _EXCL_PATTERN_EMBEDDINGS = {}
 
-def _get_question_patterns(language: str) -> list[str]:
-    """Return curated question pattern prompts per language for semantic gating.
-
-    These are short exemplars used to build an embedding bank that helps
-    classify whether a sentence is interrogative. Keep lists small and
-    language-appropriate. For languages without curation, return a minimal set.
-    """
-    lang = (language or 'en').lower()
-    if lang == 'es':
-        # Core interrogatives and common verb-first yes/no starters
-        core = [
-            'qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué',
-        ]
-        starters = [
-            'puedes', 'puede', 'podrías', 'podría', 'quieres', 'quiere',
-            'tienes', 'tiene', 'hay', 'es', 'está', 'están', 'vas', 'va',
-            'te parece', 'le parece', 'crees', 'cree', 'piensas', 'piensa',
-        ]
-        # Include accented/non-accented variants for robustness
-        variants = list(core) + [s for s in starters]
-        return [f'{w} … ?' for w in variants] + [
-            '¿…?', '¿Podemos …?', '¿Te gustaría …?', '¿Hay …?',
-        ]
-    if lang == 'fr':
-        return [
-            'qui … ?', 'quoi … ?', 'où … ?', 'quand … ?', 'pourquoi … ?', 'comment … ?',
-            'est-ce que … ?',
-        ]
-    if lang == 'de':
-        return [
-            'wer … ?', 'was … ?', 'wo … ?', 'wann … ?', 'warum … ?', 'wie … ?',
-            'ist … ?', 'sind … ?', 'gibt es … ?',
-        ]
-    # English/minimal default
-    return [
-        'what … ?', 'where … ?', 'when … ?', 'why … ?', 'how … ?', 'who … ?', 'is … ?', 'are … ?',
-    ]
-
-def _get_exclamation_patterns(language: str) -> list[str]:
-    """Return curated exclamation exemplars per language for semantic gating."""
-    lang = (language or 'en').lower()
-    if lang == 'es':
-        return [
-            '¡qué increíble!', '¡qué maravilloso!', '¡qué sorpresa!', '¡no puedo creerlo!',
-            '¡qué fantástico!', '¡qué emocionante!', '¡qué gran idea!', '¡qué alivio!',
-            '¡qué hermoso!', '¡qué bueno!', '¡vamos!', '¡bienvenidos!', '¡empecemos!',
-        ]
-    if lang == 'fr':
-        return [
-            "c'est incroyable !", 'quelle surprise !', 'formidable !', 'incroyable !',
-        ]
-    if lang == 'de':
-        return [
-            'das ist unglaublich!', 'wunderbar!', 'fantastisch!', 'toll!',
-        ]
-    # English/minimal default
-    return [
-        'amazing!', 'incredible!', 'unbelievable!', 'what a relief!', "let's go!", 'attention!',
-    ]
-
 def _get_question_pattern_embeddings(language: str, model):
     if language in _QUESTION_PATTERN_EMBEDDINGS:
         return _QUESTION_PATTERN_EMBEDDINGS[language]
@@ -1135,7 +1078,7 @@ def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphra
     if _SENTENCE_TRANSFORMER_SINGLETON is not None:
         return _SENTENCE_TRANSFORMER_SINGLETON
 
-    if not SENTENCE_TRANSFORMERS_AVAILABLE:
+    if SentenceTransformer is None:
         return None
 
     st_cache, hf_cache = _get_cache_paths()
@@ -1353,7 +1296,7 @@ def _violates_grammatical_rules(current_word: str, next_word: str, language: str
     return False
 
 
-def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
+def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[Sentence] | None]:
     """
     Restore punctuation to transcribed text using advanced NLP techniques.
 
@@ -1391,11 +1334,10 @@ def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[
         logger.warning(f"Advanced punctuation restoration failed: {e}")
         logger.warning(f"Traceback: {traceback.format_exc()}")
         logger.info("Returning original text without punctuation restoration.")
-        from sentence_splitter import Sentence
         return text, [Sentence(text=text, utterances=[], speaker=None)]
 
 
-def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
+def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[Sentence] | None]:
     """
     Advanced punctuation restoration using sentence transformers and NLP techniques.
 
@@ -1409,7 +1351,7 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
         speaker_boundaries (list[int] | None): DEPRECATED - Optional character positions
 
     Returns:
-        tuple[str, list[str] | None]: (processed_text, sentences_list)
+        tuple[str, list[Sentence] | None]: (processed_text, sentences_list)
     """
 
     # Use SentenceTransformers for better sentence boundary detection
@@ -1417,10 +1359,10 @@ def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custo
         return _transformer_based_restoration(text, language, use_custom_patterns, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
     else:
         # Simple fallback: text is already normalized in podscripter.py (v0.4.3)
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [text]
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [Sentence(text=text, utterances=[], speaker=None)]
 
 
-def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[str] | None]:
+def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[Sentence] | None]:
     """
     Improved punctuation restoration using SentenceTransformers for semantic understanding.
     
@@ -1436,14 +1378,14 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         speaker_boundaries (list[int] | None): DEPRECATED - Optional character positions
     
     Returns:
-        tuple[str, list[str]]: (processed_text, sentences_list)
+        tuple[str, list[Sentence]]: (processed_text, sentences_list)
     """
     # Initialize the model once (use multilingual model for better language support)
     model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
     if model is None:
         # Fallback path if sentence-transformers is unavailable
         # Text is already normalized in podscripter.py (v0.4.3)
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [text]
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [Sentence(text=text, utterances=[], speaker=None)]
 
     # Get language config for thresholds
     lang_config = _get_language_config(language)
@@ -1469,7 +1411,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     sentence_objects = []  # Keep track of Sentence objects for speaker info
     for i, sent_obj in enumerate(sentences):
         # Extract text from Sentence object
-        from sentence_splitter import Sentence
         if isinstance(sent_obj, Sentence):
             sent_text = sent_obj.text
             sentence_objects.append(sent_obj)
@@ -1489,7 +1430,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     logger.debug(f"Total punctuated_sentences: {len(punctuated_sentences)}, types: {[type(s).__name__ for s in punctuated_sentences[:5]]}")
     
     # Ensure all items in punctuated_sentences are strings (defensive programming)
-    from sentence_splitter import Sentence
     punctuated_sentences = [
         s.text if isinstance(s, Sentence) else str(s) 
         for s in punctuated_sentences
@@ -1507,7 +1447,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         formatted_sentence_objects = []
         for idx, s in enumerate(sentences_list):
             # Extract text if s is a Sentence object (should already be string, but be defensive)
-            from sentence_splitter import Sentence
             if isinstance(s, Sentence):
                 sentence_text = s.text
             else:
@@ -1559,7 +1498,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             
             # Reconstruct Sentence object with formatted text (v0.6.0)
             if idx < len(sentence_objects) and sentence_objects[idx] is not None:
-                from sentence_splitter import Sentence
                 orig_sent = sentence_objects[idx]
                 formatted_sent_obj = Sentence(
                     text=sentence,
@@ -1569,7 +1507,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
                 formatted_sentence_objects.append(formatted_sent_obj)
             else:
                 # Backward compat: create Sentence with no speaker info
-                from sentence_splitter import Sentence
                 formatted_sentence_objects.append(Sentence(text=sentence, utterances=[], speaker=None))
 
         # Join sentences with proper spacing (no re-splitting!)
@@ -1836,7 +1773,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         formatted_sentences = []
         for s in punctuated_sentences:
             # Extract text if s is a Sentence object (should already be string, but be defensive)
-            from sentence_splitter import Sentence
             if isinstance(s, Sentence):
                 sentence_text = s.text
             else:
@@ -1869,7 +1805,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     # For non-Spanish, we need to reconstruct Sentence objects
     if language != 'es':
         # Reconstruct Sentence objects for non-Spanish languages
-        from sentence_splitter import Sentence
         final_sentence_objects = []
         for idx, sent_text in enumerate(punctuated_sentences):
             if idx < len(sentence_objects) and sentence_objects[idx] is not None:
@@ -1885,7 +1820,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         return result, final_sentence_objects
     
     # Spanish path already returned above, but add fallback just in case
-    from sentence_splitter import Sentence
     return result, [Sentence(text=result, utterances=[], speaker=None)]
 
 
@@ -2073,7 +2007,7 @@ class PunctuationContext:
     SPANISH_SPECIFIC = "spanish_specific"          # Spanish-specific formatting context
 
 
-def _should_add_terminal_punctuation(text: str, language: str, context: str = None, model=None) -> str:
+def _should_add_terminal_punctuation(text: str, language: str, context: str | None = None, model=None) -> str:
     """
     Centralized logic for determining what terminal punctuation to add.
     
@@ -2234,7 +2168,6 @@ def _apply_semantic_punctuation(sentence: str, model, language: str, sentence_in
         str: Sentence with appropriate punctuation
     """
     # Defensive: ensure sentence is a string
-    from sentence_splitter import Sentence
     if isinstance(sentence, Sentence):
         logger.warning(f"_apply_semantic_punctuation received Sentence object, extracting text")
         sentence = sentence.text
@@ -2276,8 +2209,9 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
     Returns:
         bool: True if sentence is a question
     """
+    if cosine_similarity is None:
+        return False
     # Defensive: ensure sentence is a string
-    from sentence_splitter import Sentence
     if isinstance(sentence, Sentence):
         logger.warning(f"is_question_semantic received Sentence object, extracting text")
         sentence = sentence.text
@@ -2534,6 +2468,8 @@ def has_question_indicators(sentence, language):
 
 def is_exclamation_semantic(sentence: str, model, language: str) -> bool:
     """Determine if a sentence is an exclamation using semantic similarity."""
+    if cosine_similarity is None:
+        return False
     exclamation_patterns = _get_exclamation_patterns(language)
     if not exclamation_patterns:
         return False
@@ -2851,7 +2787,7 @@ def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
                 pass
         
         # STEP 2: Use spacy-language-detection if available
-        if SPACY_LANG_DETECTION_AVAILABLE and target_language == 'es':
+        if LanguageDetector is not None and target_language == 'es':
             try:
                 # Add language detector to a temporary pipeline
                 temp_nlp = spacy.load('es_core_news_sm')

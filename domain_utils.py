@@ -29,7 +29,7 @@ def _is_spanish_word(label: str) -> bool:
     return bool(re.match(rf"^({SPANISH_EXCLUSIONS})$", label, re.IGNORECASE))
 
 
-def mask_domains(text: str, use_exclusions: bool = True, language: str = None) -> str:
+def mask_domains(text: str, use_exclusions: bool = True, language: str | None = None) -> str:
     """
     Mask domains in text to protect them from text processing.
     
@@ -131,7 +131,7 @@ def unmask_domains(text: str) -> str:
     return unmasked
 
 
-def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str = None) -> str:
+def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str | None = None) -> str:
     """
     Fix domains that have been broken with spaces: "domain. com" -> "domain.com"
     
@@ -199,8 +199,8 @@ def _get_domain_safe_split_pattern() -> str:
     return r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])"
 
 
-def apply_safe_text_processing(text: str, processing_func: Callable[[str], str], use_exclusions: bool = True, language: str = None) -> str:
-    """
+def apply_safe_text_processing(text: str, processing_func: Callable[[str], str], use_exclusions: bool = True, language: str | None = None) -> str:
+    r"""
     Apply text processing function while protecting domains from modification.
     
     Args:
@@ -222,8 +222,8 @@ def apply_safe_text_processing(text: str, processing_func: Callable[[str], str],
     return unmask_domains(processed)
 
 
-def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bool = True, language: str = None) -> Callable[[str], str]:
-    """
+def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bool = True, language: str | None = None) -> Callable[[str], str]:
+    r"""
     Create a domain-aware regex function that masks domains before applying the regex.
     
     Args:
@@ -251,7 +251,7 @@ def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bo
 
 
 # Legacy compatibility - old function signatures for backward compatibility
-def _mask_domains_legacy(text: str, tld_pattern: str = None) -> str:
+def _mask_domains_legacy(text: str, tld_pattern: str | None = None) -> str:
     """Legacy function for backward compatibility."""
     return mask_domains(text, use_exclusions=True)
 
