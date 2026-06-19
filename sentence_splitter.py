@@ -43,10 +43,13 @@ Benefits:
 
 import re
 import logging
-from typing import List, Optional, Set, Dict, Tuple
+from typing import List, Optional, Set, Dict, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
 from domain_utils import mask_domains, unmask_domains
+
+if TYPE_CHECKING:
+    from punctuation_restorer import LanguageConfig
 
 logger = logging.getLogger("podscripter.splitter")
 
@@ -188,7 +191,7 @@ class SentenceSplitter:
         'wurde', 'wurdest', 'wurden', 'wurdet',
     }
     
-    def __init__(self, language: str, model, config: dict):
+    def __init__(self, language: str, model, config: "LanguageConfig"):
         """
         Initialize sentence splitter.
         
@@ -514,7 +517,7 @@ class SentenceSplitter:
         
         # Now create utterances by grouping consecutive words from the same speaker
         current_speaker = None
-        current_start = None
+        current_start = sentence_start_word
         current_words = []
         
         for word_idx in range(sentence_start_word, sentence_end_word):
@@ -568,7 +571,7 @@ class SentenceSplitter:
         speaker_word_segments: Optional[List[Dict]],
         whisper_periods: Dict[int, str],
         mode: str
-    ) -> List[str]:
+    ) -> List[Sentence]:
         """
         Unified boundary evaluation (consolidates _should_end_sentence_here logic).
         
@@ -1063,7 +1066,7 @@ class SentenceSplitter:
     def _is_inside_unclosed_question(
         self,
         current_chunk: List[str],
-        current_word: str = None
+        current_word: Optional[str] = None
     ) -> bool:
         """
         Check if we're inside an unclosed Spanish inverted question.

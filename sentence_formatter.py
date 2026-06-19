@@ -190,7 +190,7 @@ class SentenceFormatter:
                 logger.debug(f"First speaker segment: {self.speaker_segments[0]}")
                 logger.debug(f"Last speaker segment: {self.speaker_segments[-1]}")
     
-    def _get_speaker_for_sentence(self, sentence: Sentence, sentence_idx: int = None) -> Optional[str]:
+    def _get_speaker_for_sentence(self, sentence: Sentence, sentence_idx: Optional[int] = None) -> Optional[str]:
         """
         Get the speaker for a given sentence.
         
@@ -666,7 +666,7 @@ class SentenceFormatter:
                 if words:
                     # Check speaker boundaries across all collected emphatic words
                     # For simplicity, check first vs last
-                    should_merge = True
+                    should_merge, reason = True, "allowed"
                     if len(words) > 1:
                         should_merge, reason = self._should_merge(
                             sentence_objs[0], 

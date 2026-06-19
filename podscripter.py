@@ -95,7 +95,7 @@ class SegmentDict(TypedDict):
 
 class TranscriptionResult(TypedDict):
     segments: list[SegmentDict]
-    sentences: list[str]
+    sentences: list[Sentence]
     detected_language: str | None
     output_path: str | None
     num_segments: int
@@ -194,7 +194,7 @@ def transcribe(
     Returns:
         TranscriptionResult: dict-like object with keys:
             - segments: List of {start: float, end: float, text: str}
-            - sentences: List[str] (for txt output)
+            - sentences: List[Sentence] (for txt output; since v0.6.0)
             - detected_language: Optional[str]
             - output_path: Optional[str] (path to written file if `write_output=True`)
             - num_segments: int
@@ -1032,127 +1032,7 @@ def _convert_speaker_segments_to_char_ranges(
     return speaker_char_ranges
 
 
-def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None, speaker_segments: list[dict] | None = None) -> tuple[list[str], list]:
-    def _sanitize_sentence_output(s: str, language: str) -> str:
-        try:
-            if (language or '').lower() != 'es' or not s:
-                return s
-            
-            
-            # Use centralized domain masking with Spanish exclusions
-            out = mask_domains(s, use_exclusions=True, language=language)
-            
-            # Fix missing space after ., ?, ! (avoid ellipses, decimals, and already-masked domains)
-            # Avoid breaking domains by not adding spaces after periods in domain-like patterns
-            # Don't add space after periods that are part of domain patterns (www., ftp., etc.)
-            out = re.sub(r"(?<!www)(?<!ftp)(?<!mail)(?<!blog)(?<!shop)(?<!app)(?<!api)(?<!cdn)(?<!static)(?<!news)(?<!support)(?<!help)(?<!docs)(?<!admin)(?<!secure)(?<!login)(?<!mobile)(?<!store)(?<!sub)(?<!dev)(?<!test)(?<!staging)(?<!prod)(?<!beta)(?<!alpha)\.([A-ZÁÉÍÓÚÑ¿¡])", r". \1", out)  # Add space before capital letters
-            # Only add space after periods that are likely sentence terminators (not domain patterns)
-            out = re.sub(r"(?<!www)(?<!ftp)(?<!mail)(?<!blog)(?<!shop)(?<!app)(?<!api)(?<!cdn)(?<!static)(?<!news)(?<!support)(?<!help)(?<!docs)(?<!admin)(?<!secure)(?<!login)(?<!mobile)(?<!store)(?<!sub)(?<!dev)(?<!test)(?<!staging)(?<!prod)(?<!beta)(?<!alpha)\.([a-záéíóúñ])", r". \1", out)
-            out = re.sub(r"\?\s*(\S)", r"? \1", out)
-            out = re.sub(r"!\s*(\S)", r"! \1", out)
-            # Capitalize after terminators when appropriate
-            out = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", out)
-            # Normalize comma spacing using centralized function
-            out = _normalize_comma_spacing(out)
-            # Replace stray intra-word periods between lowercase letters: "vendedores.ambulantes" -> "vendedores ambulantes"
-            out = re.sub(r"([a-záéíóúñ])\.(?=[a-záéíóúñ])", r"\1 ", out)
-            # Tighten percent formatting: keep number and % together
-            out = re.sub(r"(\d)\s+%", r"\1%", out)
-            
-            # Fix capitalization for words that were capitalized at segment boundaries
-            # but are now mid-sentence after punctuation restoration (e.g., "independencia, Ojalá" -> "independencia, ojalá")
-            # Use algorithmic approach to determine when capitalized words should be lowercased
-            def _should_lowercase_mid_sentence_word(word: str, context_before: str, context_after: str) -> bool:
-                """Determine if a capitalized word should be lowercased based on linguistic patterns."""
-                word_lower = word.lower()
-                
-                
-                # Never lowercase single letters (could be initials) unless specific patterns
-                if len(word) == 1:
-                    # Special case for "A veces" pattern
-                    return word_lower == 'a' and context_after.strip().startswith('veces')
-                
-                # Strong indicators this is a proper noun (should stay capitalized)
-                proper_noun_indicators = [
-                    # Followed by "de" (suggesting location: "Madrid de...")
-                    context_after.strip().startswith('de '),
-                    # Preceded by "en" or "a" (suggesting location: "en Madrid", "a París")
-                    context_before.strip().endswith(' en') or context_before.strip().endswith(' a'),
-                    # Two consecutive capitalized words (proper noun phrase)
-                    re.match(r'^\s*[A-Z][a-z]+', context_after),
-                    # Looks like a common proper name pattern and isn't in common words list
-                    (re.match(r'^[A-Z][a-z]{3,}$', word) and 
-                     word_lower not in {
-                         'ojalá', 'entonces', 'pero', 'también', 'además', 'ahora', 'después', 
-                         'antes', 'luego', 'finalmente', 'mientras', 'cuando', 'donde', 'aunque', 
-                         'porque', 'algunos', 'algunas', 'otro', 'otra', 'episodio', 'capítulo',
-                         'temporada', 'parte', 'sección', 'tema', 'momento', 'tiempo'
-                     }),
-                ]
-                
-                if any(proper_noun_indicators):
-                    return False
-                
-                # Strong indicators this is a common word (should be lowercased)
-                common_word_indicators = [
-                    # Known Spanish adverbs/conjunctions that are commonly capitalized incorrectly
-                    word_lower in {
-                        'ojalá', 'entonces', 'pero', 'también', 'además', 'sin embargo',
-                        'por ejemplo', 'es decir', 'por tanto', 'aunque', 'mientras',
-                        'cuando', 'donde', 'como', 'porque', 'para que', 'si', 'que',
-                        'ahora', 'después', 'antes', 'luego', 'finalmente', 'primero',
-                        'segundo', 'tercero', 'último', 'otro', 'otra', 'algunos', 'algunas',
-                        'además', 'incluso', 'sobre todo', 'en realidad', 'de hecho',
-                        'episodio', 'capítulo', 'temporada', 'parte', 'sección', 'tema', 'momento', 'tiempo'
-                    },
-                    # Spanish verb forms (unlikely to be proper nouns)
-                    re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', word_lower),  # infinitives
-                    re.match(r'^[a-z]+(ando|iendo)$', word_lower),  # gerunds
-                    re.match(r'^[a-z]+(ado|ido)$', word_lower),  # past participles
-                    re.match(r'^[a-z]+(aba|ía|ará|ería)s?$', word_lower),  # conjugated forms
-                    # Spanish adjective/noun patterns
-                    word_lower.endswith(('mente', 'ción', 'sión', 'dad', 'tad', 'eza', 'anza')),
-                    # Starts with lowercase article/preposition pattern (wrong split)
-                    word_lower.startswith(('de', 'el', 'la', 'los', 'las', 'un', 'una')),
-                ]
-                
-                if any(common_word_indicators):
-                    return True
-                
-                # Additional check for common short words that could be ambiguous
-                ambiguous_short_words = {'veces', 'forma', 'parte', 'manera', 'tiempo', 'caso', 'lugar', 'momento'}
-                if word_lower in ambiguous_short_words:
-                    return True
-                
-                # Default: if uncertain and it's a short word (≤6 chars), lowercase it
-                # This catches common words while preserving longer proper nouns
-                return len(word) <= 6
-            
-            def _replace_mid_sentence_caps(match):
-                punctuation = match.group(1)  # comma or semicolon
-                space = match.group(2)        # space(s)
-                word = match.group(3)         # capitalized word
-                
-                # Get context for decision making
-                start_pos = match.start()
-                end_pos = match.end()
-                context_before = out[:start_pos + len(punctuation)]
-                context_after = out[end_pos:]
-                
-                if _should_lowercase_mid_sentence_word(word, context_before, context_after):
-                    return punctuation + space + word[0].lower() + word[1:]
-                else:
-                    return match.group(0)  # no change
-            
-            # Apply the pattern: comma/semicolon + space + capitalized word
-            out = re.sub(r'([,;])(\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]*)', _replace_mid_sentence_caps, out)
-            
-            # Unmask domains using centralized function
-            out = unmask_domains(out)
-            return out
-        except Exception:
-            return s
-    
+def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctuation: str | None, quiet: bool, speaker_boundaries: list[float] | None = None, speaker_segments: list[dict] | None = None) -> tuple[list[Sentence], list]:
     # Normalize person initials and organizational acronyms for ALL languages
     # This prevents false sentence breaks when names like "C.S. Lewis" or "J.K. Rowling"
     # appear in non-English transcriptions (e.g., Spanish podcasts discussing English authors)
@@ -1205,15 +1085,15 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
         logger.debug(f"Total words in all_text: {len(all_text.split())}")
     
     processed_text, pre_split_sentences = restore_punctuation(
-        all_text, 
-        lang_for_punctuation, 
+        all_text,
+        lang_for_punctuation or 'en',
         whisper_segments=all_segments,  # Pass full segments, not boundaries
         speaker_segments=speaker_word_ranges  # Word-indexed segments for speaker tracking
     )
     
     # v0.4.0: restore_punctuation() ALWAYS returns sentences (never None)
     # SentenceSplitter has already handled all boundary decisions
-    sentences = pre_split_sentences if pre_split_sentences else [processed_text]
+    sentences = pre_split_sentences if pre_split_sentences else [Sentence(text=processed_text, utterances=[], speaker=None)]
     
     if not quiet:
         logger.debug(f"restore_punctuation returned {len(sentences)} sentences")
@@ -1239,9 +1119,6 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     if not quiet:
         logger.debug(f"SentenceFormatter returned {len(sentences)} sentences and {len(merge_metadata)} merge operations")
     
-    # Sanitize all sentences AFTER formatting
-    sentences = [_sanitize_sentence_output(s, (lang_for_punctuation or '').lower()) for s in sentences]
-    
     # Log merge summary
     if merge_metadata and not quiet:
         merge_counts = {}
@@ -1261,19 +1138,7 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
     
     # v0.5.0: Removed additional comprehensive domain merge loops
     # All domain merging is now handled by SentenceFormatter above
-    
-    if (lang_for_punctuation or '').lower() == 'fr' and sentences:
-        # Already handled inside assemble_sentences_from_processed per segment; kept for safety
-        pass
-    
-    # Final pass: Apply capitalization correction to all sentences
-    # This catches any capitalization issues that arise from segment merging
-    if sentences and (lang_for_punctuation or '').lower() == 'es':
-        final_sentences = []
-        for sentence in sentences:
-            final_sentences.append(_sanitize_sentence_output(sentence, (lang_for_punctuation or '').lower()))
-        sentences = final_sentences
-    
+
     # v0.5.0: Return both sentences and merge metadata
     return sentences, merge_metadata
 def _transcribe_with_sentences(
