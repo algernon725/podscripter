@@ -16,3 +16,4 @@ COMMIT_MESSAGE.txt
 
 # Local development files
 .devcontainer/
+.claude/settings.local.json
