@@ -43,6 +43,7 @@ Benefits:
 
 import re
 import logging
+import numpy as np
 from typing import List, Optional, Set, Dict, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
@@ -1325,7 +1326,7 @@ class SentenceSplitter:
             
             # Compute cosine similarity
             from sklearn.metrics.pairwise import cosine_similarity
-            similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+            similarity = cosine_similarity(np.asarray([embeddings[0]]), np.asarray([embeddings[1]]))[0][0]
             
             # Lower similarity = more likely to be a break
             # Threshold can be tuned

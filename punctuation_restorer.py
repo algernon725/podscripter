@@ -2268,7 +2268,7 @@ def is_question_semantic(sentence: str, model, language: str) -> bool:
         
         similarities = []
         for q_emb in question_embeddings:
-            similarity = cosine_similarity([sentence_embedding], [q_emb])[0][0]
+            similarity = cosine_similarity(np.asarray([sentence_embedding]), np.asarray([q_emb]))[0][0]
             similarities.append(similarity)
         
         # Lower threshold for better question detection, but be more conservative for Spanish
@@ -2474,7 +2474,7 @@ def is_exclamation_semantic(sentence: str, model, language: str) -> bool:
         
         similarities = []
         for e_emb in exclamation_embeddings:
-            similarity = cosine_similarity([sentence_embedding], [e_emb])[0][0]
+            similarity = cosine_similarity(np.asarray([sentence_embedding]), np.asarray([e_emb]))[0][0]
             similarities.append(similarity)
         
         return max(similarities) > 0.7

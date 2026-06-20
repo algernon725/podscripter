@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-06-20
+
+### Fixed
+- **`cosine_similarity()` argument type (Pylance `reportArgumentType`)** — three call sites passed Python list literals (`cosine_similarity([a], [b])`) to scikit-learn's `cosine_similarity`, whose params are typed `MatrixLike` (`ndarray | DataFrame | spmatrix`). Pylance flagged `list[Unknown]` as not assignable; wrapped the args in `np.asarray(...)` at all three: `sentence_splitter.py:_check_semantic_break` (added `import numpy as np`) and `punctuation_restorer.py:is_question_semantic` / `is_exclamation_semantic`. **Behavior-identical** — scikit-learn already calls `np.asarray` on these inputs internally via `check_pairwise_arrays`, so the produced matrices are unchanged. Confirmed against a strict `MatrixLike` repro (the list form errors, the `np.asarray` form does not) and the full suite (468 passed, 34 xfail).
+
+### Notes
+- **Patch bump (0.10.5)** — no production-path behavioral change; completes the type-checker cleanup. These diagnostics surface only under a scikit-learn version whose `cosine_similarity` stub types the params as `ndarray | DataFrame | spmatrix` without a `Sequence`/list arm; the local pyright CLI (sklearn 1.7.2) accepted the list form, which is why the v0.10.4 sweep did not catch them. The `np.asarray` wrap satisfies the strict definition for all versions.
+
 ## [0.10.4] - 2026-06-20
 
 ### Changed
