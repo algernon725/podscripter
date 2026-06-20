@@ -36,7 +36,12 @@ import time
 import argparse
 import logging
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    # Imported only for typing; speaker_diarization pulls heavy deps, so it is
+    # otherwise imported lazily inside functions.
+    from speaker_diarization import DiarizationResult
 
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
@@ -101,9 +106,10 @@ class TranscriptionResult(TypedDict):
     num_segments: int
     elapsed_secs: float
     # Diarization debugging info (None if diarization not enabled)
-    diarization_result: dict | None
-    whisper_boundaries: list[float] | None
-    merged_boundaries: list[float] | None
+    diarization_result: "DiarizationResult | None"
+    # Whisper/merged boundaries are character positions in the assembled text (ints)
+    whisper_boundaries: list[int] | None
+    merged_boundaries: list[int] | None
 
 __all__ = [
     "transcribe",
@@ -1288,7 +1294,7 @@ def _transcribe_with_sentences(
                 raise OutputWriteError(f"Failed to write SRT: {e}")
             output_path = str(output_file)
         return {
-            "segments": all_segments,
+            "segments": cast(list[SegmentDict], all_segments),
             "sentences": [],
             "detected_language": detected_language,
             "output_path": output_path,
@@ -1325,7 +1331,7 @@ def _transcribe_with_sentences(
         if diarization_result:
             speaker_segments_list = diarization_result['segments']
         
-        sentences, merge_metadata = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries, speaker_segments=speaker_segments_list)
+        sentences, merge_metadata = _assemble_sentences(all_text, all_segments, lang_for_punctuation, quiet, speaker_boundaries=speaker_boundaries, speaker_segments=cast(list[dict], speaker_segments_list))
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
 
         output_path_txt: str | None = None
@@ -1348,7 +1354,7 @@ def _transcribe_with_sentences(
                 except Exception as e:
                     logger.warning(f"Failed to write merge metadata dump: {e}")
         return {
-            "segments": all_segments,
+            "segments": cast(list[SegmentDict], all_segments),
             "sentences": sentences,
             "detected_language": detected_language,
             "output_path": output_path_txt,
@@ -1477,13 +1483,14 @@ def main():
         
         # Write diarization dump if requested
         if args.dump_diarization:
-            if result.get('diarization_result'):
+            diarization_result_dump = result.get('diarization_result')
+            if diarization_result_dump:
                 base_name = Path(args.media_file).stem
                 diarization_output_file = Path(args.output_dir) / f"{base_name}_diarization.txt"
                 try:
                     from speaker_diarization import write_diarization_dump
                     write_diarization_dump(
-                        result['diarization_result'],
+                        diarization_result_dump,
                         str(diarization_output_file),
                         merged_boundaries=result.get('merged_boundaries'),
                         whisper_boundaries=result.get('whisper_boundaries'),

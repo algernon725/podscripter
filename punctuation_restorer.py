@@ -75,7 +75,7 @@ from dataclasses import dataclass
 import os
 import numpy as np
 import warnings
-from domain_utils import mask_domains, unmask_domains, apply_safe_text_processing, create_domain_aware_regex, SINGLE_TLDS, SINGLE_MASK
+from domain_utils import mask_domains, unmask_domains, create_domain_aware_regex, SINGLE_TLDS, SINGLE_MASK
 from sentence_splitter import SentenceSplitter, Sentence
 
 # Suppress PyTorch FutureWarnings
@@ -86,16 +86,6 @@ logger = logging.getLogger("podscripter.punctuation")
 
 
 # Helper functions for domain-safe text processing
-def _domain_safe_split_preserving_delims(text: str, pattern: str = r'([.!?]+)') -> list[str]:
-    """Split text while preserving domains and delimiters."""
-    def _split_func(text_to_split):
-        return re.split(pattern, text_to_split)
-    result = apply_safe_text_processing(text, _split_func, use_exclusions=True)
-    if isinstance(result, list):
-        return result
-    return [result]
-
-
 def _domain_safe_regex_replace(text: str, pattern: str, replacement: str) -> str:
     """Apply regex replacement while preserving domains."""
     replace_func = create_domain_aware_regex(pattern, replacement, use_exclusions=True)
@@ -3222,8 +3212,8 @@ def _capitalize_german_proper_nouns(sentence: str) -> str:
         'stuttgart': 'Stuttgart', 'hannover': 'Hannover', 'bremen': 'Bremen', 'leipzig': 'Leipzig', 'dresden': 'Dresden',
         'zürich': 'Zürich', 'bern': 'Bern', 'basel': 'Basel', 'wien': 'Wien', 'salzburg': 'Salzburg'
     }
-    def replace_word(m):
-        w = m.group(0)
+    def replace_word(m: re.Match) -> str:
+        w: str = m.group(0)
         lw = w.lower()
         return proper_map.get(lw, w)
     # Replace whole-word occurrences only

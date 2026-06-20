@@ -1366,7 +1366,7 @@ class SentenceSplitter:
         whisper_periods: Dict[int, str],
         speaker_word_segments: Optional[List[Dict]],
         original_text: str
-    ) -> List[str]:
+    ) -> List[Sentence]:
         """
         Remove Whisper periods before same-speaker connectors.
         
@@ -1386,8 +1386,8 @@ class SentenceSplitter:
             return sentences
         
         self.logger.debug(f"_process_whisper_punctuation: Processing {len(sentences)} sentences")
-        
-        processed = []
+
+        processed: List[Sentence] = []
         words = original_text.split()
         current_word_idx = 0
         skip_next = False
@@ -1468,8 +1468,9 @@ class SentenceSplitter:
                             )
                             processed.append(merged_obj)
                         else:
-                            # Fallback for backward compatibility
-                            processed.append(merged_text)
+                            # Fallback for backward compatibility (dead path: inputs are
+                            # always Sentence objects from _evaluate_boundaries)
+                            processed.append(Sentence(text=merged_text, utterances=[], speaker=None))
                         
                         # Track that we removed a period
                         self.removed_periods.append({

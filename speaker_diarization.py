@@ -330,8 +330,8 @@ def _merge_boundaries(
 def write_diarization_dump(
     diarization_result: DiarizationResult,
     output_file: str,
-    merged_boundaries: list[float] | None = None,
-    whisper_boundaries: list[float] | None = None,
+    merged_boundaries: list[int] | None = None,
+    whisper_boundaries: list[int] | None = None,
 ) -> None:
     """
     Write diarization data to a file for debugging purposes.
