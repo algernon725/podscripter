@@ -161,6 +161,43 @@ def test_domain_merge_spanish_lowercase_brand_still_merges():
     assert "marca.es" in result[0], f"Expected 'marca.es' in: {result[0]}"
 
 
+def test_domain_merge_spanish_lowercase_label_capitalized_es_guard():
+    """
+    Regression for v0.10.6: Spanish .es must not merge when the next
+    sentence starts with the capitalized verb "Es", even if the previous
+    sentence's trailing label is lowercase/short.
+
+    The v0.8.5 guard only blocked capitalized *labels* (e.g. "Nate."), so
+    a lowercase-label case like "...deja una reseña." + "Es la mejor
+    manera..." slipped through and merged into "reseña.es", lowercasing the
+    verb "Es". A capitalized "es" token is a sentence start, not a TLD.
+    Reproduced in audio-files/Episodio294.txt for Episodio294.mp3.
+    """
+    first = "Si tú no lo has hecho, por favor deja una reseña."
+    second = "Es la mejor manera en que puedes mostrar agradecimiento."
+
+    formatter = SentenceFormatter('es', speaker_segments=None)
+    result, metadata = formatter.format([first, second])
+    result = _texts(result)
+
+    assert len(result) == 2, (
+        f"Expected 2 sentences (no merge), got {len(result)}: {result}"
+    )
+    joined = ' '.join(result)
+    assert "reseña.es" not in joined, f"Should not contain 'reseña.es': {result}"
+    assert any(s.startswith("Es la mejor") for s in result), (
+        f"Second sentence should still start with capitalized 'Es': {result}"
+    )
+
+    domain_merges = [
+        m for m in metadata
+        if m.merge_type == 'domain' and not m.reason.startswith('skipped')
+    ]
+    assert len(domain_merges) == 0, (
+        f"Expected 0 domain merges, got {len(domain_merges)}"
+    )
+
+
 def test_domain_merge_capitalized_label():
     """Test domain merge works for capitalized labels (brand names)"""
     sentences = ["Check out Google.", "Com for search"]

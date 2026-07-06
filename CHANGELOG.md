@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.6] - 2026-07-06
+
+### Fixed
+- **Spanish sentence-initial `Es` lowercased via a false `.es` domain merge (lowercase-label case)** — when `--enable-diarization` produced two adjacent sentences where the first ends in a short/lowercase-labelled word and the next begins with the capitalized verb `"Es"` (e.g., `"...por favor deja una reseña."` + `"Es la mejor manera..."`), `SentenceFormatter._merge_domains()` merged them into a fake domain (`"reseña.es"`) and the `"Es"` was consumed as the lowercase TLD, yielding the broken `"...reseña. es la mejor manera..."` in the final transcript. Reproduced in `audio-files/Episodio294.txt` for `Episodio294.mp3`.
+  - **Root Cause**: The `.es` TLD collides with the extremely common Spanish verb "es" (3rd-person singular of *ser*). The v0.8.5 proper-noun guard only blocked the merge when the *previous* sentence's trailing label was a capitalized proper noun (`"Nate."` → `"Nate.es"`). It did not cover the case where the previous label is lowercase/short (here the regex `[A-Za-z0-9\-]+` cannot span the `ñ` in `reseña`, so the extracted label was just `"a"`) and the merge was instead justified by the `len(cur) < 50` "short sentence" branch of the v0.4.4 natural-language guard. The capitalized `"Es"` token — a reliable sentence-start signal — was ignored.
+  - **Fix**: Extended the Spanish `.es` guard in `_merge_domains()` (`sentence_formatter.py`) to also skip the merge when the next sentence's `es` token is itself capitalized (`m2.group(1)[0].isupper()`), i.e., `(is_capitalized_label or es_token_is_capitalized)`. A genuine spoken `.es` brand continuation uses a lowercase `es` (`"marca." + "es para noticias"` → `"marca.es"`), so real domains are unaffected. Narrowly scoped to `language == 'es'` and `tld == 'es'`, matching the existing guard's blast radius.
+  - **Tests**: `tests/test_sentence_formatter.py` — added `test_domain_merge_spanish_lowercase_label_capitalized_es_guard` (asserts `"reseña."` + `"Es la mejor manera..."` does not merge, keeps `"Es"` capitalized, and records zero non-skipped domain merges). The existing `test_domain_merge_spanish_proper_noun_guard` (`Nate.es`/`Pedro.es`) and `test_domain_merge_spanish_lowercase_brand_still_merges` (`marca.es`) continue to pass. Full default suite: 469 passed, 32 deselected, 34 xfailed.
+
+### Notes
+- **Patch bump (0.10.6)** — narrow, production-visible bug fix limited to the Spanish `.es` domain-merge guard. This is the same TLD/verb collision class as the v0.8.5 `Nate.es` fix, extended to cover the lowercase-preceding-label variant that the capitalized-label-only guard missed.
+
 ## [0.10.5] - 2026-06-20
 
 ### Fixed

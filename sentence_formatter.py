@@ -325,20 +325,24 @@ class SentenceFormatter:
                     is_short_sentence = len(cur) < 50
                     is_capitalized_label = label[0].isupper() if label else False
 
-                    # Spanish-specific guard (v0.8.5):
+                    # Spanish-specific guard (v0.8.5, extended v0.10.6):
                     # The TLD `es` collides with the extremely common Spanish verb
-                    # "es" (3rd-person singular of "ser"). When a Spanish sentence
-                    # ends with a capitalized proper noun (e.g., "Nate.", "Pedro.")
-                    # and the next sentence starts with "Es ...", the capitalized
-                    # label heuristic above would incorrectly justify a domain
-                    # merge ("Nate.es"). Real spoken brand mentions like
-                    # "marca." + "es ..." use a lowercase label, so for Spanish we
-                    # require the label to be lowercase before allowing a `.es`
-                    # merge regardless of capitalization.
+                    # "es" (3rd-person singular of "ser"). Two sentence-boundary
+                    # signals indicate the next "es" is the verb, not a domain TLD:
+                    #   (1) The previous sentence ends with a capitalized proper
+                    #       noun (e.g., "Nate.", "Pedro.") -> "Nate.es".
+                    #   (2) The next sentence's "es" token is itself capitalized
+                    #       ("Es ..."), which starts a new sentence. This catches
+                    #       cases where the previous label is lowercase/short
+                    #       (e.g., "...deja una reseña." + "Es la mejor manera...")
+                    #       that (1) misses.
+                    # Real spoken brand mentions like "marca." + "es ..." use a
+                    # lowercase "es" token, so they still merge into "marca.es".
+                    es_token_is_capitalized = m2.group(1)[0].isupper()
                     if (
                         self.language == 'es'
                         and tld == 'es'
-                        and is_capitalized_label
+                        and (is_capitalized_label or es_token_is_capitalized)
                     ):
                         logger.debug(
                             "Skipping Spanish .es domain merge (proper-noun guard): "
