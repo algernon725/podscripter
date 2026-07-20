@@ -191,7 +191,63 @@ class SentenceSplitter:
         'sollte', 'solltest', 'sollten', 'solltet',
         'wurde', 'wurdest', 'wurden', 'wurdet',
     }
-    
+
+    # Comparative particles that bind backward to a preceding degree/quantity
+    # word; a sentence break immediately before them is ungrammatical.
+    COMPARATIVE_PARTICLES = {
+        'es': {'más', 'mas', 'menos'},
+        'en': {'more', 'less', 'fewer'},
+        'fr': {'plus', 'moins'},
+        'de': {'mehr', 'weniger'},
+    }
+
+    # Degree/quantity words that bind forward to a comparative particle
+    # (e.g. "un poco más", "a little more", "un peu plus", "etwas mehr").
+    DEGREE_QUANTIFIER_HEADS = {
+        'es': {'poco', 'mucho', 'mucha', 'muchos', 'muchas', 'algo', 'bastante',
+               'tanto', 'tanta', 'tantos', 'tantas', 'vez', 'veces', 'nada',
+               'todavía', 'aún', 'aun'},
+        'en': {'little', 'bit', 'much', 'lot', 'lots', 'far', 'even', 'way'},
+        'fr': {'peu', 'beaucoup', 'bien', 'encore', 'tellement', 'toujours', 'autant'},
+        'de': {'etwas', 'viel', 'noch', 'weit', 'deutlich'},
+    }
+
+    # Clause-hinge words that bind to BOTH neighbours (a preceding clause and
+    # the subordinate clause they introduce), so the low-confidence semantic
+    # heuristic must not place a sentence break on either edge — neither
+    # "me imagino | que" nor "que | puedes". Unaccented "que" only —
+    # interrogative "qué" is a separate token. Genuine Whisper/speaker pauses
+    # (handled at higher priority) may still split, covering rare
+    # sentence-initial uses (wishes/reported speech).
+    SEMANTIC_BREAK_HINGE_WORDS = {
+        'es': {'que'},
+    }
+
+    # Finite modal / semi-auxiliary verb forms that govern a bare following
+    # infinitive (verbal periphrasis: "puedes | encontrar", "debo | ir",
+    # "quiero | comer"). A semantic break between one of these and the
+    # infinitive it governs is ungrammatical. The conjugated present forms are
+    # NOT in CONTINUATIVE_AUXILIARY_VERBS, and unlike those a modal CAN end a
+    # sentence ("Sí, puedes."), so this is applied only in the semantic path and
+    # only when the next word actually looks like a (lowercase) infinitive.
+    INFINITIVE_GOVERNING_VERBS = {
+        'es': {
+            'puedo', 'puedes', 'puede', 'podemos', 'podéis', 'pueden',
+            'debo', 'debes', 'debe', 'debemos', 'debéis', 'deben',
+            'quiero', 'quieres', 'quiere', 'queremos', 'queréis', 'quieren',
+            'sé', 'sabes', 'sabe', 'sabemos', 'sabéis', 'saben',
+            'suelo', 'sueles', 'suele', 'solemos', 'soléis', 'suelen',
+        },
+    }
+
+    # A Spanish infinitive (optionally carrying enclitic pronouns, e.g.
+    # "encontrarlo", "hacerse"): ends in -ar/-er/-ir plus optional clitics.
+    # Stem is optional so short/irregular infinitives ("ir", "ser", "dar",
+    # "ver") also match.
+    _ES_INFINITIVE_RE = re.compile(
+        r'^[a-zñáéíóú]*(?:ar|er|ir)(?:se|me|te|le|nos|os|lo|la|los|las|les)?$'
+    )
+
     def __init__(self, language: str, model, config: "LanguageConfig"):
         """
         Initialize sentence splitter.
@@ -913,6 +969,46 @@ class SentenceSplitter:
         # PRIORITY 5: Semantic coherence check (if we have the model)
         if self.model is not None:
             if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):
+                # Grammatical guard: never let the low-confidence semantic heuristic
+                # split either edge of a comparative particle ("más"/"menos",
+                # "more"/"less", "plus"/"moins", "mehr"/"weniger"), which binds to a
+                # preceding degree word AND the adjective it modifies (e.g.
+                # "un poco | más | baratos"). Scoped to the semantic path only.
+                if self._is_bound_comparative_break(current_word, next_word):
+                    self.logger.debug(
+                        f"✗ SUPPRESS semantic split at word {current_index} "
+                        f"('{current_word}'): binds to comparative '{next_word}'"
+                    )
+                    return False
+                # Grammatical guard: don't let the semantic heuristic place a
+                # break on either edge of a clause-hinge word like subordinating
+                # "que" ("me imagino | que" or "que | puedes…").
+                hinge = self.SEMANTIC_BREAK_HINGE_WORDS.get(self.language)
+                if hinge and (
+                    current_word.lower().strip('.,;:!?¿¡') in hinge
+                    or next_word.lower().strip('.,;:!?¿¡') in hinge
+                ):
+                    self.logger.debug(
+                        f"✗ SUPPRESS semantic split at word {current_index} "
+                        f"('{current_word}'): clause-hinge boundary with '{next_word}'"
+                    )
+                    return False
+                # Grammatical guard: don't separate a finite modal/auxiliary verb
+                # from the infinitive it governs ("puedes | encontrar").
+                if self._is_modal_infinitive_break(current_word, next_word):
+                    self.logger.debug(
+                        f"✗ SUPPRESS semantic split at word {current_index} "
+                        f"('{current_word}'): governs infinitive '{next_word}'"
+                    )
+                    return False
+                # Grammatical guard: don't leave an infinitive dangling from its
+                # complement ("encontrar | un buen apartamento").
+                if self._is_infinitive_complement_break(current_word, next_word):
+                    self.logger.debug(
+                        f"✗ SUPPRESS semantic split at word {current_index} "
+                        f"('{current_word}'): infinitive complement '{next_word}' follows"
+                    )
+                    return False
                 # Defer to nearby Whisper boundary if one exists within lookahead window.
                 # Whisper boundaries are higher-priority signals (PRIORITY 4) and should
                 # be evaluated at their natural position rather than preempted here.
@@ -956,12 +1052,22 @@ class SentenceSplitter:
         if self.language == 'es':
             spanish_forbidden = {
                 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
-                'a', 'ante', 'bajo', 'de', 'del', 'al', 'en', 'con', 'por', 
+                'a', 'ante', 'bajo', 'de', 'del', 'al', 'en', 'con', 'por',
                 'para', 'sin', 'sobre', 'entre', 'tras', 'durante', 'mediante',
                 'según', 'hacia', 'hasta', 'desde', 'contra',
                 'todo', 'toda', 'todos', 'todas', 'alguno', 'alguna', 'algunos',
                 'algunas', 'cualquier', 'cualquiera', 'ningún', 'ninguna', 'ninguno',
-                'otro', 'otra', 'otros', 'otras'
+                'otro', 'otra', 'otros', 'otras',
+                # Proclitic object/reflexive pronouns: attach forward to the
+                # following verb ("me imagino", "se llama", "lo veo"), so a
+                # sentence can never end on one. ('la'/'los'/'las' already above
+                # as articles.)
+                'me', 'te', 'se', 'nos', 'os', 'le', 'les', 'lo',
+                # Apocopated prenominal adjectives/determiners: exist only before
+                # a noun ("un buen apartamento", "un gran hombre", "el primer
+                # día"), so they can never end a sentence. ('mal' is excluded —
+                # it is also an adverb that can: "me trata mal".)
+                'buen', 'gran', 'primer', 'tercer', 'algún', 'san',
             }
             if current_clean in spanish_forbidden:
                 return True
@@ -995,9 +1101,89 @@ class SentenceSplitter:
             }
             if current_clean in german_forbidden:
                 return True
-        
+
         return False
-    
+
+    def _is_bound_comparative_break(self, current_word: str, next_word: str) -> bool:
+        """
+        True when a break between current_word and next_word would sever a
+        comparative construction like "un poco | más | baratos" /
+        "a little | more | expensive" / "un peu | plus | chers".
+
+        A comparative particle ("más/menos", "more/less/fewer", "plus/moins",
+        "mehr/weniger") binds to BOTH neighbours: backward to a preceding
+        degree/quantity word and forward to the adjective/adverb it modifies.
+        The heuristic guards both edges:
+
+          (a) before the particle — only when the preceding word is a degree
+              head, so genuine sentence-initial "Más/More/Plus/Mehr …" (whose
+              preceding word is not a head) stays splittable;
+          (b) after the particle — only when the following word continues the
+              clause (lowercase). A capitalized following word means the
+              particle was sentence-final (e.g. "un poco más. Ahora …"), which
+              stays splittable.
+
+        Scoped to the semantic-break path (the lowest-confidence signal);
+        Whisper/speaker boundaries are handled at higher priority.
+        """
+        particles = self.COMPARATIVE_PARTICLES.get(self.language)
+        if not particles:
+            return False
+        cur = current_word.lower().strip('.,;:!?¿¡')
+        nxt = next_word.lower().strip('.,;:!?¿¡')
+
+        # (a) Break BEFORE a particle bound to a preceding degree head.
+        heads = self.DEGREE_QUANTIFIER_HEADS.get(self.language)
+        if heads and nxt in particles and cur in heads:
+            return True
+
+        # (b) Break AFTER a comparative particle that modifies a following
+        # (lowercase, clause-continuing) word.
+        if cur in particles and next_word[:1].islower():
+            return True
+
+        return False
+
+    def _is_modal_infinitive_break(self, current_word: str, next_word: str) -> bool:
+        """
+        True when a break between current_word and next_word would separate a
+        finite modal/semi-auxiliary verb from the infinitive it governs
+        ("puedes | encontrar", "quiero | comer").
+
+        Requires the following word to actually look like a (lowercase)
+        infinitive, so a genuinely sentence-final modal ("Sí, puedes. Hazlo…",
+        capitalized next word) stays splittable. Scoped to the semantic-break
+        path.
+        """
+        governors = self.INFINITIVE_GOVERNING_VERBS.get(self.language)
+        if not governors:
+            return False
+        cur = current_word.lower().strip('.,;:!?¿¡')
+        if cur not in governors:
+            return False
+        if not next_word[:1].islower():
+            return False
+        nxt = next_word.lower().strip('.,;:!?¿¡')
+        return len(nxt) >= 2 and bool(self._ES_INFINITIVE_RE.match(nxt))
+
+    def _is_infinitive_complement_break(self, current_word: str, next_word: str) -> bool:
+        """
+        True when current_word is a Spanish infinitive whose complement (a
+        lowercase continuation) immediately follows, so a semantic break would
+        leave the infinitive dangling from its object/complement
+        ("encontrar | un buen apartamento").
+
+        A genuinely sentence-final infinitive ("…qué hacer. Vamos…") is
+        followed by a capitalized word and stays splittable. Scoped to the
+        semantic-break path.
+        """
+        if self.language != 'es':
+            return False
+        if not next_word[:1].islower():
+            return False
+        cur = current_word.lower().strip('.,;:!?¿¡')
+        return len(cur) >= 2 and bool(self._ES_INFINITIVE_RE.match(cur))
+
     def _shift_boundary_past_unclosed_mark(
         self,
         boundary_word: int,
