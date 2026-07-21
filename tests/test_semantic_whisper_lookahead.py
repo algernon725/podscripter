@@ -12,8 +12,17 @@ Bug example fixed (Episodio243):
   → should be: "...necesitan saber para de verdad tomar su español al siguiente nivel."
 
 Root cause: at 42 words the chunk hit min_chunk_semantic_break and the
-semantic model's 10-word lookahead window crossed a real sentence boundary,
-producing a false-positive split 5 words before the Whisper boundary at "nivel."
+semantic model's lookahead window crossed a real sentence boundary,
+producing a false-positive split before the Whisper boundary at "nivel."
+
+Probe word: these tests exercise the lookahead/semantic path by probing a
+break at "español" (→ "al siguiente nivel."), NOT at the original bug word
+"tomar". Since v0.10.7 the infinitive-complement guard
+(_is_infinitive_complement_break) legitimately suppresses a break at
+"tomar su" (infinitive + lowercase complement) at a higher priority than
+PRIORITY 5, so probing there would never reach the semantic lookahead code
+under test. "español" is an unguarded content-word junction that still sits
+before the "nivel." Whisper boundary, so it isolates the lookahead behaviour.
 """
 
 import unittest
@@ -40,8 +49,9 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
 
     def _build_long_spanish_text(self):
         """
-        Reproduce the Episodio243 pattern: a 47-word sentence where the
-        semantic threshold (42) is reached 5 words before the Whisper boundary.
+        Reproduce the Episodio243 pattern: a 47-word sentence long enough to
+        cross the semantic threshold (42), with the Whisper boundary at
+        "nivel." a few words past the "español" probe point.
         """
         return (
             "Ellos son Alberto y Judith. "
@@ -61,20 +71,20 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
     def test_defers_semantic_split_when_whisper_boundary_nearby(self):
         """
         Even if the semantic model wants to split, the lookahead should
-        prevent the split at 'tomar' because a Whisper boundary exists
-        at 'nivel.' (5 words ahead, within the 8-word window).
+        prevent the split at 'español' because a Whisper boundary exists
+        at 'nivel.' (3 words ahead, within the 8-word window).
         """
         splitter = SentenceSplitter('es', _SentinelModel(), self.config)
         text = self._build_long_spanish_text()
         words = text.split()
 
-        tomar_idx = self._find_word_index(words, 'tomar')
+        split_idx = self._find_word_index(words, 'español')
         nivel_idx = self._find_word_index(words, 'nivel')
-        self.assertIsNotNone(tomar_idx)
+        self.assertIsNotNone(split_idx)
         self.assertIsNotNone(nivel_idx)
 
         whisper_word_boundaries = {nivel_idx}
-        current_chunk = words[:tomar_idx + 1]
+        current_chunk = words[:split_idx + 1]
 
         self.assertGreaterEqual(
             len(current_chunk),
@@ -84,7 +94,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         # _check_semantic_break should never even be called
         with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
             result = splitter._should_end_sentence_here(
-                words, tomar_idx, current_chunk,
+                words, split_idx, current_chunk,
                 whisper_word_boundaries=whisper_word_boundaries,
                 speaker_word_boundaries=None,
                 speaker_word_segments=None,
@@ -93,7 +103,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
 
         self.assertFalse(
             result,
-            "Should NOT split at 'tomar' — Whisper boundary at 'nivel.' is within lookahead"
+            "Should NOT split at 'español' — Whisper boundary at 'nivel.' is within lookahead"
         )
 
     def test_allows_semantic_split_when_no_whisper_boundary_nearby(self):
@@ -105,16 +115,16 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         text = self._build_long_spanish_text()
         words = text.split()
 
-        tomar_idx = self._find_word_index(words, 'tomar')
-        self.assertIsNotNone(tomar_idx)
+        split_idx = self._find_word_index(words, 'español')
+        self.assertIsNotNone(split_idx)
 
         # Boundary far away (well beyond 8-word window)
-        whisper_word_boundaries = {tomar_idx + 20}
-        current_chunk = words[:tomar_idx + 1]
+        whisper_word_boundaries = {split_idx + 20}
+        current_chunk = words[:split_idx + 1]
 
         with patch.object(splitter, '_check_semantic_break', return_value=True):
             result = splitter._should_end_sentence_here(
-                words, tomar_idx, current_chunk,
+                words, split_idx, current_chunk,
                 whisper_word_boundaries=whisper_word_boundaries,
                 speaker_word_boundaries=None,
                 speaker_word_segments=None,
@@ -133,13 +143,13 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         text = self._build_long_spanish_text()
         words = text.split()
 
-        tomar_idx = self._find_word_index(words, 'tomar')
-        self.assertIsNotNone(tomar_idx)
-        current_chunk = words[:tomar_idx + 1]
+        split_idx = self._find_word_index(words, 'español')
+        self.assertIsNotNone(split_idx)
+        current_chunk = words[:split_idx + 1]
 
         with patch.object(splitter, '_check_semantic_break', return_value=True):
             result = splitter._should_end_sentence_here(
-                words, tomar_idx, current_chunk,
+                words, split_idx, current_chunk,
                 whisper_word_boundaries=None,
                 speaker_word_boundaries=None,
                 speaker_word_segments=None,
@@ -159,15 +169,15 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         text = self._build_long_spanish_text()
         words = text.split()
 
-        tomar_idx = self._find_word_index(words, 'tomar')
-        self.assertIsNotNone(tomar_idx)
+        split_idx = self._find_word_index(words, 'español')
+        self.assertIsNotNone(split_idx)
 
-        whisper_word_boundaries = {tomar_idx + 8}
-        current_chunk = words[:tomar_idx + 1]
+        whisper_word_boundaries = {split_idx + 8}
+        current_chunk = words[:split_idx + 1]
 
         with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
             result = splitter._should_end_sentence_here(
-                words, tomar_idx, current_chunk,
+                words, split_idx, current_chunk,
                 whisper_word_boundaries=whisper_word_boundaries,
                 speaker_word_boundaries=None,
                 speaker_word_segments=None,
@@ -188,15 +198,15 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         text = self._build_long_spanish_text()
         words = text.split()
 
-        tomar_idx = self._find_word_index(words, 'tomar')
-        self.assertIsNotNone(tomar_idx)
+        split_idx = self._find_word_index(words, 'español')
+        self.assertIsNotNone(split_idx)
 
-        whisper_word_boundaries = {tomar_idx + 9}
-        current_chunk = words[:tomar_idx + 1]
+        whisper_word_boundaries = {split_idx + 9}
+        current_chunk = words[:split_idx + 1]
 
         with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
             result = splitter._should_end_sentence_here(
-                words, tomar_idx, current_chunk,
+                words, split_idx, current_chunk,
                 whisper_word_boundaries=whisper_word_boundaries,
                 speaker_word_boundaries=None,
                 speaker_word_segments=None,
@@ -252,16 +262,16 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         text = self._build_long_spanish_text()
         words = text.split()
 
-        tomar_idx = self._find_word_index(words, 'tomar')
-        self.assertIsNotNone(tomar_idx)
+        split_idx = self._find_word_index(words, 'español')
+        self.assertIsNotNone(split_idx)
 
         # Boundary far away
-        whisper_word_boundaries = {tomar_idx + 20}
-        current_chunk = words[:tomar_idx + 1]
+        whisper_word_boundaries = {split_idx + 20}
+        current_chunk = words[:split_idx + 1]
 
         with patch.object(splitter, '_check_semantic_break', return_value=False):
             result = splitter._should_end_sentence_here(
-                words, tomar_idx, current_chunk,
+                words, split_idx, current_chunk,
                 whisper_word_boundaries=whisper_word_boundaries,
                 speaker_word_boundaries=None,
                 speaker_word_segments=None,
