@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.8] - 2026-07-21
+
+### Changed
+- **Upgraded the Docker base image from `python:3.10-slim` to `python:3.12-slim`** — Python 3.10 reaches end-of-life in October 2026 (CPython's 5-year support policy) and will stop receiving security patches. Moved to Python 3.12 (EOL October 2028), the most mature target with universal wheel availability across the project's pinned stack (torch 2.8.0, torchaudio 2.8.0, torchcodec 0.7.0, sentence-transformers 5.2.2, spaCy 3.8.11 + models 3.8.0, pyannote.audio 4.0.4, faster-whisper). Version-string references were contained to two files: `Dockerfile` (`FROM`) and `AGENT.md` ("Python 3.12+"). No `requirements.txt`/CI/`python_requires` to update.
+
+### Notes
+- **Patch bump (0.10.8)** — infrastructure-only change; no production-path or behavioral change to the transcription pipeline. Verification is a Docker rebuild (`docker build -t podscripter .`), which is the primary gate proving every pinned wheel — including the ABI-sensitive torch/torchcodec pins and the spaCy model wheels — resolves on 3.12, followed by an interpreter-version check, an import smoke test, and the default pytest suite with model caches mounted.
+
 ## [0.10.7] - 2026-07-20
 
 ### Fixed

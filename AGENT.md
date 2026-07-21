@@ -22,7 +22,7 @@ This file is a lean hub. Detailed technical content lives in modular `.agent/` f
 - **spaCy (mandatory)**: capitalization and entity awareness; models baked into the Docker image (`en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`).
 - **pyannote.audio 4.0.4**: optional speaker diarization.
 - **Docker**: reproducible environments.
-- **Python 3.10+**: primary language.
+- **Python 3.12+**: primary language.
 
 ### Supported languages
 - Primary focus: English (en), Spanish (es), French (fr).
