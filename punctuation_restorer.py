@@ -1076,30 +1076,39 @@ def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphra
     # Ensure HF_HOME points to our preferred cache to consolidate downloads
     os.environ.setdefault("HF_HOME", hf_cache)
 
-    # First try: if a local model directory exists, prefer offline mode.
-    # Only load by direct path if Sentence-Transformers metadata is present (modules.json),
-    # otherwise skip to name+cache load to avoid the "Creating a new one with mean pooling" warning.
-    local_model_dir = _find_local_model_path(st_cache, model_name.split('/')[-1])
-    if local_model_dir and os.path.isdir(local_model_dir):
-        # Enable offline to avoid any network HEAD calls when cache is warm
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-        modules_json = os.path.join(local_model_dir, "modules.json")
-        config_st = os.path.join(local_model_dir, "config_sentence_transformers.json")
-        if os.path.isfile(modules_json) or os.path.isfile(config_st):
+    short_name = 'paraphrase-multilingual-MiniLM-L12-v2'
+
+    # If a local model directory already exists, the cache is warm and we can
+    # load fully offline. NOTE: setting os.environ["HF_HUB_OFFLINE"] here is a
+    # no-op — huggingface_hub freezes that value into a module constant at import
+    # time, and faster_whisper (imported at startup) pulls in huggingface_hub
+    # before we get here, so the constant is already locked to False. The per-call
+    # `local_files_only=True` argument below is honored regardless and is what
+    # actually prevents the network HEAD request (and its "unauthenticated
+    # requests to the HF Hub" warning) on every warm-cache run.
+    cache_is_warm = bool(local_model_dir := _find_local_model_path(st_cache, model_name.split('/')[-1])) and os.path.isdir(local_model_dir)
+
+    # First try: fully offline load from the warm cache (no network requests).
+    # Load by name with cache_folder so Sentence-Transformers resolves the proper
+    # snapshot layout (avoids the "Creating a new one with mean pooling" warning).
+    if cache_is_warm:
+        for name in (model_name, short_name):
             try:
-                _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(local_model_dir)
+                _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(
+                    name, cache_folder=st_cache, local_files_only=True
+                )
                 return _SENTENCE_TRANSFORMER_SINGLETON
             except Exception:
-                # Fallback to normal loading below
-                pass
+                # Cache may be incomplete for this name; try the next, then fall
+                # back to an online load below.
+                continue
 
-    # Second try: load by name but direct cache_folder to sentence-transformers cache
+    # Fallback: online load (first run / cold cache) — allowed to download.
     try:
         _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(model_name, cache_folder=st_cache)
         return _SENTENCE_TRANSFORMER_SINGLETON
     except Exception:
         # Last resort: try short name without org (older sbert versions)
-        short_name = 'paraphrase-multilingual-MiniLM-L12-v2'
         _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(short_name, cache_folder=st_cache)
         return _SENTENCE_TRANSFORMER_SINGLETON
 
