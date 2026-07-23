@@ -1079,7 +1079,7 @@ def _assemble_sentences(all_text: str, all_segments: list[dict], lang_for_punctu
                     for i in range(len(speaker_word_ranges) - 1):
                         if speaker_word_ranges[i]['speaker'] != speaker_word_ranges[i+1]['speaker']:
                             speaker_changes += 1
-                    logger.info(f"Speaker word ranges contain {speaker_changes} speaker changes")
+                    logger.debug(f"Speaker word ranges contain {speaker_changes} speaker changes")
     
     # Process the entire text using unified SentenceSplitter (v0.4.0+)
     # Pass full Whisper segments and speaker segments (not just boundaries)

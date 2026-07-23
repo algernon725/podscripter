@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.10] - 2026-07-23
+
+### Changed
+- **Removed a confusing duplicate progress line during diarized transcriptions** — under `--enable-diarization`, two consecutive console lines reported the same underlying speaker-turn data in two internal representations: `Created N speaker character ranges from M diarization segments` immediately followed by `Speaker word ranges contain N-1 speaker changes` (e.g. `Created 13 speaker character ranges from 52 diarization segments` / `Speaker word ranges contain 12 speaker changes` for `Episodio218-trim.mp3`). The second line described the same 13 turns as "word ranges" (12 changes = 13 turns − 1), and its `12` read as contradicting the earlier `Detected 2 unique speakers with 18 speaker changes` (raw audio-level count, before merging).
+  - **Fix**: demoted the `Speaker word ranges contain ... speaker changes` log in `_assemble_sentences` (`podscripter.py`) from `logger.info` to `logger.debug`. It was an anomalous `info` call already sitting inside an otherwise all-`debug` diagnostic block, so it now joins its neighbors and only appears under `--debug`. The `Created N speaker character ranges...` line is unchanged.
+  - **Result**: default (verbose/INFO) output shows a single, non-redundant line for this stage; the speaker-changes count remains available under `--debug`.
+
+### Notes
+- **Patch bump (0.10.10)** — console-output-only change; no threshold/model/behavioral change to transcription output.
+
 ## [0.10.9] - 2026-07-21
 
 ### Fixed
