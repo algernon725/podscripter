@@ -1078,6 +1078,8 @@ def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphra
 
     short_name = 'paraphrase-multilingual-MiniLM-L12-v2'
 
+    logger.info(f"Loading punctuation model ({short_name})...")
+
     # If a local model directory already exists, the cache is warm and we can
     # load fully offline. NOTE: setting os.environ["HF_HUB_OFFLINE"] here is a
     # no-op — huggingface_hub freezes that value into a module constant at import

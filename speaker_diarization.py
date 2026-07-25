@@ -66,6 +66,7 @@ logger = logging.getLogger("podscripter")
 
 # Default settings
 DEFAULT_DIARIZATION_DEVICE = "cpu"
+DIARIZATION_MODEL_ID = "pyannote/speaker-diarization-community-1"
 SPEAKER_BOUNDARY_EPSILON_SEC = 1.0  # Merge boundaries within 1 second
 MIN_SPEAKER_SEGMENT_SEC = 0.5  # Ignore very short speaker segments (< 0.5s likely noise)
 
@@ -131,15 +132,15 @@ def diarize_audio(
     
     try:
         # Load the pre-trained pipeline (pyannote.audio 4.x, community-1)
-        logger.info("Loading speaker diarization model...")
+        logger.info(f"Loading speaker diarization model ({DIARIZATION_MODEL_ID})...")
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-community-1",
+            DIARIZATION_MODEL_ID,
             token=token
         )
         if pipeline is None:
             raise DiarizationError(
                 "Failed to load diarization pipeline "
-                "'pyannote/speaker-diarization-community-1' (check token/model access)"
+                f"'{DIARIZATION_MODEL_ID}' (check token/model access)"
             )
 
         # Move to specified device

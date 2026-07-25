@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.11] - 2026-07-25
+
+### Changed
+- **Named the model in every "loading a model" console message** — during a transcription run three separate models are loaded, but the status messages didn't say *which* model each was, e.g. `Model:            medium`, `Loading speaker diarization model...`, and a bare `Loading weights: 100%|...| 199/199` progress bar with no owning model. Each is now identified by its actual repo/model identifier for consistency.
+  - **Fix**:
+    - Whisper (ASR): added `_whisper_display_name()` (`podscripter.py`) rendering `openai/whisper-<name>`; the parameters block now reads `Model:            openai/whisper-medium`, and a new `Loading transcription model (openai/whisper-medium)...` line is logged at load time (respecting `--quiet`), where previously there was no Whisper load line at all.
+    - Diarization: introduced the `DIARIZATION_MODEL_ID` constant (`speaker_diarization.py`) reused at all call sites; the message now reads `Loading speaker diarization model (pyannote/speaker-diarization-community-1)...`.
+    - Punctuation: added a `Loading punctuation model (paraphrase-multilingual-MiniLM-L12-v2)...` line in `_load_sentence_transformer` (`punctuation_restorer.py`) immediately before the external `Loading weights` progress bar, giving that otherwise-anonymous bar context.
+  - **Result**: every load message names its model. The external `Loading weights` bar text itself is unchanged (it comes from `transformers`); only a labeled line was prepended.
+  - **Tests**: full suite green (554 passed, 34 xfailed); no test asserted on the old log strings. Confirmed end-to-end on `Episodio218-trim.mp3` with `--enable-diarization`.
+
+### Notes
+- **Patch bump (0.10.11)** — console-output-only change; no threshold/model/behavioral change to transcription output.
+
 ## [0.10.10] - 2026-07-23
 
 ### Changed

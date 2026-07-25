@@ -62,6 +62,10 @@ DEFAULT_BEAM_SIZE = 3
 DEFAULT_COMPUTE_TYPE = "auto"
 DEFAULT_DEVICE = "cpu"
 DEFAULT_MODEL_NAME = "medium"
+
+def _whisper_display_name(model_name: str) -> str:
+    return f"openai/whisper-{model_name}"
+
 DEFAULT_OMP_THREADS = "8"
 DEDUPE_EPSILON_SEC = 0.05
 PROMPT_TAIL_CHARS = 200
@@ -252,7 +256,7 @@ def _display_transcription_info(media_file, model_name, language, beam_size, com
     logger.info("TRANSCRIPTION PARAMETERS")
     logger.info("="*60)
     logger.info(f"File name:        {Path(media_file).name}")
-    logger.info(f"Model:            {model_name}")
+    logger.info(f"Model:            {_whisper_display_name(model_name)}")
     logger.info(f"Language:         {'Auto-detect' if language is None else language}")
     logger.info(f"Task:             {'translate' if translate_to_english else 'transcribe'}")
     logger.info(f"Beam size:        {beam_size}")
@@ -1214,6 +1218,8 @@ def _transcribe_with_sentences(
     # Load model if not provided
     if model is None:
         try:
+            if not quiet:
+                logger.info(f"Loading transcription model ({_whisper_display_name(model_name)})...")
             model = _load_model(model_name, device, compute_type)
         except Exception as e:
             raise ModelLoadError(f"Error loading faster-whisper model: {e}")
