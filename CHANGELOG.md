@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.12] - 2026-07-25
+
+### Changed
+- **Hid a confusing internal diagnostic line during diarized transcriptions** — under `--enable-diarization`, the console printed `Created N speaker character ranges from M diarization segments` (e.g. `Created 44 speaker character ranges from 182 diarization segments`) immediately *after* `Restoring punctuation...`. The line reads as diarization output, so its placement inside the punctuation phase was contradictory and confusing. "Speaker character ranges" is an internal representation the punctuation/sentence-assembly stage builds to align diarization boundaries with the punctuated text — a diagnostic detail, not a user-facing status.
+  - **Fix**: demoted the log at line 1040 of `_convert_speaker_segments_to_char_ranges` (`podscripter.py`) from `logger.info` to `logger.debug`. It was the sole `info` call in a function otherwise composed entirely of `debug` diagnostics, and its count is already reported at debug level right after the call site (`Converted N speaker segments to M char ranges`, line 1069). It now only appears under `--debug`. Message text is unchanged.
+  - **Result**: default (verbose/INFO) output no longer shows this line during the punctuation phase; it remains available under `--debug`. Follows the same treatment as the v0.10.10 demotion.
+
+### Notes
+- **Patch bump (0.10.12)** — console-output-only change; no threshold/model/behavioral change to transcription output.
+
 ## [0.10.11] - 2026-07-25
 
 ### Changed

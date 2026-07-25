@@ -1037,7 +1037,7 @@ def _convert_speaker_segments_to_char_ranges(
         merged_ranges.append(current_range)
         speaker_char_ranges = merged_ranges
     
-    logger.info(f"Created {len(speaker_char_ranges)} speaker character ranges from {len(speaker_segments)} diarization segments")
+    logger.debug(f"Created {len(speaker_char_ranges)} speaker character ranges from {len(speaker_segments)} diarization segments")
     
     return speaker_char_ranges
 
