@@ -14,6 +14,7 @@ Related: [Pipeline architecture](pipeline.md) | [Troubleshooting history](../tro
 - `--translate` — Whisper `task=translate`; punctuation uses English rules.
 - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` — default `auto`.
 - `--beam-size <int>` — beam size for decoding; default 3.
+- `--cpu-threads <int>` — CPU threads for Whisper/CTranslate2 (`intra_threads`); must be >= 1. Default: auto-detect. Precedence: CLI > `OMP_NUM_THREADS` env > detected logical cores. Invalid values are rejected by argparse (exit 2).
 - `--no-vad` — disable VAD filtering (default: enabled).
 - `--vad-speech-pad-ms <int>` — padding in ms when VAD is enabled; default 200.
 - `--dump-raw` — also write raw Whisper output to `<basename>_raw.txt` in `--output_dir`.
@@ -60,6 +61,7 @@ Exit codes:
 - `HF_HUB_OFFLINE=1` — prefer offline use with warm caches (avoids 429 rate limits) for tests/runs.
 - `HF_TOKEN` — alternative to `--hf-token` for diarization model download. Precedence: CLI flag > environment variable.
 - `WHISPER_MODEL` — default model; overridden by the `--model` flag. Precedence: CLI > `WHISPER_MODEL` env > default.
+- `OMP_NUM_THREADS` — respected as the Whisper CPU thread count when `--cpu-threads` is not given; overridden by the flag. An invalid value (non-integer or < 1) is warned about and ignored in favor of the detected core count. podscripter no longer sets this variable itself (it did until v0.11.0, where the write was both a no-op for torch/OpenBLAS and a clobber of user intent).
 - Test overrides for local iteration:
   - `PODSCRIPTER_TEST_MODEL=small` — speed up development runs.
   - `PODSCRIPTER_TEST_FIXTURES_PATTERN="en/*short*"` — filter audio fixtures.

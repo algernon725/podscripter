@@ -186,6 +186,7 @@ flowchart TD
 - **Environment variables**
   - `HF_HOME`: Hugging Face cache root
   - `WHISPER_MODEL`: default Whisper model name (overridden by CLI `--model`)
+  - `OMP_NUM_THREADS`: Whisper CPU thread count when `--cpu-threads` is absent (overridden by the flag; invalid values warned and ignored)
   - Optionally set `HF_HUB_OFFLINE=1` when caches are warm
 - **Runtime flags** (CLI)
   - `--output_dir <dir>` (required)
@@ -196,6 +197,7 @@ flowchart TD
   - `--translate` (Whisper `task=translate`; punctuation uses English rules)
   - `--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}` (default auto)
   - `--beam-size <int>` (beam size for decoding; default 3)
+  - `--cpu-threads <int>` (CPU threads for Whisper/CTranslate2; must be >= 1; default auto-detect; precedence: CLI > `OMP_NUM_THREADS` env > detected cores)
   - `--no-vad` (disable VAD filtering; default is enabled)
   - `--vad-speech-pad-ms <int>` (padding in ms when VAD is enabled; default 200)
   - `--dump-raw` (also write raw Whisper output for debugging to `<basename>_raw.txt` in `--output_dir`)
@@ -234,6 +236,8 @@ flowchart TD
 ## Performance characteristics
 
 - CPU-friendly defaults (`compute_type=auto`, modest beam size)
+- Whisper CPU threads resolve as `--cpu-threads` > `OMP_NUM_THREADS` > detected logical cores, and are passed explicitly as CTranslate2 `intra_threads` at model construction — order-independent, so env-var timing does not matter. torch and OpenBLAS keep their own core-count defaults (podscripter does not set thread counts for them).
+- Known limitation: thread detection uses scheduler affinity, so `docker run --cpuset-cpus` is honored but a cgroup CPU *quota* (`docker run --cpus=N`) is not — pass `--cpu-threads` explicitly when running under a quota.
 - Overlap + dedupe minimizes boundary artifacts
 - Prompt tail (~200 chars) improves chunk continuity
 

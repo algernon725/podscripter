@@ -126,7 +126,8 @@ From inside the Docker Container, run:
 python podscripter.py <media_file> --output_dir <output_dir> \
   [--language <code>|auto] [--output_format {txt|srt}] [--single] \
   [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
-  [--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
+  [--beam-size <int>] [--cpu-threads <int>] \
+  [--no-vad] [--vad-speech-pad-ms <int>] \
   [--enable-diarization] [--min-speakers <int>] [--max-speakers <int>] \
   [--hf-token <str>] [--quiet|--verbose|--debug]
 ```
@@ -223,6 +224,7 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | `--single`           | Bypass manual chunking and process the full file in one call |
 | `--compute-type`     | Compute type for faster-whisper: `auto`, `int8`, `int8_float16`, `int8_float32`, `float16`, `float32` (default `auto`) |
 | `--beam-size`        | Beam size for decoding (default `3`) |
+| `--cpu-threads`      | CPU threads for transcription (default: auto-detected core count; `OMP_NUM_THREADS` is honored when set) |
 | `--no-vad`           | Disable VAD filtering (default: VAD enabled) |
 | `--vad-speech-pad-ms`| Padding in milliseconds when VAD is enabled (default `200`) |
 | `--enable-diarization` | Enable speaker diarization for improved sentence boundaries (default: disabled) |

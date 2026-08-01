@@ -66,7 +66,6 @@ DEFAULT_MODEL_NAME = "medium"
 def _whisper_display_name(model_name: str) -> str:
     return f"openai/whisper-{model_name}"
 
-DEFAULT_OMP_THREADS = "8"
 DEDUPE_EPSILON_SEC = 0.05
 PROMPT_TAIL_CHARS = 200
 DEFAULT_VAD_FILTER = True
@@ -148,6 +147,57 @@ def validate_language_code(language_code: str | None) -> str | None:
     logger.info("Whisper supports many more languages. The code will still work if it's valid.")
     return language_code
 
+def _detect_cpu_count() -> int:
+    """
+    Logical CPUs usable by this process, floored at 1.
+
+    Prefers scheduler affinity (honors `taskset` and `docker run --cpuset-cpus`);
+    falls back to `os.cpu_count()` where `sched_getaffinity` is unavailable.
+    A cgroup CPU *quota* (`docker run --cpus=N`) is not visible to either call
+    and is therefore not honored.
+    """
+    getaffinity = getattr(os, "sched_getaffinity", None)
+    if getaffinity is not None:
+        try:
+            return max(1, len(getaffinity(0)))
+        except OSError:
+            pass
+    return max(1, os.cpu_count() or 1)
+
+def _resolve_cpu_threads(cli_value: int | None) -> int:
+    """
+    Resolve the CPU thread count for Whisper (CTranslate2 `intra_threads`).
+
+    Precedence: `cli_value` > `OMP_NUM_THREADS` > detected logical cores.
+    An invalid `OMP_NUM_THREADS` is warned about and ignored, mirroring the
+    `WHISPER_MODEL` handling in `main()`. Always returns >= 1.
+    """
+    if cli_value is not None:
+        return max(1, cli_value)
+    env_value = (os.environ.get("OMP_NUM_THREADS") or "").strip()
+    if env_value:
+        try:
+            parsed = int(env_value)
+        except ValueError:
+            parsed = 0
+        if parsed >= 1:
+            return parsed
+        logger.warning(
+            f"Ignoring invalid OMP_NUM_THREADS='{env_value}'. "
+            "Expected a positive integer; using the detected CPU count."
+        )
+    return _detect_cpu_count()
+
+def _positive_int(value: str) -> int:
+    """argparse type: accept only integers >= 1."""
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected an integer, got {value!r}")
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1, got {parsed}")
+    return parsed
+
 def transcribe(
     media_file: str,
     *,
@@ -160,6 +210,7 @@ def transcribe(
     device: str = DEFAULT_DEVICE,
     compute_type: str = DEFAULT_COMPUTE_TYPE,
     beam_size: int = DEFAULT_BEAM_SIZE,
+    cpu_threads: int | None = None,
     overlap_sec: int = DEFAULT_OVERLAP_SEC,
     quiet: bool = False,
     vad_filter: bool = DEFAULT_VAD_FILTER,
@@ -189,6 +240,8 @@ def transcribe(
         device: Compute device for model loading (e.g., "cpu").
         compute_type: Faster-Whisper compute type (e.g., "auto", "int8", "float16").
         beam_size: Beam size passed to transcription.
+        cpu_threads: CPU threads for CTranslate2 (None = OMP_NUM_THREADS if set, else the
+                     detected logical core count). Ignored when `model` is supplied.
         overlap_sec: Overlap (seconds) between chunks when chunking is used.
         quiet: Reduce log output from this function (caller controls logging handlers/levels).
         vad_filter: Enable voice activity detection during transcription.
@@ -240,6 +293,7 @@ def transcribe(
         device=device,
         compute_type=compute_type,
         beam_size=beam_size,
+        cpu_threads=cpu_threads,
         overlap_sec=overlap_sec,
         quiet=quiet,
         vad_filter=vad_filter,
@@ -251,7 +305,7 @@ def transcribe(
         hf_token=hf_token,
     )
 
-def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english: bool):
+def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english: bool, *, cpu_threads: int | None = None):
     logger.info("\n" + "="*60)
     logger.info("TRANSCRIPTION PARAMETERS")
     logger.info("="*60)
@@ -261,6 +315,8 @@ def _display_transcription_info(media_file, model_name, language, beam_size, com
     logger.info(f"Task:             {'translate' if translate_to_english else 'transcribe'}")
     logger.info(f"Beam size:        {beam_size}")
     logger.info(f"Compute type:     {compute_type}")
+    if cpu_threads is not None:
+        logger.info(f"CPU threads:      {cpu_threads}")
     logger.info(f"Output format:    {output_format}")
     logger.info("="*60 + "\n")
 
@@ -616,8 +672,8 @@ def _accumulate_segments(model_segments, chunk_start: float, last_end: float, ep
     text = "\n".join(d["text"].strip() for d in deduped)
     return deduped, text, new_last
 
-def _load_model(model_name: str, device: str, compute_type: str) -> WhisperModel:
-    return WhisperModel(model_name, device=device, compute_type=compute_type)
+def _load_model(model_name: str, device: str, compute_type: str, cpu_threads: int) -> WhisperModel:
+    return WhisperModel(model_name, device=device, compute_type=compute_type, cpu_threads=cpu_threads)
 
 def _transcribe_single_call(model, media_file: str, language, beam_size: int, *, translate_to_english: bool, vad_filter: bool, vad_speech_pad_ms: int, quiet: bool) -> tuple[list[dict], str, str | None]:
     if not quiet:
@@ -1164,6 +1220,7 @@ def _transcribe_with_sentences(
     device: str = DEFAULT_DEVICE,
     compute_type: str = DEFAULT_COMPUTE_TYPE,
     beam_size: int = DEFAULT_BEAM_SIZE,
+    cpu_threads: int | None = None,
     overlap_sec: int = DEFAULT_OVERLAP_SEC,
     quiet: bool = False,
     vad_filter: bool = DEFAULT_VAD_FILTER,
@@ -1189,9 +1246,14 @@ def _transcribe_with_sentences(
         _, out_dir = _validate_paths(media_file, str(output_dir))
     else:
         out_dir = None
-    model_name = model_name; beam_size = beam_size; device = device
+    effective_cpu_threads = _resolve_cpu_threads(cpu_threads)
     if not quiet:
-        _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english)
+        _display_transcription_info(
+            media_file, model_name, language, beam_size, compute_type, output_format,
+            translate_to_english,
+            # A caller-supplied model was built with its own thread count; ours is unused.
+            cpu_threads=None if model is not None else effective_cpu_threads,
+        )
     
     # Perform speaker diarization if enabled
     speaker_boundaries = None
@@ -1220,7 +1282,7 @@ def _transcribe_with_sentences(
         try:
             if not quiet:
                 logger.info(f"Loading transcription model ({_whisper_display_name(model_name)})...")
-            model = _load_model(model_name, device, compute_type)
+            model = _load_model(model_name, device, compute_type, effective_cpu_threads)
         except Exception as e:
             raise ModelLoadError(f"Error loading faster-whisper model: {e}")
     detected_language = None
@@ -1396,6 +1458,7 @@ def main():
     parser.add_argument("--translate", action="store_true", help="Translate output to English (sets Whisper task=translate)")
     parser.add_argument("--compute-type", dest="compute_type", default=DEFAULT_COMPUTE_TYPE, choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"], help="faster-whisper compute type")
     parser.add_argument("--beam-size", dest="beam_size", type=int, default=DEFAULT_BEAM_SIZE, help="Beam size for decoding (default: 3)")
+    parser.add_argument("--cpu-threads", dest="cpu_threads", type=_positive_int, default=None, help="CPU threads for Whisper/CTranslate2 (default: auto-detect; OMP_NUM_THREADS is honored when set)")
     # VAD controls
     parser.add_argument("--no-vad", dest="vad_filter", action="store_false", help="Disable VAD filtering (default: enabled)")
     parser.add_argument("--vad-speech-pad-ms", dest="vad_speech_pad_ms", type=int, default=DEFAULT_VAD_SPEECH_PAD_MS, help="Padding (ms) around detected speech when VAD is enabled")
@@ -1433,8 +1496,6 @@ def main():
         logging.getLogger(logger_name).setLevel(log_level)
     language_arg = args.language.strip().lower() if args.language else "auto"
     language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
-    # CLI-only: set threads
-    os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS
     # Determine model precedence: CLI > env var > default
     env_model = (os.environ.get("WHISPER_MODEL") or "").strip()
     effective_model_name = None
@@ -1462,6 +1523,7 @@ def main():
             model_name=effective_model_name,
             compute_type=args.compute_type,
             beam_size=args.beam_size,
+            cpu_threads=args.cpu_threads,
             quiet=quiet,
             vad_filter=args.vad_filter,
             vad_speech_pad_ms=args.vad_speech_pad_ms,

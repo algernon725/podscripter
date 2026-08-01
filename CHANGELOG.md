@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-01
+
+### Added
+- **`--cpu-threads <int>` flag for transcription thread count** — CPU threads for Whisper/CTranslate2 are now explicit and tunable. Precedence: `--cpu-threads` > `OMP_NUM_THREADS` env > detected logical cores. Values must be >= 1; argparse rejects `0`/negative/non-integer with exit 2 (the documented input-error code). Added `_detect_cpu_count()` (scheduler affinity via `os.sched_getaffinity(0)`, falling back to `os.cpu_count()`, floored at 1), `_resolve_cpu_threads()`, and the `_positive_int` argparse type. `transcribe()` and `_transcribe_with_sentences()` gained a `cpu_threads: int | None = None` parameter, so library callers get the same resolution.
+- **`CPU threads:` line in the transcription parameters block** — printed under `Compute type:` at INFO, making the resolved value visible without `--debug`. Omitted when a preloaded `model=` is passed to `transcribe()`, since such a model was built with its own thread count.
+
+### Fixed
+- **Hardcoded CPU thread count that was also mostly a no-op** — `main()` assigned `os.environ["OMP_NUM_THREADS"] = DEFAULT_OMP_THREADS` (`"8"`), which oversubscribed any machine with fewer than 8 cores (a 4-core laptop got 8 threads) and silently overwrote an `OMP_NUM_THREADS` the user had set deliberately. Worse, the assignment ran *after* the module-level `faster_whisper` and `punctuation_restorer` imports — the latter pulls in torch, numpy, and spaCy through its top-level `sentence_transformers` import — and libgomp, torch, and OpenBLAS all latch their thread counts at library load, so the write could not move them. Two separate libgomp instances are loaded (`torch/lib/libgomp.so.1` and `ctranslate2.libs/libgomp-*.so.1.0.0`); the write's only residual effect was on the Intel MKL GEMM backend statically linked into libctranslate2, which initializes lazily on first GEMM. The `8` itself traced to an Apple-Silicon heuristic (`cfe8d8c`) reverted 25 minutes later in `267d704`, and was never benchmarked.
+  - **Fix**: deleted the env write and the `DEFAULT_OMP_THREADS` constant; the resolved count is now passed as `WhisperModel(cpu_threads=...)` in `_load_model()`, which faster-whisper forwards to CTranslate2 as `intra_threads` and documents as overriding `OMP_NUM_THREADS`. This is order-independent, so import timing no longer matters. An invalid `OMP_NUM_THREADS` is warned about and ignored in favor of detection, mirroring the existing `WHISPER_MODEL` precedence handling.
+  - **Result**: thread count now matches the machine. Measured on `E205-trim.mp3` (medium, 8 cores): 40.4s at `--cpu-threads 1` vs 30.4s at 8, with `user` time 46s vs 1m37s confirming parallelism is genuinely engaged. Scoped to Whisper deliberately — torch already defaults to the core count and was never affected by the bug, so `torch.set_num_threads()` is not called; verified with `threadpoolctl` that every thread pool sits at the host core count both before and after the deletion.
+  - **Known limitation**: detection honors `docker run --cpuset-cpus` but not a `--cpus=N` cgroup quota; pass `--cpu-threads` explicitly under a quota.
+  - **Tests**: new `tests/test_cpu_threads_resolver.py` (23 cases — precedence, invalid/empty env, affinity and `cpu_count` fallbacks, `OSError` and `None` paths, the >= 1 floor, library-caller clamping, and the argparse type). Full suite green (577 passed, 34 xfailed).
+
+### Notes
+- **Minor bump (0.11.0)** — adds user-facing surface (a CLI flag, an `OMP_NUM_THREADS` contract, a new log line) and changes default runtime resource usage on any host whose core count is not 8, so it does not qualify for a patch under this project's "no behavioral change" patch rubric. Transcription **output** is unchanged: transcripts were byte-identical (md5) at 1, 8, and auto-detected threads, so no WER/DER fixture thresholds move — the delta is wall-clock and thread count only.
+
 ## [0.10.12] - 2026-07-25
 
 ### Changed
