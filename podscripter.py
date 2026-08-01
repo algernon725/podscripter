@@ -253,6 +253,8 @@ def transcribe(
         min_speakers: Minimum number of speakers (None for auto-detect).
         max_speakers: Maximum number of speakers (None for auto-detect).
         hf_token: Hugging Face token for pyannote model access (required for first-time download).
+        dump_merge_metadata: If True, also write sentence merge provenance to
+                             `<basename>_merges.txt` in `output_dir` (requires `write_output=True`).
 
     Returns:
         TranscriptionResult: dict-like object with keys:
@@ -303,6 +305,7 @@ def transcribe(
         min_speakers=min_speakers,
         max_speakers=max_speakers,
         hf_token=hf_token,
+        dump_merge_metadata=dump_merge_metadata,
     )
 
 def _display_transcription_info(media_file, model_name, language, beam_size, compute_type, output_format, translate_to_english: bool, *, cpu_threads: int | None = None):

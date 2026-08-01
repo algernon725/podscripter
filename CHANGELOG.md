@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-08-01
+
+### Fixed
+- **`transcribe(dump_merge_metadata=True)` was silently ignored** — the public library API declared `dump_merge_metadata` but omitted it from its forwarding call to `_transcribe_with_sentences()`, so the inner default (`False`) always won. Because the parameter *was* declared on the wrapper, Python accepted the keyword without a `TypeError`: callers got a normal `TranscriptionResult` and no `<basename>_merges.txt`, with nothing reported. The CLI was unaffected — `main()` calls `_transcribe_with_sentences()` directly and passed the flag correctly, so `--dump-merge-metadata` always worked.
+  - **Fix**: added `dump_merge_metadata=dump_merge_metadata` to the forwarding call in `transcribe()` (`podscripter.py`), plus the missing `Args:` docstring entry — it was undocumented as well as unwired.
+  - **Result**: library callers now get the merge-provenance dump they asked for. Verified the value reaches the inner function (17 forwarded kwargs, previously 16). Note the dump is still written only when merges actually occurred (`if dump_merge_metadata and merge_metadata:`); an input with no merges produces no file on either path, which is unchanged.
+  - **Tests**: new `tests/test_transcribe_forwarding.py` (4 cases) guarding the wrapper contract generally rather than this one parameter — every `transcribe()` parameter must be forwarded, must exist on the inner function, and must appear in the `Args:` docstring. Confirmed 3 of the 4 fail against the pre-fix code. Full suite green (581 passed, 34 xfailed).
+
+### Notes
+- **Patch bump (0.11.1)** — fixes a library-API-only defect; no change to CLI behavior, transcription output, or the console.
+
 ## [0.11.0] - 2026-08-01
 
 ### Added
