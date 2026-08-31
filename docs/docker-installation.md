@@ -1,6 +1,8 @@
-### Install Docker on Windows, macOS, and Ubuntu (beginner-friendly)
+### Install Docker on Windows, macOS, Ubuntu, and Bazzite (beginner-friendly)
 
 This guide helps non-developers install Docker safely with links to the official documentation. If anything here differs from the official docs, follow the official docs.
+
+On Bazzite (and other Fedora Atomic distributions) there is nothing to install: Podman ships with the system and works as a drop-in replacement for Docker. See the [Bazzite section](#bazzite-and-other-fedora-atomic-distros) below.
 
 ---
 
@@ -20,6 +22,8 @@ docker run hello-world
 ```
 
 You should see a success message from the `hello-world` container.
+
+On Bazzite, substitute `podman` for `docker` in these (and all later) commands.
 
 ---
 
@@ -83,6 +87,73 @@ If you used Docker Engine and want to run Docker without `sudo`, follow the Linu
 
 ---
 
+### Bazzite (and other Fedora Atomic distros)
+
+**Use Podman on Bazzite — not Docker.**
+
+Bazzite is an image-based ("immutable") Fedora Atomic system: the OS ships as a prebuilt image rather than a set of packages you install into. Podman is included in that image and is the container tool Bazzite expects you to use. It is daemonless, runs rootless by default, and accepts the same commands as Docker — anywhere the podscripter README says `docker`, type `podman`.
+
+- Official docs:
+  - Bazzite containers: `https://docs.bazzite.gg/Installing_and_Managing_Software/Containers/`
+  - Podman: `https://docs.podman.io/en/latest/`
+
+#### 1. Verify Podman (nothing to install)
+
+```bash
+podman --version
+podman run hello-world
+```
+
+#### 2. Build and run podscripter
+
+From the cloned `podscripter` folder, after creating the folders described in the README ("Set Up Required Folders"):
+
+```bash
+podman build -t podscripter .
+```
+
+```bash
+podman run -it \
+  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers:z \
+  -v $(pwd)/models/huggingface:/root/.cache/huggingface:z \
+  -v $(pwd)/audio-files:/app/audio-files:z \
+  podscripter
+```
+
+These are the README's commands with two differences: `podman` instead of `docker`, and a `:z` on the end of every `-v` mount.
+
+#### 3. Why the `:z` matters
+
+Bazzite runs with SELinux enforcing. Without a label, SELinux blocks the container from reading or writing your mounted folders, and you get `Permission denied` on the model caches or `audio-files/` even though the folders exist and look writable.
+
+The `:z` suffix tells Podman to relabel that folder so containers may use it. Use lowercase `:z` (shared) rather than uppercase `:Z` (exclusive to one container) — these folders are reused across every run, and `:Z` would lock them to a single container.
+
+#### 4. File ownership
+
+Rootless Podman maps the container's root user to your own user account, so transcripts written to `audio-files/` are owned by you. No `sudo` and no ownership fixups are needed afterwards.
+
+#### 5. The `docker-run-with-cache.sh` helper
+
+That script calls `docker` directly, so it will not run on a stock Bazzite system. Either use the `podman run` command above, or install the Docker-compatible shim:
+
+```bash
+rpm-ostree install podman-docker   # reboot afterwards
+```
+
+For a shim that needs no reboot, add `alias docker=podman` to your `~/.bashrc`.
+
+#### If you'd rather use Docker
+
+Bazzite provides a helper recipe:
+
+```bash
+ujust install-docker   # reboot afterwards
+```
+
+This layers Docker onto the system image. Some users have reported the Docker service failing to start after this (`docker.service not found`), so Podman remains the smoother path for podscripter. Check the Bazzite docs above if you hit trouble.
+
+---
+
 ### Common troubleshooting
 
 - Network/firewall/proxy:
@@ -99,6 +170,11 @@ If you used Docker Engine and want to run Docker without `sudo`, follow the Linu
 - DNS/connectivity test:
   - Try `curl https://docs.docker.com` to confirm you can reach Docker docs from your machine.
 
+- Bazzite/Podman:
+  - `docker: command not found` is expected on a stock Bazzite system — use `podman`, or install the shim (`rpm-ostree install podman-docker`).
+  - `Permission denied` when the container reads or writes a mounted folder almost always means a missing `:z` on that `-v` mount. Add it and re-run.
+  - Anything installed with `rpm-ostree` (or `ujust`) only takes effect after a reboot.
+
 ---
 
 ### Uninstall/cleanup (optional)
@@ -108,5 +184,11 @@ Use the official docs for clean uninstallation and data removal:
 - Windows/macOS (Docker Desktop): `https://docs.docker.com/desktop/`
 - Ubuntu (Docker Desktop): `https://docs.docker.com/desktop/install/ubuntu/#uninstall-docker-desktop`
 - Ubuntu (Docker Engine): `https://docs.docker.com/engine/install/ubuntu/#uninstall-docker-engine`
+
+On Bazzite, Podman is part of the base system image and should not be removed. To clean up just this project, delete its image instead:
+
+```bash
+podman rmi podscripter
+```
 
 
