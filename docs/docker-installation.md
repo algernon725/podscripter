@@ -128,11 +128,31 @@ Bazzite runs with SELinux enforcing. Without a label, SELinux blocks the contain
 
 The `:z` suffix tells Podman to relabel that folder so containers may use it. Use lowercase `:z` (shared) rather than uppercase `:Z` (exclusive to one container) — these folders are reused across every run, and `:Z` would lock them to a single container.
 
-#### 4. File ownership
+#### 4. Whenever you add audio files from the host
+
+**After copying or moving audio into `audio-files/`, relabel it:**
+
+```bash
+chcon -Rt container_file_t audio-files
+```
+
+Skipping this gives you a `Permission denied` on your own file, from inside the container, even though the file is plainly there and readable on the host:
+
+```text
+Unexpected error: [Errno 13] Permission denied: 'audio-files/Episodio310.mp3'
+```
+
+The reason is that `:z` only relabels the *folder* the first time. Once `audio-files/` itself carries the container label, Podman skips walking it again, so files you add later keep whatever label they arrived with. A podcast moved out of `~/Music`, for example, keeps its `audio_home_t` label, which the container is not permitted to read.
+
+You can see the mismatch with `ls -lZ audio-files` — a file that works reads `container_file_t`, and a file that fails reads something else. `chcon` above fixes it; `restorecon -R audio-files` undoes it if you ever want the default labels back.
+
+This affects only files you put there **from the host**. Anything the container writes itself — transcripts, and everything under `models/` — inherits the correct label automatically, so the caches never need this treatment.
+
+#### 5. File ownership
 
 Rootless Podman maps the container's root user to your own user account, so transcripts written to `audio-files/` are owned by you. No `sudo` and no ownership fixups are needed afterwards.
 
-#### 5. The `docker-run-with-cache.sh` helper
+#### 6. The `docker-run-with-cache.sh` helper
 
 That script calls `docker` directly, so it will not run on a stock Bazzite system. Either use the `podman run` command above, or install the Docker-compatible shim:
 
@@ -172,7 +192,8 @@ This layers Docker onto the system image. Some users have reported the Docker se
 
 - Bazzite/Podman:
   - `docker: command not found` is expected on a stock Bazzite system — use `podman`, or install the shim (`rpm-ostree install podman-docker`).
-  - `Permission denied` when the container reads or writes a mounted folder almost always means a missing `:z` on that `-v` mount. Add it and re-run.
+  - `[Errno 13] Permission denied` on an audio file you just added means that file still carries its original SELinux label. Run `chcon -Rt container_file_t audio-files` on the host — see [step 4 above](#4-whenever-you-add-audio-files-from-the-host). Check with `ls -lZ audio-files`; the label should read `container_file_t`.
+  - `Permission denied` on a mounted folder as a whole usually means a missing `:z` on that `-v` mount. Add it and re-run.
   - Anything installed with `rpm-ostree` (or `ujust`) only takes effect after a reboot.
 
 ---

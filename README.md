@@ -68,7 +68,7 @@ Make sure you have the following tools installed on your system:
 - [Docker](https://www.docker.com) — need help installing? See the beginner guide: [Docker installation for Windows, macOS, Ubuntu, and Bazzite](docs/docker-installation.md)
 - [Git](https://git-scm.com/downloads)
 
->🐧 **On Bazzite (or another Fedora Atomic distro)**: use the preinstalled [Podman](https://podman.io) instead of Docker. Substitute `podman` for `docker` in every command below, and append `:z` to each `-v` mount so SELinux allows the container to use the folder. See [the Bazzite section of the install guide](docs/docker-installation.md#bazzite-and-other-fedora-atomic-distros) for the full commands.
+>🐧 **On Bazzite (or another Fedora Atomic distro)**: use the preinstalled [Podman](https://podman.io) instead of Docker. Substitute `podman` for `docker` in every command below, and append `:z` to each `-v` mount so SELinux allows the container to use the folder. Also run `chcon -Rt container_file_t audio-files` after adding audio from the host, or the container gets `Permission denied` on it. See [the Bazzite section of the install guide](docs/docker-installation.md#bazzite-and-other-fedora-atomic-distros) for the full commands.
 
 ### 2. Clone the Repository
 
