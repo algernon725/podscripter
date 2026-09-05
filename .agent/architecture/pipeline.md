@@ -2,7 +2,7 @@
 
 Processing pipeline, model caching, post-processing formatting, transcription orchestration, and speaker diarization for podscripter.
 
-Related: [CLI spec](cli-spec.md) | [Troubleshooting history](../troubleshooting/history.md) | [AGENT.md hub](../../AGENT.md) | [ARCHITECTURE.md](../../ARCHITECTURE.md)
+Related: [CLI spec](cli-spec.md) | [Troubleshooting history](../troubleshooting/history.md) | [AGENTS.md hub](../../AGENTS.md) | [ARCHITECTURE.md](../../ARCHITECTURE.md)
 
 ## Data flow
 

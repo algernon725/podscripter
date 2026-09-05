@@ -2,7 +2,7 @@
 
 argparse arguments, exit codes, logging configuration, and environment variables for `podscripter.py`.
 
-Related: [Pipeline architecture](pipeline.md) | [Troubleshooting history](../troubleshooting/history.md) | [AGENT.md hub](../../AGENT.md)
+Related: [Pipeline architecture](pipeline.md) | [Troubleshooting history](../troubleshooting/history.md) | [AGENTS.md hub](../../AGENTS.md)
 
 ## CLI flags (argparse in `podscripter.py`)
 

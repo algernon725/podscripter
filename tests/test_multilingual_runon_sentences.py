@@ -19,7 +19,7 @@ def test_spanish_inverted_question_marks():
 # NOTE: test_french_question_marks was retired in v0.8.2. It was labeled "test
 # expectations predate API changes" (stale harness expectation) and asserted
 # text-only detection of a verb-first French question, which is part of the closed
-# question-detection limitation — see AGENT.md "Question detection — verb-first /
+# question-detection limitation — see AGENTS.md "Question detection — verb-first /
 # implicit questions (CLOSED)".
 
 

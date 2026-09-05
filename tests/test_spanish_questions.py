@@ -10,7 +10,7 @@ pytestmark = pytest.mark.core
 
 
 # NOTE: Verb-first / implicit question cases were retired in v0.8.2 (accepted
-# limitation — see AGENT.md "Question detection — verb-first / implicit questions
+# limitation — see AGENTS.md "Question detection — verb-first / implicit questions
 # (CLOSED)"). Production relies on Whisper's native punctuation; text-only
 # detection of verb-first questions is inherently ambiguous. Only explicit
 # question-word cases (which work reliably) remain here.

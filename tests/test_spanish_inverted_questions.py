@@ -12,7 +12,7 @@ pytestmark = pytest.mark.core
 
 
 # NOTE: Verb-first / implicit question cases were retired in v0.8.2 (accepted
-# limitation — see AGENT.md "Question detection — verb-first / implicit questions
+# limitation — see AGENTS.md "Question detection — verb-first / implicit questions
 # (CLOSED)"). Only cases the model handles reliably from text alone remain.
 @pytest.mark.parametrize("text", [
     "Cómo están",

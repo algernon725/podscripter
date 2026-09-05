@@ -10,7 +10,7 @@ from conftest import restore_punctuation
 pytestmark = pytest.mark.multilingual
 
 # NOTE: Verb-first / implicit question cases (and artificial romaji inputs Whisper
-# never produces) were retired in v0.8.2 as an accepted limitation — see AGENT.md
+# never produces) were retired in v0.8.2 as an accepted limitation — see AGENTS.md
 # "Question detection — verb-first / implicit questions (CLOSED)". Production relies
 # on Whisper's native punctuation; text-only detection of these patterns is
 # inherently ambiguous. Only the cases the model handles reliably remain.

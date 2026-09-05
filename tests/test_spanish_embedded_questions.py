@@ -21,7 +21,7 @@ def norm(s: str) -> str:
 # NOTE: test_preserve_embedded_wh_question and test_preserve_por_que_embedded were
 # retired in v0.8.2. They were labeled "test expectations predate API changes"
 # (stale harness expectations), and their accent-normalization assertions overlap
-# with the closed question-detection limitation — see AGENT.md "Question detection
+# with the closed question-detection limitation — see AGENTS.md "Question detection
 # — verb-first / implicit questions (CLOSED)".
 
 

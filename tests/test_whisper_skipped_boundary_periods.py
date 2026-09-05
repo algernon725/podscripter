@@ -2,7 +2,7 @@
 """
 Test for "Whisper-Added Periods at Skipped Boundaries" known issue.
 
-According to AGENT.md (lines 442-470), this issue occurs when:
+According to AGENTS.md (lines 442-470), this issue occurs when:
 1. A Whisper segment ends with a period (e.g., "ustedes.")
 2. A speaker boundary is nearby (within 15 words), so the Whisper boundary is skipped
 3. But the Whisper period remains, causing an unwanted split

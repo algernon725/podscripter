@@ -2,7 +2,7 @@
 """
 Detailed investigation of the Whisper skipped boundary issue.
 
-AGENT.md lines 442-470 describes:
+AGENTS.md lines 442-470 describes:
 - Problem: Whisper adds periods at segment ends
 - When a Whisper boundary is SKIPPED (because speaker boundary nearby),
   the Whisper period should be REMOVED to avoid unwanted splits

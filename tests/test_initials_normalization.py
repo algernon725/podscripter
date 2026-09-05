@@ -105,7 +105,7 @@ def test_person_initials_survive_full_pipeline():
 
     Currently fails because spaCy's tokenizer/detokenizer re-inserts spaces
     during _apply_spacy_capitalization(), undoing the normalization.
-    See AGENT.md 'Person Initials Normalization (WIP - Partial)'.
+    See AGENTS.md 'Person Initials Normalization (WIP - Partial)'.
     """
     result = restore_punctuation(
         'es a C. S. Lewis porque él escribió muchos libros', 'es'

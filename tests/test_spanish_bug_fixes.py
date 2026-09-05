@@ -55,7 +55,7 @@ def test_bug4_question_mark_after_period():
 
 
 # NOTE: Verb-first / implicit question cases were retired in v0.8.2 (accepted
-# limitation — see AGENT.md "Question detection — verb-first / implicit questions
+# limitation — see AGENTS.md "Question detection — verb-first / implicit questions
 # (CLOSED)"). Only explicit question-word cases remain.
 @pytest.mark.parametrize("text", [
     "Qué hora es",

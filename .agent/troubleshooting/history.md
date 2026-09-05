@@ -2,7 +2,7 @@
 
 Bug history, language edge cases, open limitations, and testing quirks for podscripter. Condensed; version tags and test file names preserved for traceability.
 
-Related: [Pipeline architecture](../architecture/pipeline.md) | [CLI spec](../architecture/cli-spec.md) | [AGENT.md hub](../../AGENT.md) | [CHANGELOG.md](../../CHANGELOG.md)
+Related: [Pipeline architecture](../architecture/pipeline.md) | [CLI spec](../architecture/cli-spec.md) | [AGENTS.md hub](../../AGENTS.md) | [CHANGELOG.md](../../CHANGELOG.md)
 
 ## Language edge cases
 
