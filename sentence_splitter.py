@@ -199,6 +199,7 @@ class SentenceSplitter:
         'en': {'more', 'less', 'fewer'},
         'fr': {'plus', 'moins'},
         'de': {'mehr', 'weniger'},
+        'pt': {'mais', 'menos'},
     }
 
     # Degree/quantity words that bind forward to a comparative particle
@@ -210,6 +211,9 @@ class SentenceSplitter:
         'en': {'little', 'bit', 'much', 'lot', 'lots', 'far', 'even', 'way'},
         'fr': {'peu', 'beaucoup', 'bien', 'encore', 'tellement', 'toujours', 'autant'},
         'de': {'etwas', 'viel', 'noch', 'weit', 'deutlich'},
+        'pt': {'pouco', 'muito', 'muita', 'muitos', 'muitas', 'algo', 'bastante',
+               'tanto', 'tanta', 'tantos', 'tantas', 'vez', 'vezes', 'nada',
+               'ainda', 'bem'},
     }
 
     # Clause-hinge words that bind to BOTH neighbours (a preceding clause and
@@ -221,6 +225,7 @@ class SentenceSplitter:
     # sentence-initial uses (wishes/reported speech).
     SEMANTIC_BREAK_HINGE_WORDS = {
         'es': {'que'},
+        'pt': {'que'},
     }
 
     # Finite modal / semi-auxiliary verb forms that govern a bare following
@@ -238,6 +243,14 @@ class SentenceSplitter:
             'sé', 'sabes', 'sabe', 'sabemos', 'sabéis', 'saben',
             'suelo', 'sueles', 'suele', 'solemos', 'soléis', 'suelen',
         },
+        'pt': {
+            'posso', 'podes', 'pode', 'podemos', 'podem',
+            'devo', 'deves', 'deve', 'devemos', 'devem',
+            'quero', 'queres', 'quer', 'queremos', 'querem',
+            'sei', 'sabes', 'sabe', 'sabemos', 'sabem',
+            'costumo', 'costumas', 'costuma', 'costumamos', 'costumam',
+            'consigo', 'consegues', 'consegue', 'conseguimos', 'conseguem',
+        },
     }
 
     # A Spanish infinitive (optionally carrying enclitic pronouns, e.g.
@@ -247,6 +260,69 @@ class SentenceSplitter:
     _ES_INFINITIVE_RE = re.compile(
         r'^[a-zñáéíóú]*(?:ar|er|ir)(?:se|me|te|le|nos|os|lo|la|los|las|les)?$'
     )
+
+    # A Portuguese infinitive, optionally carrying enclitic pronouns
+    # ("encontrá-lo" hyphenated, "encontralo" unhyphenated, "fazer-se").
+    # Adds the -or ending ("pôr") and the nasal/circumflex vowels the Spanish
+    # charset lacks (ã õ â ê ô à ç); clitic set differs from Spanish (-lhe/-lhes,
+    # no -le/-les).
+    _PT_INFINITIVE_RE = re.compile(
+        r'^[a-zçáéíóúâêôãõà]*(?:ar|er|ir|or)'
+        r'(?:-?(?:se|me|te|lhe|lhes|nos|vos|lo|la|los|las))?$'
+    )
+
+    # Per-language infinitive recognizers for _is_infinitive_complement_break /
+    # _is_modal_infinitive_break. Languages absent here disable those guards.
+    _INFINITIVE_PATTERNS = {
+        'es': _ES_INFINITIVE_RE,
+        'pt': _PT_INFINITIVE_RE,
+    }
+
+    # --- Portuguese additions to the pooled (language-agnostic) sets below ---
+    #
+    # CONNECTOR_WORDS / COORDINATING_CONJUNCTIONS / CONTINUATIVE_AUXILIARY_VERBS
+    # are a single shared pool across es/en/fr/de, so Portuguese words CANNOT be
+    # appended to them: 'logo' (English noun), 'vamos' (Spanish "¡Vamos!"),
+    # 'vais' (French "J'y vais.") and 'ora' all legitimately end sentences in
+    # another supported language, and pooling them would forbid valid splits
+    # there. Instead these sets are unioned onto the *instance* in __init__ when
+    # language == 'pt', leaving the shared class attributes untouched.
+    PT_CONNECTOR_WORDS = {
+        'e', 'ou',  # and, or
+        'mas', 'porém', 'porem', 'contudo', 'todavia', 'entretanto',  # but/however
+        'nem',  # nor
+        'pois', 'logo', 'portanto',  # so/therefore
+        'então', 'entao',  # then
+    }
+
+    PT_COORDINATING_CONJUNCTIONS = {
+        'e', 'ou', 'mas', 'nem', 'porém', 'porem', 'pois', 'logo',
+        'ora', 'todavia', 'contudo', 'entretanto', 'portanto',
+    }
+
+    PT_CONTINUATIVE_AUXILIARY_VERBS = {
+        # Infinitives
+        'ser', 'estar', 'haver', 'ir', 'ter', 'fazer', 'poder', 'dever',
+        'querer', 'saber', 'vir', 'dizer', 'ver', 'dar', 'pôr', 'sair',
+        # Present of ser
+        'é', 'são', 'sou', 'somos', 'és',
+        # Preterite of ser/ir (shared forms)
+        'foi', 'foram', 'fui', 'fomos', 'foste',
+        # Present + past of estar
+        'está', 'estão', 'estou', 'estamos', 'estás',
+        'estava', 'estavam', 'estive', 'esteve', 'estiveram',
+        # Present + past of ter
+        'tem', 'têm', 'tenho', 'temos', 'tens',
+        'tinha', 'tinham', 'tive', 'teve', 'tiveram',
+        # haver
+        'há', 'havia', 'haviam', 'houve',
+        # ir
+        'vai', 'vão', 'vou', 'vamos', 'vais', 'ia', 'iam',
+        # Imperfects that typically precede a complement
+        'era', 'eram', 'fazia', 'faziam', 'podia', 'podiam',
+        'devia', 'deviam', 'queria', 'queriam', 'sabia', 'sabiam',
+        'vinha', 'vinham', 'dizia', 'diziam',
+    }
 
     def __init__(self, language: str, model, config: "LanguageConfig"):
         """
@@ -261,6 +337,18 @@ class SentenceSplitter:
         self.model = model
         self.config = config
         self.logger = logging.getLogger("podscripter.splitter")
+
+        # Portuguese extends the shared word pools on this instance only, so
+        # es/en/fr/de keep reading the untouched class attributes. See the
+        # PT_* definitions above for why these cannot be pooled.
+        if language == 'pt':
+            self.CONNECTOR_WORDS = self.CONNECTOR_WORDS | self.PT_CONNECTOR_WORDS
+            self.COORDINATING_CONJUNCTIONS = (
+                self.COORDINATING_CONJUNCTIONS | self.PT_COORDINATING_CONJUNCTIONS
+            )
+            self.CONTINUATIVE_AUXILIARY_VERBS = (
+                self.CONTINUATIVE_AUXILIARY_VERBS | self.PT_CONTINUATIVE_AUXILIARY_VERBS
+            )
         
         # Metadata tracking for debugging
         self.split_metadata: List[SentenceMetadata] = []
@@ -1102,6 +1190,30 @@ class SentenceSplitter:
             if current_clean in german_forbidden:
                 return True
 
+        elif self.language == 'pt':
+            # Articles, preposition+article contractions, prepositions,
+            # proclitic pronouns and quantifiers. 'no'/'na'/'nos'/'nas' are safe
+            # here (unlike in the Spanish set) because Portuguese "no" is the
+            # contraction "em + o", never the negation.
+            portuguese_forbidden = {
+                'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+                'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
+                'ao', 'à', 'aos', 'às', 'pelo', 'pela', 'pelos', 'pelas',
+                'num', 'numa', 'dum', 'duma',
+                'de', 'em', 'para', 'pra', 'por', 'com', 'sem', 'sobre',
+                'entre', 'até', 'desde', 'contra', 'durante', 'mediante',
+                'perante', 'sob',
+                'este', 'esta', 'estes', 'estas', 'esse', 'essa', 'esses', 'essas',
+                'aquele', 'aquela', 'aqueles', 'aquelas',
+                'me', 'te', 'se', 'lhe', 'lhes', 'vos',
+                'todo', 'toda', 'todos', 'todas',
+                'algum', 'alguma', 'alguns', 'algumas',
+                'nenhum', 'nenhuma', 'qualquer',
+                'outro', 'outra', 'outros', 'outras', 'cada',
+            }
+            if current_clean in portuguese_forbidden:
+                return True
+
         return False
 
     def _is_bound_comparative_break(self, current_word: str, next_word: str) -> bool:
@@ -1163,26 +1275,31 @@ class SentenceSplitter:
             return False
         if not next_word[:1].islower():
             return False
+        infinitive_re = self._INFINITIVE_PATTERNS.get(self.language)
+        if infinitive_re is None:
+            return False
         nxt = next_word.lower().strip('.,;:!?¿¡')
-        return len(nxt) >= 2 and bool(self._ES_INFINITIVE_RE.match(nxt))
+        return len(nxt) >= 2 and bool(infinitive_re.match(nxt))
 
     def _is_infinitive_complement_break(self, current_word: str, next_word: str) -> bool:
         """
-        True when current_word is a Spanish infinitive whose complement (a
-        lowercase continuation) immediately follows, so a semantic break would
-        leave the infinitive dangling from its object/complement
-        ("encontrar | un buen apartamento").
+        True when current_word is an infinitive whose complement (a lowercase
+        continuation) immediately follows, so a semantic break would leave the
+        infinitive dangling from its object/complement
+        ("encontrar | un buen apartamento", "encontrar | um bom apartamento").
 
         A genuinely sentence-final infinitive ("…qué hacer. Vamos…") is
         followed by a capitalized word and stays splittable. Scoped to the
-        semantic-break path.
+        semantic-break path, and only for languages with a registered
+        infinitive pattern (es, pt).
         """
-        if self.language != 'es':
+        infinitive_re = self._INFINITIVE_PATTERNS.get(self.language)
+        if infinitive_re is None:
             return False
         if not next_word[:1].islower():
             return False
         cur = current_word.lower().strip('.,;:!?¿¡')
-        return len(cur) >= 2 and bool(self._ES_INFINITIVE_RE.match(cur))
+        return len(cur) >= 2 and bool(infinitive_re.match(cur))
 
     def _shift_boundary_past_unclosed_mark(
         self,
@@ -1322,6 +1439,10 @@ class SentenceSplitter:
             if next_word.strip('.,;:!?').isdigit():
                 # Conjunction before number in a list
                 conjunctions_before_numbers = {'y', 'o', 'and', 'or', 'et', 'ou', 'und', 'oder'}
+                if self.language == 'pt':
+                    # Portuguese "e" (and). Not pooled: adding it unconditionally
+                    # would also suppress splits for Spanish/French "e".
+                    conjunctions_before_numbers = conjunctions_before_numbers | {'e'}
                 if current_word_clean in conjunctions_before_numbers:
                     if len(current_chunk) >= 2:
                         prev_words = current_chunk[-3:] if len(current_chunk) >= 3 else current_chunk
@@ -1334,6 +1455,8 @@ class SentenceSplitter:
                     'episode', 'episodes', 'episodio', 'episodios', 'épisode', 'épisodes',
                     'chapter', 'chapters', 'capítulo', 'capítulos', 'chapitre', 'chapitres', 'kapitel',
                     'year', 'years', 'año', 'años', 'année', 'années', 'jahr', 'jahre',
+                    # Portuguese (capítulo/capítulos already covered by Spanish)
+                    'episódio', 'episódios', 'ano', 'anos',
                 }
                 if current_word_clean in number_preceding_nouns:
                     return False
@@ -1368,6 +1491,19 @@ class SentenceSplitter:
                     'personen', 'person', 'euro', 'prozent', 'tausend',
                     'millionen', 'million', 'meter', 'kilometer',
                 }
+                if self.language == 'pt':
+                    # Gated rather than pooled: 'real'/'dia' and friends are also
+                    # English/Spanish words, and pooling them would suppress
+                    # post-number splits in those languages too.
+                    time_measurement_units = time_measurement_units | {
+                        'ano', 'anos', 'mês', 'meses', 'dia', 'dias',
+                        'hora', 'horas', 'minuto', 'minutos', 'segundo', 'segundos',
+                        'semana', 'semanas', 'século', 'séculos', 'década', 'décadas',
+                        'vez', 'vezes', 'pessoa', 'pessoas', 'real', 'reais',
+                        'euro', 'euros', 'metro', 'metros', 'quilômetro', 'quilômetros',
+                        'quilómetro', 'quilómetros', 'cento', 'mil', 'milhão', 'milhões',
+                        'bilhão', 'bilhões',
+                    }
                 if next_word_clean in time_measurement_units:
                     return False
             
@@ -1449,6 +1585,27 @@ class SentenceSplitter:
             'vu', 'vue', 'vus', 'vues',  # voir
         }
         
+        # Portuguese past participles: the regular -ado/-ido endings are already
+        # covered by spanish_participle_endings above, so only the irregulars are
+        # listed here. This function is intentionally language-blind, so 'salvo'
+        # and 'pago' are deliberately omitted: both are common Spanish
+        # non-participles ("salvo" = except) and pooling them would suppress
+        # legitimate Spanish splits.
+        portuguese_irregular_participles = {
+            'feito', 'feitos', 'feita', 'feitas',
+            'dito', 'ditos', 'dita', 'ditas',
+            'posto', 'postos', 'posta', 'postas',
+            'aberto', 'abertos', 'aberta', 'abertas',
+            'coberto', 'cobertos', 'coberta', 'cobertas',
+            'morto', 'mortos', 'morta', 'mortas',
+            'vindo', 'vindos', 'vinda', 'vindas',
+            'ganho', 'ganhos', 'ganha', 'ganhas',
+            'gasto', 'gastos', 'gasta', 'gastas',
+            'aceito', 'aceitos', 'aceita', 'aceitas',
+            'entregue', 'entregues',
+            'preso', 'presos', 'presa', 'presas',
+        }
+
         # German past participles: typically start with ge- and end with -t or -en
         german_participle_patterns = ('ge',)  # Start pattern
         german_participle_endings = ('t', 'en')
@@ -1471,6 +1628,10 @@ class SentenceSplitter:
         
         # Check French
         if word.endswith(french_participle_endings) or word in french_irregular_participles:
+            return True
+
+        # Check Portuguese (irregulars only; regular endings match the Spanish set)
+        if word in portuguese_irregular_participles:
             return True
         
         # Check German (starts with ge- and ends with -t or -en)

@@ -41,6 +41,11 @@ pytestmark = pytest.mark.core
         "bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci de demander de ma journee elle etait assez occupee mais productive",
         'French conversation - should create meaningful sentences',
     ),
+    (
+        'pt',
+        "olá como você está hoje espero que você esteja bem obrigado por perguntar sobre o meu dia foi bastante ocupado mas produtivo consegui terminar todas as minhas tarefas",
+        'Portuguese conversation - should create meaningful sentences',
+    ),
 ])
 def test_improved_punctuation(lang, input_text, description):
     """Test that improved punctuation restoration creates properly punctuated output."""

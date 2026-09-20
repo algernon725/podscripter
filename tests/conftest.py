@@ -61,3 +61,9 @@ def de_splitter(mock_config):
 def fr_splitter(mock_config):
     """French SentenceSplitter with mock config."""
     return SentenceSplitter('fr', None, mock_config)
+
+
+@pytest.fixture
+def pt_splitter(mock_config):
+    """Portuguese SentenceSplitter with mock config."""
+    return SentenceSplitter('pt', None, mock_config)

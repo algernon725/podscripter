@@ -113,3 +113,34 @@ def test_german_number_list():
     finally:
         if os.path.exists(temp_file):
             os.unlink(temp_file)
+
+
+def test_portuguese_number_list():
+    """Test if Portuguese number lists are also affected."""
+    text = ("Mas se você quiser ouvir os episódios anteriores, "
+            "pode ir ao episódio 147, 151, 156, 164, 170, 177 e 184. "
+            "O episódio mais recente desta série foi o episódio 184.")
+
+    restored = restore_punctuation(text, language='pt')
+    sentences, trailing = assemble_sentences_from_processed(restored, 'pt')
+    if trailing:
+        sentences.append(trailing)
+
+    from podscripter import _write_txt
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        temp_file = f.name
+
+    try:
+        _write_txt(sentences, temp_file, language='pt')
+        paragraphs = _read_txt_output(temp_file)
+
+        standalone_184 = any(p.strip() in ["184.", "184"] for p in paragraphs)
+        e_ending = any(p.strip().endswith(" e.") for p in paragraphs)
+        number_list_intact = any("177 e 184" in p for p in paragraphs)
+
+        assert not standalone_184, "Bug: standalone '184.' paragraph found"
+        assert not e_ending, "Bug: paragraph ending with 'e.' found"
+        assert number_list_intact, "Number list '177 e 184' not preserved"
+    finally:
+        if os.path.exists(temp_file):
+            os.unlink(temp_file)

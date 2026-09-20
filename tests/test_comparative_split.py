@@ -54,12 +54,18 @@ def _make_splitter(language: str) -> SentenceSplitter:
     ('de', 'etwas', 'mehr'),   # "etwas mehr"
     ('de', 'viel', 'weniger'),
     ('de', 'noch', 'mehr'),
+    ('pt', 'pouco', 'mais'),   # "um pouco mais"
+    ('pt', 'muito', 'menos'),
+    ('pt', 'vez', 'mais'),     # "cada vez mais"
+    ('pt', 'ainda', 'mais'),
     # (b) break AFTER the particle, before the (lowercase) modified adjective
     ('es', 'más', 'baratos'),   # "más baratos"
     ('es', 'menos', 'gente'),
     ('en', 'more', 'expensive'),
     ('fr', 'plus', 'chers'),
     ('de', 'mehr', 'teuer'),
+    ('pt', 'mais', 'baratos'),
+    ('pt', 'menos', 'gente'),
 ])
 def test_guard_positive(language, current, nxt):
     splitter = _make_splitter(language)
@@ -73,6 +79,7 @@ def test_guard_positive(language, current, nxt):
     ('en', 'more', 'Later'),
     ('fr', 'plus', 'Maintenant'),
     ('de', 'mehr', 'Jetzt'),
+    ('pt', 'mais', 'Agora'),
 ])
 def test_guard_allows_split_after_sentence_final_particle(language, current, nxt):
     splitter = _make_splitter(language)
@@ -85,12 +92,14 @@ def test_guard_allows_split_after_sentence_final_particle(language, current, nxt
     ('en', 'little', 'expensive'),
     ('fr', 'peu', 'chers'),
     ('de', 'etwas', 'teurer'),
+    ('pt', 'pouco', 'baratos'),
     # Comparative particle but preceding word is NOT a degree head ->
     # sentence-initial "Más/More/Plus/Mehr …" must stay splittable
     ('es', 'terminado', 'más'),
     ('en', 'done', 'more'),
     ('fr', 'fini', 'plus'),
     ('de', 'fertig', 'mehr'),
+    ('pt', 'terminado', 'mais'),
     # Neither side matches
     ('es', 'costos', 'baratos'),
 ])
@@ -169,6 +178,7 @@ def _synthetic_run(head: str, particle: str, tail: str, filler_len: int = 40):
     ('en', 'little', 'more', 'expensive'),
     ('fr', 'peu', 'plus', 'chers'),
     ('de', 'etwas', 'mehr', 'teuer'),
+    ('pt', 'pouco', 'mais', 'baratos'),
 ])
 def test_other_languages_semantic_split_suppressed(language, head, particle, tail):
     splitter = _make_splitter(language)

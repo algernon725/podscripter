@@ -217,3 +217,67 @@ class TestFrenchAuxiliaryGuard(unittest.TestCase):
         self.assertTrue(self.splitter._is_past_participle('vendu'))
         self.assertTrue(self.splitter._is_past_participle('fait'))
         self.assertTrue(self.splitter._is_past_participle('été'))
+
+
+class TestPortugueseWordPoolIsolation(unittest.TestCase):
+    """Portuguese words must not leak into the shared es/en/fr/de word pools.
+
+    CONNECTOR_WORDS / COORDINATING_CONJUNCTIONS / CONTINUATIVE_AUXILIARY_VERBS are
+    single pooled class attributes shared by es/en/fr/de. Portuguese extends them
+    on the *instance* in SentenceSplitter.__init__ instead, because several
+    Portuguese function words legitimately end a sentence in another supported
+    language and pooling them would forbid valid splits there.
+
+    These tests pin that arrangement so a future refactor cannot silently merge
+    the Portuguese words back into the shared pool.
+    """
+
+    # (word, language it would break if pooled, why)
+    COLLIDING_WORDS = [
+        ('logo', 'en', 'English noun: "Check out the new logo."'),
+        ('vamos', 'es', 'Spanish: "¡Vamos!"'),
+        ('vais', 'fr', 'French: "J\'y vais."'),
+        ('ora', 'es', 'Spanish orar imperative'),
+    ]
+
+    @staticmethod
+    def _all_pools(splitter):
+        return (splitter.CONNECTOR_WORDS
+                | splitter.COORDINATING_CONJUNCTIONS
+                | splitter.CONTINUATIVE_AUXILIARY_VERBS)
+
+    def _splitter(self, language):
+        return SentenceSplitter(language, None, MockConfig())
+
+    def test_portuguese_instance_has_the_words(self):
+        pt_pool = self._all_pools(self._splitter('pt'))
+        for word, _lang, _why in self.COLLIDING_WORDS:
+            self.assertIn(word, pt_pool,
+                          f"Portuguese splitter should recognize {word!r}")
+
+    def test_other_languages_do_not_see_portuguese_words(self):
+        for word, lang, why in self.COLLIDING_WORDS:
+            pool = self._all_pools(self._splitter(lang))
+            self.assertNotIn(word, pool,
+                             f"{word!r} leaked into {lang!r} pool — {why}")
+
+    def test_class_attributes_are_not_mutated(self):
+        """The shared class-level pools must stay free of Portuguese words."""
+        for word, _lang, _why in self.COLLIDING_WORDS:
+            self.assertNotIn(word, SentenceSplitter.CONNECTOR_WORDS)
+            self.assertNotIn(word, SentenceSplitter.COORDINATING_CONJUNCTIONS)
+            self.assertNotIn(word, SentenceSplitter.CONTINUATIVE_AUXILIARY_VERBS)
+
+    def test_instantiating_portuguese_does_not_affect_later_splitters(self):
+        """Instance-level union must not bleed into subsequently built splitters."""
+        self._splitter('pt')  # build a pt splitter first
+        es_pool = self._all_pools(self._splitter('es'))
+        self.assertNotIn('vamos', es_pool)
+        self.assertNotIn('logo', es_pool)
+
+    def test_portuguese_forbidden_endings_are_language_scoped(self):
+        """Portuguese 'no' (= "in the") is forbidden; Spanish 'no' (= "not") is not."""
+        pt = self._splitter('pt')
+        es = self._splitter('es')
+        self.assertTrue(pt._violates_grammatical_rules('no', 'Porto'))
+        self.assertFalse(es._violates_grammatical_rules('no', 'Claro'))

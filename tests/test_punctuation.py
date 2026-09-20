@@ -55,6 +55,11 @@ pytestmark = pytest.mark.core
         "bonjour comment allez vous aujourd'hui j'espere que vous allez bien merci",
         'French basic conversation',
     ),
+    (
+        'pt',
+        "olá como você está hoje espero que você esteja bem obrigado",
+        'Portuguese basic conversation',
+    ),
 ])
 def test_advanced_punctuation(lang, input_text, description):
     """Test that punctuation restoration produces output with terminal punctuation."""

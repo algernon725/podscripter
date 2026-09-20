@@ -19,13 +19,14 @@ This file is a lean hub. Detailed technical content lives in modular `.agent/` f
 - **Whisper** (faster-whisper): OpenAI speech-to-text for transcription.
 - **Sentence-Transformers**: semantic understanding and punctuation restoration.
 - **Hugging Face Hub (caches)**: used by `sentence-transformers`; managed via `HF_HOME` and optional offline mode.
-- **spaCy (mandatory)**: capitalization and entity awareness; models baked into the Docker image (`en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`).
+- **spaCy (mandatory)**: capitalization and entity awareness; models baked into the Docker image (`en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `pt_core_news_sm`, `de_core_news_sm`).
 - **pyannote.audio 4.0.4**: optional speaker diarization.
 - **Docker**: reproducible environments.
 - **Python 3.12+**: primary language.
 
 ### Supported languages
-- Primary focus: English (en), Spanish (es), French (fr).
+- Primary focus: English (en), Spanish (es), French (fr), Portuguese (pt).
+- Portuguese covers both Brazilian and European variants under the single `pt` code (Whisper reports one code for both). It uses the light formatting path shared with en/fr/de plus the Romance guards ported from Spanish; it has **no** inverted `¿`/`¡` handling, which stays Spanish-only.
 - German (de) is experimental (was previously primary). German-specific code paths (preposition guards, auxiliary verbs, past-participle detection, greeting commas, capitalization) and tests remain, so `--language de` and Whisper auto-detect still work. See [history: language edge cases](.agent/troubleshooting/history.md#language-edge-cases).
 - Other languages may work via Whisper auto-detect but are experimental.
 

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-09-20
+
+### Added
+- **Portuguese (`pt`) as a supported language** — joins English, Spanish and French as a primary-focus language. A single `pt` code covers both Brazilian and European Portuguese, matching how Whisper reports the language.
+  - **spaCy**: `pt_core_news_sm` baked into the Docker image and registered in `_get_spacy_pipeline()`. Previously `--language pt` silently loaded `en_core_web_sm` and ran **English** POS/NER over Portuguese text; the transcript looked plausible while capitalization was wrong.
+  - **Language registry**: `PT_CONNECTORS` / `PT_POSSESSIVES` / `PT_QUESTION_WORDS_CORE` / `PT_QUESTION_STARTERS_EXTRA` / `PT_GREETINGS` plus a `pt` branch in `_get_language_config()`. Portuguese contractions (`do/da/no/na/ao/pelo/num/…`) are treated as connectors, which the generic fallback lacked entirely.
+  - **Thresholds**: `_get_language_thresholds()` refactored from two literal dicts to a base dict plus per-language overrides. `pt` takes the Romance split profile shared with `es` (`min_chunk_before_split` 20, `min_chunk_semantic_break` 42, `min_total_words_no_split` 30) while keeping the generic single question threshold. `es`, `en`, `fr`, `de` resolve to byte-identical values.
+  - **Splitter guards**: `pt` keys added to `COMPARATIVE_PARTICLES`, `DEGREE_QUANTIFIER_HEADS`, `SEMANTIC_BREAK_HINGE_WORDS` and `INFINITIVE_GOVERNING_VERBS`; a new `_PT_INFINITIVE_RE` (adds the `-or` ending for *pôr*, Portuguese clitics, and the nasal/circumflex vowels the Spanish charset lacks); `_is_infinitive_complement_break()` generalized from Spanish-only to an `_INFINITIVE_PATTERNS` map; a `pt` forbidden-sentence-final set; Portuguese irregular participles.
+  - **Semantic exemplars**: 13 Portuguese question and 10 exclamation seed sentences, so `pt` no longer scores Portuguese against the English exemplar corpus — the highest-leverage item for question detection.
+  - **Tests**: new `tests/test_portuguese_questions.py` and `tests/test_portuguese_sentence_splitting.py`, a `pt_splitter` fixture, and `pt` rows across the multilingual suites. Suite went 581 -> 656 passing with no change to the pre-existing tests.
+
+### Fixed
+- **Portuguese `.com` corruption in domain repair** — `com` is the Portuguese word for "with" and is the first entry in `SINGLE_TLDS`, so `fix_spaced_domains()` would rewrite "O projeto acabou. Com ele" into "acabou.com ele". Split the per-language TLD suppression into two tables: the masking path keeps `.com` enabled for `pt` (it only matches contiguous `label.tld`, almost always a real domain) while the spaced-rejoin path suppresses it. Replaced the fragile `single_tlds.replace('de|','')` string surgery with `_tlds_for(language, spaced=...)`. Added `.pt` to `SINGLE_TLDS`, a `PORTUGUESE_EXCLUSIONS` list (with unaccented variants, since ASR drops diacritics), and `_is_excluded_label(label, language)` — `_is_spanish_word()` remains as a back-compat alias. Spanish `.de`/`.es` behavior is unchanged.
+- **Domains destroyed in the light formatting path for `pt`** — `_format_non_spanish_text()` splits on raw `.` without masking, so "exemplo.com" became "exemplo. Com". en/fr/de accidentally recover via the TXT writer's `fix_spaced_domains()`, but Portuguese cannot (see above). Domains are now masked around that split for `pt`, so they are never broken in the first place. Also added a masked-domain guard to the light path's sentence capitalization and to `should_capitalize()` in `_apply_spacy_capitalization()` (spaCy tagged `exemplo__DOT__com` as PROPN and capitalized it).
+
+### Changed
+- `FOCUS_LANGS` now includes `pt`, and `validate_language_code()` derives its "primary" list from that set instead of a second hardcoded literal.
+- Shared `UPPER_ACCENTED` / `LOWER_ACCENTED` character classes added to `domain_utils.py` (the leaf module, to avoid an import cycle) and applied on the **language-general** paths only: `_finalize_text_common()`, `_fix_location_appositive_punctuation()`, the TXT writer's space-after-punctuation regexes, and `_get_domain_safe_split_pattern()`. The pre-existing `[A-ZÁÉÍÓÚÑ]` classes omitted `Ã Õ Â Ê Ô À Ç`. Spanish-internal helpers were deliberately left alone.
+- `_finalize_text_common()` takes an optional `language`. Its `mask_domains(..., language='es')` call was hardcoded regardless of transcript language; that is preserved for en/es/fr/de and overridden only for `pt`.
+- The duplicated conservative TLD literal at four live sites now imports `SINGLE_TLDS_CONSERVATIVE` from `domain_utils` rather than repeating the alternation. Kept distinct from `SINGLE_TLDS` on purpose — widening those sites to the full list would change Spanish and English behavior.
+
+### Notes
+- **Minor bump (0.12.0)** — adds a language; no change to en/es/fr/de output. Verified by running the full suite (581 passed / 34 xfailed before and after the source changes) and by diffing `es`/`fr` pipeline output against `main`.
+- **Not included**: Tier 1 audio fixtures and the Tier 2 benchmark axis for Portuguese. Both need clips pushed to the HuggingFace dataset first; see `tests/README.md` and the ledger entry in `.agent/troubleshooting/history.md`.
+- **Follow-ups recorded** in `.agent/troubleshooting/history.md`: two dead-code findings surfaced by this work (the unreachable 242-line Spanish branch in `_transformer_based_restoration`, and `_apply_basic_punctuation_rules()` having zero callers), the wanted `{lang: set}` refactor of the pooled splitter word sets, and the Portuguese corpus axes above.
+- **Portuguese-specific omissions, by design**: the Spanish inverted `¿`/`¡` machinery is *not* ported (Portuguese has no opening marks), and `_spanish_cleanup_postprocess` / the Spanglish detector stay Spanish-only.
+
 ## [0.11.1] - 2026-08-01
 
 ### Fixed

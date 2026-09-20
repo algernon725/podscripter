@@ -75,7 +75,16 @@ from dataclasses import dataclass
 import os
 import numpy as np
 import warnings
-from domain_utils import mask_domains, unmask_domains, create_domain_aware_regex, SINGLE_TLDS, SINGLE_MASK
+from domain_utils import (
+    mask_domains,
+    unmask_domains,
+    create_domain_aware_regex,
+    SINGLE_TLDS,
+    SINGLE_TLDS_CONSERVATIVE,
+    SINGLE_MASK,
+    UPPER_ACCENTED,
+    LOWER_ACCENTED,
+)
 from sentence_splitter import SentenceSplitter, Sentence
 
 # Suppress PyTorch FutureWarnings
@@ -171,40 +180,84 @@ DE_QUESTION_STARTERS = [
 # English question starters (for completeness in light formatter)
 EN_QUESTION_STARTERS = ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'do', 'does', 'did', 'is', 'are', 'can', 'could', 'would', 'will', 'am']
 
-# Language thresholds (centralized for tuning)
-def _get_language_thresholds(language: str) -> dict:
-    """Return thresholds controlling semantic gating and splitting heuristics.
+# Portuguese language config: connectors and possessives.
+# Covers both Brazilian and European Portuguese (Whisper reports a single 'pt').
+PT_POSSESSIVES = {
+    "meu", "minha", "meus", "minhas",
+    "teu", "tua", "teus", "tuas",
+    "seu", "sua", "seus", "suas",
+    "nosso", "nossa", "nossos", "nossas",
+}
+PT_CONNECTORS = {
+    # Articles
+    "o", "a", "os", "as", "um", "uma", "uns", "umas",
+    # Preposition+article contractions (very frequent; must never be capitalized
+    # mid-sentence nor end a sentence)
+    "do", "da", "dos", "das", "no", "na", "nos", "nas",
+    "ao", "à", "aos", "às", "pelo", "pela", "pelos", "pelas",
+    "num", "numa", "dum", "duma", "neste", "nesse", "naquele", "deste", "desse", "daquele",
+    # Bare prepositions
+    "de", "em", "para", "por", "com", "sem", "sobre", "entre", "até", "desde",
+    # Conjunctions
+    "e", "ou", "mas", "nem",
+    # Possessives/determiners
+    *PT_POSSESSIVES,
+}
 
-    Values are chosen to preserve current behavior.
-    """
-    if language == 'es':
-        return {
-            # Slightly lower thresholds to improve recall of genuine questions in Spanish
-            'semantic_question_threshold_with_indicator': 0.64,
-            'semantic_question_threshold_default': 0.74,
-            'min_total_words_no_split': 30,
-            'min_chunk_before_split': 20,
-            'min_chunk_inside_question': 25,
-            'min_chunk_capital_break': 38,
-            'min_chunk_semantic_break': 42,
-            # Whisper boundary integration thresholds
-            'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
-            'max_words_force_split': 100,   # Force split on very long segments even without boundary
-            'semantic_whisper_lookahead': 8,  # Defer semantic split if Whisper boundary is within N words
-        }
-    # Defaults for other languages (align with existing logic)
-    return {
-        'semantic_question_threshold_default_any': 0.60,
-        'min_total_words_no_split': 25,
-        'min_chunk_before_split': 15,
-        'min_chunk_inside_question': 20,
-        'min_chunk_capital_break': 20,
-        'min_chunk_semantic_break': 25,
-        # Whisper boundary integration thresholds
-        'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
-        'max_words_force_split': 100,   # Force split on very long segments even without boundary
-        'semantic_whisper_lookahead': 8,  # Defer semantic split if Whisper boundary is within N words
-    }
+PT_QUESTION_WORDS_CORE = ['que', 'o que', 'quê', 'onde', 'quando', 'como', 'quem',
+                          'qual', 'quais', 'por que', 'porquê', 'porque']
+PT_QUESTION_STARTERS_EXTRA = ['pode', 'podes', 'podem', 'sabe', 'sabes', 'quer', 'queres',
+                              'tem', 'tens', 'têm', 'há', 'está', 'estão', 'é', 'são',
+                              'vai', 'vais', 'consegue', 'consegues', 'lembra', 'lembras',
+                              'precisa', 'precisas', 'gostaria', 'poderia', 'poderias']
+PT_GREETINGS = ['olá', 'oi', 'bom dia', 'boa tarde', 'boa noite']
+
+# Language thresholds (centralized for tuning)
+
+# Baseline used by every language; per-language deltas live in _THRESHOLD_OVERRIDES.
+_BASE_THRESHOLDS = {
+    'semantic_question_threshold_default_any': 0.60,
+    'min_total_words_no_split': 25,
+    'min_chunk_before_split': 15,
+    'min_chunk_inside_question': 20,
+    'min_chunk_capital_break': 20,
+    'min_chunk_semantic_break': 25,
+    # Whisper boundary integration thresholds
+    'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
+    'max_words_force_split': 100,   # Force split on very long segments even without boundary
+    'semantic_whisper_lookahead': 8,  # Defer semantic split if Whisper boundary is within N words
+}
+
+# Romance languages run longer clauses with heavier subordination than the
+# Germanic/English baseline, so they need a larger chunk before a split is
+# considered. Shared by 'es' and 'pt'.
+_ROMANCE_SPLIT_THRESHOLDS = {
+    'min_total_words_no_split': 30,
+    'min_chunk_before_split': 20,
+    'min_chunk_inside_question': 25,
+    'min_chunk_capital_break': 38,
+    'min_chunk_semantic_break': 42,
+}
+
+_THRESHOLD_OVERRIDES = {
+    'es': {
+        **_ROMANCE_SPLIT_THRESHOLDS,
+        # Spanish selects between two question thresholds depending on whether the
+        # sentence opens with a question indicator (see is_question_semantic).
+        # Slightly lower than the generic threshold to improve recall of genuine questions.
+        'semantic_question_threshold_with_indicator': 0.64,
+        'semantic_question_threshold_default': 0.74,
+    },
+    # Portuguese shares the Romance split profile but keeps the generic single
+    # question threshold: it has no inverted '¿', so the indicator-sensitive
+    # two-threshold path that is gated on language == 'es' never runs for 'pt'.
+    'pt': dict(_ROMANCE_SPLIT_THRESHOLDS),
+}
+
+
+def _get_language_thresholds(language: str) -> dict:
+    """Return thresholds controlling semantic gating and splitting heuristics."""
+    return {**_BASE_THRESHOLDS, **_THRESHOLD_OVERRIDES.get(language, {})}
 
 
 @dataclass
@@ -255,6 +308,14 @@ def _get_language_config(language: str) -> LanguageConfig:
             thresholds=_get_language_thresholds(language),
             greetings=['hello'],
             question_starters=EN_QUESTION_STARTERS,
+        )
+    if language == 'pt':
+        return LanguageConfig(
+            connectors=PT_CONNECTORS,
+            possessives=PT_POSSESSIVES,
+            thresholds=_get_language_thresholds(language),
+            greetings=PT_GREETINGS,
+            question_starters=PT_QUESTION_WORDS_CORE + PT_QUESTION_STARTERS_EXTRA,
         )
     return LanguageConfig(
         connectors=default_connectors,
@@ -324,7 +385,8 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
         'es': r'de',
         'en': r'from|in',
         'fr': r'de|du|des',
-        'de': r'aus|von|in'
+        'de': r'aus|von|in',
+        'pt': r'de|do|da|dos|das|em'
     }
     
     lang_code = language.lower()
@@ -333,7 +395,7 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
     # Pattern 1: comma + preposition + location + period + location
     # Convert the period to a comma for proper appositive punctuation
     # But exclude cases that start new sentences with subjects like "Y yo soy", "And I'm", etc.
-    pattern1 = rf'(,\s*(?:{prepositions})\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)'
+    pattern1 = rf'(,\s*(?:{prepositions})\s+[A-Z{UPPER_ACCENTED}][\w{UPPER_ACCENTED}-]*)\.\s+([A-Z{UPPER_ACCENTED}][\w{UPPER_ACCENTED}-]*)'
     
     # Check if the following text starts a new sentence with a subject
     def _safe_location_merge_preposition(match):
@@ -343,8 +405,8 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
         # Don't merge if following text looks like start of new sentence with subject
         # Common patterns: "Y yo", "And I", "Et je", "Und ich", etc.
         new_sentence_patterns = [
-            r'^(Y|And|Et|Und)\s+(yo|I|je|ich)',  # "Y yo", "And I", "Et je", "Und ich"
-            r'^(Y|And|Et|Und)\s+\w+\s+(soy|am|suis|bin)',  # "Y alguien soy", "And someone am"
+            r'^(Y|E|And|Et|Und)\s+(yo|eu|I|je|ich)',  # "Y yo", "E eu", "And I", "Et je", "Und ich"
+            r'^(Y|E|And|Et|Und)\s+\w+\s+(soy|sou|é|am|suis|bin)',  # "Y alguien soy", "E alguém é"
         ]
         
         for pattern in new_sentence_patterns:
@@ -363,8 +425,8 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
         
         # Don't merge if following text starts a new sentence with subject
         new_sentence_patterns = [
-            r'^(Y|And|Et|Und)\s+(yo|I|je|ich)',  # "Y yo", "And I", "Et je", "Und ich"  
-            r'^(Y|And|Et|Und)\s+\w+\s+(soy|am|suis|bin)',  # "Y alguien soy", "And someone am"
+            r'^(Y|E|And|Et|Und)\s+(yo|eu|I|je|ich)',  # "Y yo", "E eu", "And I", "Et je", "Und ich"
+            r'^(Y|E|And|Et|Und)\s+\w+\s+(soy|sou|é|am|suis|bin)',  # "Y alguien soy", "E alguém é"
         ]
         
         # Check the full following context (might be more than one word)
@@ -377,7 +439,7 @@ def _fix_location_appositive_punctuation(text: str, language: str) -> str:
         
         return f"{location_part} {following_word.lower()}"
     
-    pattern2 = r'(\b[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*,\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ-]*)\.\s+([A-ZÁÉÍÓÚÑa-záéíóúñ][\wÁÉÍÓÚÑ-]*)'
+    pattern2 = rf'(\b[A-Z{UPPER_ACCENTED}][\w{UPPER_ACCENTED}-]*,\s+[A-Z{UPPER_ACCENTED}][\w{UPPER_ACCENTED}-]*)\.\s+([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}][\w{UPPER_ACCENTED}-]*)'
     result = re.sub(pattern2, _safe_location_merge_direct, result, flags=re.IGNORECASE)
     
     return result
@@ -433,27 +495,36 @@ def _normalize_comma_spacing(text: str) -> str:
 
 
 # Final universal cleanup applied at the end of the pipeline
-def _finalize_text_common(text: str) -> str:
+def _finalize_text_common(text: str, language: str | None = None) -> str:
     """Apply safe, language-agnostic cleanup at the very end.
 
     - Normalize mixed terminal punctuation
     - Normalize whitespace
     - Ensure a space after sentence punctuation before capital letters
+
+    Args:
+        text: Text to finalize.
+        language: Language code, used only for domain-exclusion selection.
     """
     if not text:
         return text
     out = _normalize_mixed_terminal_punctuation(text)
     out = re.sub(r"\s+", " ", out)
-    # Use centralized domain masking with Spanish exclusions
-    masked = mask_domains(out, use_exclusions=True, language='es')
+    # Domain masking exclusions. This call has always passed language='es'
+    # regardless of the transcript language; that is preserved for en/es/fr/de to
+    # avoid a behavior change, while 'pt' needs its own exclusions so that the
+    # Portuguese word "com" is not treated as a TLD.
+    mask_lang = 'pt' if (language or '').lower() == 'pt' else 'es'
+    masked = mask_domains(out, use_exclusions=True, language=mask_lang)
     # Ensure single space after sentence punctuation when followed by a letter (including lowercase accented)
     # But NOT for person initials like "C.S." where the period is part of the initial
     # Use negative lookbehind to avoid: periods in ellipses, periods after single capital letters (initials)
-    masked = re.sub(r"(?<!\.)(?<![A-Z])\.\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r". \1", masked)
-    masked = re.sub(r"\?\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"? \1", masked)
-    masked = re.sub(r"!\s*([A-Za-zÁÉÍÓÚÑáéíóúñ])", r"! \1", masked)
+    _letter = rf"A-Za-z{UPPER_ACCENTED}{LOWER_ACCENTED}"
+    masked = re.sub(rf"(?<!\.)(?<![A-Z])\.\s*([{_letter}])", r". \1", masked)
+    masked = re.sub(rf"\?\s*([{_letter}])", r"? \1", masked)
+    masked = re.sub(rf"!\s*([{_letter}])", r"! \1", masked)
     # Capitalize after terminators when appropriate
-    masked = re.sub(r"([.!?])\s+([a-záéíóúñ])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
+    masked = re.sub(rf"([.!?])\s+([a-z{LOWER_ACCENTED}])", lambda m: f"{m.group(1)} {m.group(2).upper()}", masked)
     # Unmask domains using centralized function
     out = unmask_domains(masked)
     # Normalize comma spacing using centralized function
@@ -857,7 +928,7 @@ def _es_capitalize_sentence_starts(text: str) -> str:
             # Don't capitalize if this looks like the start of a domain name
             remaining_text = s[idx:]
             # Updated pattern to include accented characters for domains like sinónimosonline.com
-            if not re.match(r'^[a-zA-Z0-9\u00C0-\u017F\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', remaining_text):
+            if not re.match(rf'^[a-zA-Z0-9\u00C0-\u017F\-]+\.({SINGLE_TLDS_CONSERVATIVE})\b', remaining_text):
                 parts[i] = s[:idx] + s[idx].upper() + s[idx+1:]
     return ''.join(parts)
 
@@ -1293,7 +1364,41 @@ def _violates_grammatical_rules(current_word: str, next_word: str, language: str
         }
         if current_clean in german_continuative:
             return True
-    
+
+    elif language == 'pt':
+        # Portuguese articles, preposition+article contractions and prepositions.
+        # Contractions ("do", "na", "pelo") are extremely frequent and can never
+        # end a sentence. Note 'no'/'na' are safe to list here because this block
+        # is language-gated: Portuguese "no" = "in the", whereas Spanish "no" =
+        # "not" legitimately ends sentences ("Claro que no.").
+        portuguese_prepositions = {
+            'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+            'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
+            'ao', 'à', 'aos', 'às', 'pelo', 'pela', 'pelos', 'pelas',
+            'num', 'numa', 'dum', 'duma',
+            'de', 'em', 'para', 'pra', 'por', 'com', 'sem', 'sobre',
+            'entre', 'até', 'desde', 'contra', 'durante', 'mediante',
+            'perante', 'sob', 'trás',
+            # Proclitic object/reflexive pronouns: attach forward to the verb.
+            'me', 'te', 'se', 'lhe', 'lhes', 'vos',
+            # Quantifiers/determiners that require a following noun.
+            'todo', 'toda', 'todos', 'todas', 'algum', 'alguma', 'alguns', 'algumas',
+            'nenhum', 'nenhuma', 'qualquer', 'outro', 'outra', 'outros', 'outras', 'cada',
+        }
+        if current_clean in portuguese_prepositions:
+            return True
+
+        # Portuguese continuative/auxiliary verbs (imperfect + present of ter/haver)
+        portuguese_continuative = {
+            'era', 'eram', 'estava', 'estavam', 'tinha', 'tinham',
+            'havia', 'haviam', 'ia', 'iam', 'fazia', 'faziam',
+            'podia', 'podiam', 'devia', 'deviam', 'queria', 'queriam',
+            'sabia', 'sabiam', 'vinha', 'vinham', 'dizia', 'diziam',
+            'tenho', 'tens', 'tem', 'temos', 'têm',
+        }
+        if current_clean in portuguese_continuative:
+            return True
+
     return False
 
 
@@ -1459,7 +1564,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             # Capitalize first letter (but not for domains)
             if sentence and sentence[0].isalpha():
                 # Don't capitalize if this looks like a domain name
-                if not re.match(r'^[a-zA-Z0-9\u00C0-\u017F\-]+\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', sentence.lower()):
+                if not re.match(rf'^[a-zA-Z0-9\u00C0-\u017F\-]+\.({SINGLE_TLDS_CONSERVATIVE})\b', sentence.lower()):
                     sentence = sentence[0].upper() + sentence[1:]
 
             # Ensure sentence ends with single terminal punctuation
@@ -1519,7 +1624,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # Fix location appositive punctuation
         result = _fix_location_appositive_punctuation(result, language)
         # Final universal cleanup
-        result = _finalize_text_common(result)
+        result = _finalize_text_common(result, language)
         # ALWAYS return both the text AND the sentences list (v0.4.0+)
         # v0.6.0: Return Sentence objects instead of strings
         return result, formatted_sentence_objects
@@ -1762,11 +1867,11 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         
         # Fix standalone domain names: "Espanolistos.com" -> "espanolistos.com"
         # Updated pattern to include accented characters for domains like sinónimosonline.com
-        result = re.sub(r'\b([A-Z][a-zA-Z0-9\u00C0-\u017F\-]*\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx))\b', 
+        result = re.sub(rf'\b([A-Z][a-zA-Z0-9\u00C0-\u017F\-]*\.({SINGLE_TLDS_CONSERVATIVE}))\b', 
                        lambda m: m.group(1).lower(), result)
         
         # Additional fix for the specific "Espanolistos" case and similar patterns
-        result = re.sub(r'\bwww\.([A-Z][a-z]+)\.(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b', 
+        result = re.sub(rf'\bwww\.([A-Z][a-z]+)\.({SINGLE_TLDS_CONSERVATIVE})\b', 
                        lambda m: f"www.{m.group(1).lower()}.{m.group(2)}", result)
     else:
         # Apply light, language-aware formatting for non-Spanish languages
@@ -1797,7 +1902,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     result = _fix_location_appositive_punctuation(result, language)
     
     # Final universal cleanup
-    result = _finalize_text_common(result)
+    result = _finalize_text_common(result, language)
     
     # Return tuple: (processed_text, sentences_list)
     # v0.4.0+: ALWAYS return sentences_list (never None)
@@ -1950,7 +2055,8 @@ def _get_strong_end_indicators(language):
         'en': ['thank', 'thanks', 'goodbye', 'bye', 'okay', 'ok', 'right', 'sure', 'yes', 'no'],
         'es': ['gracias', 'adiós', 'hasta', 'vale', 'bien', 'sí', 'no', 'claro'],
         'de': ['danke', 'tschüss', 'auf', 'wiedersehen', 'okay', 'ja', 'nein', 'klar'],
-        'fr': ['merci', 'au', 'revoir', 'salut', 'okay', 'oui', 'non', 'd\'accord']
+        'fr': ['merci', 'au', 'revoir', 'salut', 'okay', 'oui', 'non', 'd\'accord'],
+        'pt': ['obrigado', 'obrigada', 'tchau', 'adeus', 'até', 'logo', 'certo', 'claro', 'sim', 'não', 'beleza', 'pronto']
     }
     return indicators.get(language, indicators['en'])
 
@@ -1970,9 +2076,10 @@ def _is_transitional_word(word: str, language: str) -> bool:
         'en': ['then', 'next', 'after', 'before', 'while', 'during', 'since', 'until', 'when', 'where', 'if', 'unless', 'although', 'though', 'even', 'though', 'despite', 'in', 'spite', 'of'],
         'es': ['entonces', 'después', 'antes', 'mientras', 'durante', 'desde', 'hasta', 'cuando', 'donde', 'si', 'aunque', 'a', 'pesar', 'de', 'que', 'los', 'las', 'en', 'de', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'detrás', 'delante', 'cerca', 'lejos'],
         'de': ['dann', 'nächste', 'nach', 'vor', 'während', 'seit', 'bis', 'wenn', 'wo', 'falls', 'obwohl', 'trotz'],
-        'fr': ['alors', 'après', 'avant', 'pendant', 'depuis', 'jusqu\'à', 'quand', 'où', 'si', 'bien', 'que', 'malgré']
+        'fr': ['alors', 'après', 'avant', 'pendant', 'depuis', 'jusqu\'à', 'quand', 'où', 'si', 'bien', 'que', 'malgré'],
+        'pt': ['então', 'depois', 'antes', 'enquanto', 'durante', 'desde', 'até', 'quando', 'onde', 'se', 'embora', 'apesar', 'de', 'que', 'os', 'as', 'em', 'do', 'da', 'com', 'por', 'para', 'sem', 'sobre', 'entre', 'atrás', 'perto', 'longe']
     }
-    
+
     words = transitional_words.get(language, transitional_words['en'])
     return word.lower() in words
 
@@ -1992,9 +2099,10 @@ def _is_continuation_word(word: str, language: str) -> bool:
         'en': ['and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'since', 'although', 'however', 'therefore', 'thus', 'hence', 'then', 'next', 'also', 'as', 'well', 'as', 'in', 'addition', 'furthermore', 'moreover', 'besides', 'additionally'],
         'es': ['y', 'o', 'pero', 'así', 'porque', 'si', 'cuando', 'mientras', 'desde', 'aunque', 'sin', 'embargo', 'por', 'tanto', 'entonces', 'también', 'además', 'furthermore', 'más', 'aún', 'a', 'al', 'hacia', 'hasta', 'de', 'del', 'en', 'con'],
         'de': ['und', 'oder', 'aber', 'also', 'weil', 'wenn', 'während', 'seit', 'obwohl', 'jedoch', 'daher', 'deshalb', 'dann', 'auch', 'außerdem', 'ferner', 'zudem'],
-        'fr': ['et', 'ou', 'mais', 'donc', 'parce', 'si', 'quand', 'pendant', 'depuis', 'bien', 'que', 'cependant', 'donc', 'alors', 'aussi', 'de', 'plus', 'en', 'outre', 'par', 'ailleurs']
+        'fr': ['et', 'ou', 'mais', 'donc', 'parce', 'si', 'quand', 'pendant', 'depuis', 'bien', 'que', 'cependant', 'donc', 'alors', 'aussi', 'de', 'plus', 'en', 'outre', 'par', 'ailleurs'],
+        'pt': ['e', 'ou', 'mas', 'nem', 'então', 'porque', 'se', 'quando', 'enquanto', 'desde', 'embora', 'porém', 'contudo', 'portanto', 'também', 'além', 'ainda', 'mais', 'a', 'ao', 'à', 'para', 'até', 'de', 'do', 'da', 'em', 'no', 'na', 'com', 'por']
     }
-    
+
     words = continuation_words.get(language, continuation_words['en'])
     return word.lower() in words
 
@@ -2314,9 +2422,10 @@ def has_question_indicators(sentence, language):
         'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'whose', 'whom'],
         'es': ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'cuáles'],
         'de': ['was', 'wo', 'wann', 'warum', 'wie', 'wer', 'welche', 'welches', 'wessen'],
-        'fr': ['quoi', 'où', 'quand', 'pourquoi', 'comment', 'qui', 'quel', 'quelle', 'quels', 'quelles']
+        'fr': ['quoi', 'où', 'quand', 'pourquoi', 'comment', 'qui', 'quel', 'quelle', 'quels', 'quelles'],
+        'pt': ['que', 'o que', 'quê', 'onde', 'quando', 'como', 'quem', 'qual', 'quais', 'por que', 'porquê']
     }
-    
+
     words = question_words.get(language, question_words['en'])
     
     # Check if sentence starts with question words
@@ -2552,9 +2661,21 @@ def _get_exclamation_patterns(language):
             "Quel soulagement!",
             "Comme c'est beau!",
             "C'est génial!"
+        ],
+        'pt': [
+            "Que incrível!",
+            "Que maravilha!",
+            "Que surpresa!",
+            "Não acredito!",
+            "Que fantástico!",
+            "Que emocionante!",
+            "Que grande ideia!",
+            "Que alívio!",
+            "Que lindo!",
+            "Isso é ótimo!"
         ]
     }
-    
+
     return exclamation_patterns.get(language, exclamation_patterns['en'])
 
 
@@ -2583,6 +2704,10 @@ def _apply_basic_punctuation_rules(sentence, language, use_custom_patterns):
         # Add commas between repeated "ja" or "nein" for emphasis
         sentence = re.sub(r'\b(ja)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
         sentence = re.sub(r'\b(nein)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+    elif language == 'pt':
+        # Add commas between repeated "sim" or "não" for emphasis
+        sentence = re.sub(r'\b(sim)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
+        sentence = re.sub(r'\b(não)\s+\1\b', r'\1, \1', sentence, flags=re.IGNORECASE)
     
     # Use centralized punctuation logic
     return _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END)
@@ -2609,6 +2734,22 @@ def _format_non_spanish_text(text: str, language: str) -> str:
             s = re.sub(r"\b([A-Z])\.([A-Z])\.(?=\s|$)", r"\1\2", s)
             return s
         text = _collapse_acronyms(text)
+
+    # Portuguese: protect domains before the punctuation split below.
+    #
+    # This light path splits on raw '.' without masking, so "exemplo.com" becomes
+    # "exemplo. Com". en/fr/de get away with it because the TXT writer's
+    # fix_spaced_domains() rejoins "exemplo. com" afterwards -- but Portuguese
+    # deliberately suppresses the ".com" rejoin (the word "com" means "with", so
+    # rejoining would corrupt ordinary prose like "acabou. Com ele"). Masking here
+    # means the domain is never broken in the first place, so pt keeps real
+    # domains intact without relying on that round-trip.
+    #
+    # Scoped to 'pt' on purpose: masking would also fix en/fr/de, but that is a
+    # behavior change for them and belongs in its own commit.
+    pt_masked = language == 'pt'
+    if pt_masked:
+        text = mask_domains(text, use_exclusions=True, language='pt')
 
     # Split keeping punctuation
     parts = _split_sentences_preserving_delims(text)
@@ -2648,14 +2789,25 @@ def _format_non_spanish_text(text: str, language: str) -> str:
             # Capitalize Deutsch in the common phrase "Deutsch gelernt"
             s = re.sub(r'\bdeutsch\b(?=\s+gelernt\b)', 'Deutsch', s, flags=re.IGNORECASE)
 
-        # Capitalize first alpha
+        # Capitalize first alpha, unless the sentence opens with a (masked) domain
+        # such as "exemplo__DOT__com" -- "Exemplo.com" is wrong. Mirrors the guard
+        # the Spanish path applies before its own sentence capitalization.
         if s and s[0].isalpha():
-            s = s[0].upper() + s[1:]
+            first_token = s.split(' ', 1)[0]
+            if SINGLE_MASK not in first_token:
+                s = s[0].upper() + s[1:]
 
         # Light location comma heuristic (English/French/German)
         s = re.sub(r'\bfrom\s+([A-Z][a-zA-Zäöüßéèàç]+)\s+([A-Z][a-zA-Zäöüßéèàç]+)\b', r'from \1, \2', s)
         s = re.sub(r'\bde\s+([A-Z][\wäöüßéèàç]+)\s+([A-Z][\wäöüßéèàç]+)\b', r'de \1, \2', s)
         s = re.sub(r'\baus\s+([A-Z][\wäöüßéèàç]+)\s+([A-Z][\wäöüßéèàç]+)\b', r'aus \1, \2', s)
+        # Portuguese uses de/do/da/dos/das + location ("de Lisboa, Portugal").
+        # Bare "de" is already handled above; add the article contractions.
+        if language == 'pt':
+            s = re.sub(
+                rf'\b(do|da|dos|das|em)\s+([A-Z][\w{UPPER_ACCENTED}{LOWER_ACCENTED}]+)'
+                rf'\s+([A-Z][\w{UPPER_ACCENTED}{LOWER_ACCENTED}]+)\b',
+                r'\1 \2, \3', s)
 
         # Ensure punctuation
         if not p:
@@ -2677,6 +2829,8 @@ def _format_non_spanish_text(text: str, language: str) -> str:
     # Ensure a space after commas only when not followed by a digit (to preserve thousands groups)
     out = re.sub(r',(?=\S)(?!\d)', ', ', out)
     out = re.sub(r'\s+', ' ', out).strip()
+    if pt_masked:
+        out = unmask_domains(out)
     return out
 
 
@@ -2691,6 +2845,7 @@ def _get_spacy_pipeline(language: str):
         'es': 'es_core_news_sm',
         'fr': 'fr_core_news_sm',
         'de': 'de_core_news_sm',
+        'pt': 'pt_core_news_sm',
     }
     name = model_map.get(language)
     if not name:
@@ -2937,8 +3092,13 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
         # Skip tokens in detected English phrases (but allow proper nouns/entities)
         if tok.i in english_phrase_idxs and tok.i not in ent_token_idxs:
             return False
-        # Skip URLs/email/handles or tokens that themselves look like domain fragments
-        if any(ch in txt for ch in ['@', '/', '://']) or re.search(r"\w+\.\w+", txt):
+        # Skip URLs/email/handles or tokens that themselves look like domain fragments.
+        # SINGLE_MASK covers already-masked domains ("exemplo__DOT__com"), which carry
+        # no literal dot for the regex below to catch and which spaCy would otherwise
+        # tag PROPN and capitalize.
+        if (any(ch in txt for ch in ['@', '/', '://'])
+                or SINGLE_MASK in txt
+                or re.search(r"\w+\.\w+", txt)):
             return False
         # Skip TLD token in domain pattern split across tokens: label '.' TLD
         try:
@@ -3348,9 +3508,24 @@ def _get_question_patterns(language):
             "Vas-tu venir?",
             "Fais-tu cela?",
             "Es-tu prêt?"
+        ],
+        'pt': [
+            "O que é isso?",
+            "Onde você está?",
+            "Quando isso vai acontecer?",
+            "Por que você fez isso?",
+            "Como funciona?",
+            "Quem está aí?",
+            "Qual você prefere?",
+            "Você pode me ajudar?",
+            "Poderia explicar?",
+            "Você gostaria de ir?",
+            "Você vem?",
+            "Você entende?",
+            "Está pronto?"
         ]
     }
-    
+
     return question_patterns.get(language, question_patterns['en'])
 
 
@@ -3371,9 +3546,9 @@ def _spanish_cleanup_postprocess(text: str) -> str:
 
     # Normalize domains: join tokens like "espanolistos . com" -> "espanolistos.com"
     # Updated patterns to include accented characters for domains like sinónimosonline.com
-    text = re.sub(r"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", text, flags=re.IGNORECASE)
+    text = re.sub(rf"\b([a-zA-Z0-9\u00C0-\u017F\-]+)\s*[.\-]\s*({SINGLE_TLDS_CONSERVATIVE})\b", lambda m: f"{m.group(1)}.{m.group(2).lower()}", text, flags=re.IGNORECASE)
     # Also handle 'www . domain . tld'
-    text = re.sub(r"\b(www)\s*[.\-]\s*([a-zA-Z0-9\u00C0-\u017F\-]+)\s*[.\-]\s*(com|net|org|co|es|io|edu|gov|uk|us|ar|mx)\b", lambda m: f"{m.group(1)}.{m.group(2)}.{m.group(3).lower()}", text, flags=re.IGNORECASE)
+    text = re.sub(rf"\b(www)\s*[.\-]\s*([a-zA-Z0-9\u00C0-\u017F\-]+)\s*[.\-]\s*({SINGLE_TLDS_CONSERVATIVE})\b", lambda m: f"{m.group(1)}.{m.group(2)}.{m.group(3).lower()}", text, flags=re.IGNORECASE)
 
     # Ensure TLDs are lowercase within domains: label.TLD -> label.tld
     def _lowercase_tld(m):

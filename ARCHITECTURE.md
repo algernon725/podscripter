@@ -18,7 +18,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
 ## Goals and non-goals
 
 - **Goals**
-  - Accurate, readable transcripts across EN/ES/FR (primary). DE is now considered experimental while project focus shifts to romance languages, but all German code paths remain in place and continue to function.
+  - Accurate, readable transcripts across EN/ES/FR/PT (primary). DE is now considered experimental while project focus shifts to romance languages, but all German code paths remain in place and continue to function.
   - Deterministic runs via containerization and caching
   - CPU-friendly defaults with support for long audio
   - Generalizable punctuation/formatting improvements over one-off fixes
@@ -152,7 +152,7 @@ flowchart TD
   - **Centralized punctuation system**: `_should_add_terminal_punctuation()` with context-aware processing
   - **Context types**: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`
   - Sentence-Transformers semantic cues + curated regex rules
-  - Language-specific formatting (ES/EN/FR/DE)
+  - Language-specific formatting (ES/EN/FR/PT/DE)
   - Comma spacing normalization is centralized in `_normalize_comma_spacing(text)` and must not be duplicated inline at call sites. This helper removes spaces before commas, deduplicates multiple commas, and ensures a single space after commas. Trade-off: thousands separators like `1,000` will appear as `1, 000` to guarantee correct spacing for common number lists.
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
   - Domain assembly logic: uses a general multi-pass merge loop to recover split domains across sentence boundaries and intermediate transformations
@@ -160,8 +160,8 @@ flowchart TD
   - Natural language domain merge guards (v0.4.4): prevents false domain merges when sentences end with words matching TLDs (e.g., "jugar." + "Es que..." should NOT merge as "jugar.es"). Only merges if sentence is short (< 50 chars) OR label is capitalized, ensuring domain detection targets actual URL mentions rather than natural language coincidences
   - Spanish processing wraps all transformations with domain masking/unmasking so that URLs (including subdomains like `www.example.com`) remain intact through punctuation and capitalization stages
   - Pipeline order correction (Spanish): automatic spaCy capitalization now runs before greeting/comma insertion to avoid capitalization feedback loops and over-capitalization of common words
-  - Location appositive normalization (EN/ES/FR/DE): punctuation-restoration converts ", <preposition> <Location>. <Location>" to ", <preposition> <Location>, <Location>" using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; DE: aus/von/in). Also normalizes direct comma-separated forms like "City, Region. and/pero/y …" to keep the location intact and continue the clause. Includes a new-sentence guard to avoid merging when the following fragment starts a new sentence with a subject (e.g., "Y yo …", "And I …", "Et je …", "Und ich …").
-  - TXT writer multilingual location protection: during final TXT splitting, protects appositive location patterns like ", <preposition> <Location>. <Location>" to avoid breaking location descriptions. Applies across EN/ES/FR/DE using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; DE: aus/von/in); restores protected periods after splitting.
+  - Location appositive normalization (EN/ES/FR/DE): punctuation-restoration converts ", <preposition> <Location>. <Location>" to ", <preposition> <Location>, <Location>" using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; PT: de/do/da/dos/das/em; DE: aus/von/in). Also normalizes direct comma-separated forms like "City, Region. and/pero/y …" to keep the location intact and continue the clause. Includes a new-sentence guard to avoid merging when the following fragment starts a new sentence with a subject (e.g., "Y yo …", "And I …", "Et je …", "Und ich …").
+  - TXT writer multilingual location protection: during final TXT splitting, protects appositive location patterns like ", <preposition> <Location>. <Location>" to avoid breaking location descriptions. Applies across EN/ES/FR/PT/DE using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; PT: de/do/da/dos/das/em; DE: aus/von/in); restores protected periods after splitting.
   - Spanish greeting and inverted-question guards:
     - Guard comma insertion after greetings: avoid comma after `Hola` when followed by `a`/`para` (e.g., "Hola para todos")
     - When a greeting precedes an inverted mark (`¿`/`¡`), add a comma only if absent to prevent duplicate commas
@@ -262,13 +262,15 @@ flowchart TD
 
 ## Extensibility
 
-- Add languages via `LanguageConfig` and per-language helpers
+- Add languages via `LanguageConfig` (built by `_get_language_config(language)`) and per-language helpers. Thresholds come from `_get_language_thresholds(language)`, a base dict plus per-language overrides.
+- Word sets keyed by language (`COMPARATIVE_PARTICLES`, `INFINITIVE_GOVERNING_VERBS`, the forbidden-sentence-final sets, …) take a new key. The three *pooled* sets in `sentence_splitter.py` (`CONNECTOR_WORDS`, `COORDINATING_CONJUNCTIONS`, `CONTINUATIVE_AUXILIARY_VERBS`) are shared by es/en/fr/de and must NOT be appended to for a new language: words like `logo`/`vamos`/`vais` legitimately end sentences elsewhere. Follow the Portuguese pattern instead — a `PT_*` set unioned onto the instance in `SentenceSplitter.__init__`.
 - Tune thresholds centrally without rewriting logic
 - Additional output formats can be added in the writer layer
 
 ## Known limitations
 
-- Non EN/ES/FR languages are experimental (DE was demoted from primary in v0.8.7; German processing code is still present and functional)
+- Non EN/ES/FR/PT languages are experimental (DE was demoted from primary in v0.8.7; German processing code is still present and functional)
+- Portuguese uses the light formatting path shared with EN/FR/DE, so it inherits that path's limitations: the location-comma heuristic runs before spaCy capitalization (so "de Lisboa Portugal" gets no comma, exactly as EN "from London England" does), and question detection matches on the first token only (so "a que horas …" is missed). Portuguese does NOT get the Spanish inverted `¿`/`¡` handling, which is correct — Portuguese has no opening marks.
 - spaCy capitalization requires language models; disabled if unavailable
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
 - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
@@ -287,7 +289,7 @@ flowchart TD
   - Enables comprehensive debugging with split metadata
   - Future splitting features only require changes to one class
 - **Implementation**: `SentenceSplitter` class with priority hierarchy: Grammatical guards → Speaker continuity → Speaker boundaries → Whisper boundaries → Semantic splitting
-- **Impact**: Solved the period-before-same-speaker-connector bug across all languages (ES/EN/FR/DE)
+- **Impact**: Solved the period-before-same-speaker-connector bug across all languages (ES/EN/FR/PT/DE)
 
 ### Unified Sentence Formatting (2025 - v0.5.0)
 - **Problem solved**: Post-processing merge operations were scattered across `podscripter.py` with no coordination with speaker boundaries, causing cross-speaker merge bugs (e.g., "jugar. Es que..." incorrectly merging as "jugar.es" across different speakers).

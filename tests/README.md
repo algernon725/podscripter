@@ -66,6 +66,8 @@ Tests are categorized using pytest markers (defined in `pyproject.toml`):
 
 ## EN/ES/FR audio fixtures (Tier 1 regression)
 
+> Portuguese (`pt`) is a supported language but has **no** Tier 1 audio fixtures yet — the clips still need to be added to the HuggingFace dataset. Adding a `tests/fixtures/audio/pt/` directory requires no code change (discovery is glob-based); follow the Tier 3 recipe below and bump `HF_REVISION` in the same PR. Use the plain `questions` pattern tag, never `spanish-questions` (Portuguese has no `¿`).
+
 `tests/test_audio_fixtures.py` runs the full pipeline (ASR + diarization + punctuation +
 formatting) on a small corpus of real audio for English, Spanish, and French. Each fixture
 is described by a JSON file under `tests/fixtures/audio/<lang>/<name>.expected.json` and the

@@ -25,7 +25,7 @@ SOFTWARE.
 
 """
 Transcribe audio files into sentences and save as TXT or SRT files.
-Primary language focus: English (en), Spanish (es), French (fr).
+Primary language focus: English (en), Spanish (es), French (fr), Portuguese (pt).
 Other languages are considered experimental.
 """
 
@@ -51,10 +51,42 @@ from punctuation_restorer import (
     restore_punctuation,
     _normalize_comma_spacing,
 )
-from domain_utils import fix_spaced_domains, mask_domains, unmask_domains
+from domain_utils import (
+    fix_spaced_domains,
+    mask_domains,
+    unmask_domains,
+    UPPER_ACCENTED,
+    LOWER_ACCENTED,
+)
 from sentence_splitter import Sentence, Utterance
 
-FOCUS_LANGS = {"en", "es", "fr"}
+FOCUS_LANGS = {"en", "es", "fr", "pt"}
+
+# Function words the punctuation restorer sometimes over-capitalizes mid-sentence,
+# per language. Used by the TXT writer's _fix_mid_sentence_capitals().
+#
+# KNOWN ISSUE (pre-existing, deliberately preserved here): languages without an
+# entry fall back to the Spanish list, which is what every language did before
+# this map existed. That is wrong for en/fr/de — it lowercases English "A"/"O"
+# mid-sentence ("Section A Contains" -> "Section a Contains") — but changing it
+# is a behavior change for those languages and belongs in its own commit with its
+# own regression run. Portuguese gets a correct list rather than inheriting the
+# Spanish one, which is the only change here.
+_MID_SENTENCE_LOWERCASE_WORDS: dict[str, tuple[str, ...]] = {
+    'es': (
+        'Y', 'E', 'O', 'U', 'A', 'De', 'En', 'Por', 'Para', 'Con', 'Sin',
+        'Sobre', 'Entre', 'Pero', 'Ni', 'Mas', 'Sino', 'Desde', 'Hasta', 'Hacia',
+        'La', 'El', 'Los', 'Las', 'Un', 'Una', 'Unos', 'Unas',
+        'Aquí', 'Ahí', 'Allí', 'También', 'Todo', 'Todos', 'Toda', 'Todas',
+    ),
+    'pt': (
+        'E', 'Ou', 'Mas', 'Nem', 'A', 'O', 'As', 'Os', 'De', 'Do', 'Da',
+        'Dos', 'Das', 'Em', 'No', 'Na', 'Nos', 'Nas', 'Ao', 'À', 'Aos', 'Às',
+        'Pelo', 'Pela', 'Por', 'Para', 'Com', 'Sem', 'Sobre', 'Entre',
+        'Até', 'Desde', 'Um', 'Uma', 'Uns', 'Umas',
+        'Aqui', 'Ali', 'Lá', 'Também', 'Todo', 'Todos', 'Toda', 'Todas',
+    ),
+}
 
 DEFAULT_CHUNK_SEC = 480
 DEFAULT_OVERLAP_SEC = 3
@@ -137,7 +169,7 @@ def validate_language_code(language_code: str | None) -> str | None:
         return language_code
     logger.warning(f"Language code '{language_code}' not in common list.")
     logger.info("Primary language codes:")
-    for code in ["en","es","fr"]:
+    for code in sorted(FOCUS_LANGS):
         if code in supported:
             logger.info(f"  {code}: {supported[code]}")
     logger.info("Experimental language codes:")
@@ -232,7 +264,7 @@ def transcribe(
     Args:
         media_file: Path to the input media file.
         output_format: "txt" for sentences or "srt" for subtitles.
-        language: Language code (e.g., "en", "es", "fr", "de"). If None, auto-detect.
+        language: Language code (e.g., "en", "es", "fr", "pt", "de"). If None, auto-detect.
         translate_to_english: If True, run Whisper with task="translate" (English output).
         single_call: If True, transcribe the whole file in one pass; otherwise chunk with overlap.
         model: Optional preloaded faster_whisper.WhisperModel instance to reuse.
@@ -448,20 +480,19 @@ def _write_txt(sentences, output_file, language: str | None = None):
         """
         Fix incorrectly capitalized words mid-sentence.
         The punctuation restorer sometimes capitalizes common words (connectors, articles) mid-sentence.
-        Examples: 
+        Examples:
           - "best Y aquí" -> "best y aquí"
           - "best. Y aquí" -> "best. y aquí"
-        
-        Strategy: Lowercase common Spanish words when preceded by space/punctuation (not hyphens).
-        _capitalize_first_letter() will re-capitalize the first word if it's truly at sentence start.
+
+        Strategy: Lowercase common function words for the transcript's language when
+        preceded by space/punctuation (not hyphens). _capitalize_first_letter()
+        will re-capitalize the first word if it's truly at sentence start.
         """
         import re
-        # Common Spanish connectors and articles that are usually lowercase unless starting a sentence
-        common_words = ['Y', 'E', 'O', 'U', 'A', 'De', 'En', 'Por', 'Para', 'Con', 'Sin', 
-                       'Sobre', 'Entre', 'Pero', 'Ni', 'Mas', 'Sino', 'Desde', 'Hasta', 'Hacia',
-                       'La', 'El', 'Los', 'Las', 'Un', 'Una', 'Unos', 'Unas', 
-                       'Aquí', 'Ahí', 'Allí', 'También', 'Todo', 'Todos', 'Toda', 'Todas']
-        
+        common_words = _MID_SENTENCE_LOWERCASE_WORDS.get(
+            language or '', _MID_SENTENCE_LOWERCASE_WORDS['es']
+        )
+
         # Lowercase these words only when they appear MID-SENTENCE (not at sentence starts)
         # After sentence-ending punctuation (.!?), words should stay capitalized as they start new sentences
         # This prevents lowercasing letters in acronyms like "B-E-S-T"
@@ -486,7 +517,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                 if s:
                     # SAFETY NET: Ensure space after sentence-ending punctuation
                     # (This may incorrectly add spaces to domains, but fix_spaced_domains() will fix them)
-                    s = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', s)
+                    s = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', s)
                     # Fix domains AFTER safety net (removes incorrectly added spaces from domains)
                     s = fix_spaced_domains(s, use_exclusions=True, language=language)
                     s = _fix_mid_sentence_capitals(s)
@@ -540,7 +571,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                         text = merged['text'].strip()
                         if text:
                             # SAFETY NET: Ensure space after sentence-ending punctuation
-                            text = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', text)
+                            text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', text)
                             # Fix domains AFTER safety net (removes incorrectly added spaces)
                             text = fix_spaced_domains(text, use_exclusions=True, language=language)
                             text = _fix_mid_sentence_capitals(text)
@@ -553,7 +584,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                     full_text = sentence_obj.text.strip()
                     if full_text:
                         # SAFETY NET: Ensure space after sentence-ending punctuation
-                        full_text = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', full_text)
+                        full_text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', full_text)
                         # Fix domains AFTER safety net (removes incorrectly added spaces)
                         full_text = fix_spaced_domains(full_text, use_exclusions=True, language=language)
                         full_text = _fix_mid_sentence_capitals(full_text)
@@ -568,7 +599,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                 
                 # SAFETY NET: Ensure space after sentence-ending punctuation
                 # This catches any concatenations that slipped through earlier stages
-                s = re.sub(r'([.!?])([A-ZÁÉÍÓÚÑa-záéíóúñ¿¡])', r'\1 \2', s)
+                s = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', s)
                 
                 # Fix domains AFTER safety net (removes incorrectly added spaces from domains)
                 s = fix_spaced_domains(s, use_exclusions=True, language=language)
@@ -1448,7 +1479,7 @@ def main():
     parser = argparse.ArgumentParser(description="Transcribe audio/video to sentences (TXT) or subtitles (SRT).")
     parser.add_argument("media_file", help="Path to the media file to transcribe")
     parser.add_argument("--output_dir", required=True, help="Directory where output will be written")
-    parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr). Use 'auto' for auto-detect")
+    parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr, pt). Use 'auto' for auto-detect")
     parser.add_argument(
         "--model",
         dest="model_name",

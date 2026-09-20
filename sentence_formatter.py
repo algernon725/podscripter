@@ -47,6 +47,7 @@ from dataclasses import dataclass
 
 # Import Sentence and Utterance from sentence_splitter
 from sentence_splitter import Sentence, Utterance
+from domain_utils import SINGLE_TLDS_CONSERVATIVE
 
 logger = logging.getLogger("podscripter.formatter")
 
@@ -302,7 +303,7 @@ class SentenceFormatter:
         
         merged: List[Sentence] = []
         i = 0
-        tlds = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx"
+        tlds = SINGLE_TLDS_CONSERVATIVE
         
         while i < len(sentences):
             cur_obj = sentences[i]
@@ -634,6 +635,7 @@ class SentenceFormatter:
             'es': {'no', 'si', 'sí'},
             'fr': {'non', 'oui'},
             'de': {'nein', 'ja'},
+            'pt': {'não', 'nao', 'sim'},
         }
         
         allowed = emph_map.get(self.language, set())
@@ -687,9 +689,11 @@ class SentenceFormatter:
                             merged.append(sent_obj)
                         continue
                     
-                    # Normalize accents for Spanish
+                    # Normalize accents (ASR often drops them on these short words)
                     if self.language == 'es':
                         norm = ['sí' if w.lower() in {'si', 'sí'} else 'no' for w in words]
+                    elif self.language == 'pt':
+                        norm = ['não' if w.lower() in {'nao', 'não'} else 'sim' for w in words]
                     else:
                         norm = [w.lower() for w in words]
                     

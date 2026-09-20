@@ -48,6 +48,12 @@ def test_txt_writer_with_correct_punctuation():
             'should_have': '177 und 184',
             'name': 'German'
         },
+        {
+            'language': 'pt',
+            'sentence': "Mas se você quiser ouvir os episódios anteriores, pode ir ao episódio 147,151,156,164,170,177 e 184. O episódio mais recente foi o 184.",
+            'should_have': '177 e 184',
+            'name': 'Portuguese'
+        },
     ]
 
     for case in test_cases:
@@ -84,6 +90,7 @@ def test_simple_number_lists_all_languages():
         ('en', 'The episodes are 1, 2, 3 and 4. Then continue.', '3 and 4'),
         ('fr', 'Les épisodes sont 1, 2, 3 et 4. Ensuite continue.', '3 et 4'),
         ('de', 'Die Episoden sind 1, 2, 3 und 4. Dann fortfahren.', '3 und 4'),
+        ('pt', 'Os episódios são 1, 2, 3 e 4. Depois continue.', '3 e 4'),
     ]
 
     for lang, sentence, pattern in test_cases:

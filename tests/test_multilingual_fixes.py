@@ -33,6 +33,13 @@ _sentence_cases = [
     ("de", "Diese Momente, in denen du keine Konversation aufrechterhalten konntest"),
     ("de", "Nun mach dir keine Sorgen"),
     ("de", "Deutsch ist das Werkzeug, das du gesucht hast, um dein Deutsch zu verbessern"),
+    ("pt", "Olá a todos"),
+    ("pt", "Bem-vindos ao Português"),
+    ("pt", "Português é o podcast que vai ajudar você a falar português"),
+    ("pt", "Você se lembra de todos aqueles momentos em que não sabia o que dizer"),
+    ("pt", "Aqueles momentos em que você não conseguia manter uma conversa"),
+    ("pt", "Bem, não se preocupe"),
+    ("pt", "Português é a ferramenta que você procurava para melhorar o seu português"),
 ]
 
 
@@ -83,10 +90,23 @@ _transcription_texts = {
 
         Deutsch ist das Werkzeug das du gesucht hast
         """,
+    'pt': """
+        Olá a todos
+
+        Bem-vindos ao Português
+
+        Português é o podcast que vai ajudar você
+
+        Você se lembra de todos aqueles momentos
+
+        Bem, não se preocupe
+
+        Português é a ferramenta que você procurava
+        """,
 }
 
 
-@pytest.mark.parametrize("language", ["en", "fr", "de"])
+@pytest.mark.parametrize("language", ["en", "fr", "de", "pt"])
 def test_transcription_simulation(language):
     """Test transcription logic produces properly punctuated sentences."""
     text = _transcription_texts[language]

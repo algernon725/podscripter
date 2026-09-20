@@ -125,7 +125,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 ### Formatting internals (centralized constants and helpers)
 
-- Centralized thresholds/configs: `LanguageConfig` via `get_language_config(language)` and `_get_language_thresholds(language)` control Spanish semantic thresholds (`semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`) and splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`). Also provides per-language greetings and question-starter lists for en/fr/de/es.
+- Centralized thresholds/configs: `LanguageConfig` via `_get_language_config(language)` and `_get_language_thresholds(language)` (a base dict plus per-language overrides; `es` and `pt` share the Romance split profile) control Spanish semantic thresholds (`semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`) and splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`). Also provides per-language greetings and question-starter lists for en/fr/de/es/pt.
 - Per-language constants in `punctuation_restorer.py`:
   - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`, `ES_CONNECTORS`, `ES_POSSESSIVES`.
   - French/German: `FR_GREETINGS`, `DE_GREETINGS`, `FR_QUESTION_STARTERS`, `DE_QUESTION_STARTERS`.
@@ -138,7 +138,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 ## Sentence splitting (4-signal hybrid)
 
-Language-agnostic across EN/ES/FR/DE:
+Language-agnostic across EN/ES/FR/PT/DE:
 1. Grammatical guards — avoid ending sentences on coordinating conjunctions, prepositions, and continuative/auxiliary verbs.
 2. Semantic coherence — Sentence-Transformers similarity confirms low-coherence boundaries.
 3. Configurable thresholds — minimum chunk length, overall length, capital/semantic break limits.

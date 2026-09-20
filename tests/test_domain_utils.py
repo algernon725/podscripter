@@ -202,3 +202,64 @@ def test_popular_tlds_still_work():
     for input_text, expected_masked in popular_tld_cases:
         masked = mask_domains(input_text, use_exclusions=False)
         assert expected_masked in masked, f"Expected {expected_masked} in {masked}"
+
+
+# --- Portuguese support -------------------------------------------------
+
+
+def test_portuguese_com_not_rejoined_across_sentence_break():
+    """'com' means 'with' in Portuguese and must never trigger a domain rejoin.
+
+    Without this guard, "O projeto acabou. Com ele..." would be corrupted into
+    "O projeto acabou.com ele...".
+    """
+    text = "O projeto acabou. Com ele foi embora."
+    assert fix_spaced_domains(text, language='pt') == text
+
+    # Spanish and English keep the previous behavior (".com" is rejoined).
+    assert fix_spaced_domains("Visit google. com", language='en') == "Visit google.com"
+
+
+def test_portuguese_contiguous_com_domain_is_still_masked():
+    """A real, contiguous ".com" must still be protected for Portuguese.
+
+    The suppression above applies only to the spaced-rejoin path, so genuine
+    domains that arrive intact are not lost.
+    """
+    masked = mask_domains("Visite exemplo.com hoje", language='pt')
+    assert "exemplo__DOT__com" in masked
+    assert unmask_domains(masked) == "Visite exemplo.com hoje"
+
+
+def test_portuguese_de_tld_suppressed():
+    """'de' is as common in Portuguese as in Spanish, so .de is suppressed."""
+    text = "Ele falou. De manhã cedo."
+    assert fix_spaced_domains(text, language='pt') == text
+    assert "__DOT__" not in mask_domains("tratada.de manhã", language='pt')
+
+
+def test_pt_tld_is_recognized():
+    """.pt is the dominant TLD for European Portuguese content."""
+    assert "publico__DOT__pt" in mask_domains("Leia o publico.pt hoje", language='pt')
+
+
+def test_portuguese_exclusions_protect_common_words():
+    """Common Portuguese words must not be treated as domain labels."""
+    for word in ("voce", "você", "não", "muito", "ainda", "tudo"):
+        text = f"{word}.org"
+        masked = mask_domains(text, use_exclusions=True, language='pt')
+        assert "__DOT__" not in masked, f"{word!r} should be excluded, got {masked!r}"
+
+
+def test_spanish_domain_behavior_unchanged():
+    """The _tlds_for refactor must not alter Spanish behavior."""
+    text = "Necesita ser tratada. De hecho naturales. Es bueno"
+    assert fix_spaced_domains(text, language='es') == text
+    assert "google__DOT__com" in mask_domains("Visita google.com ahora", language='es')
+
+
+def test_domain_safe_split_pattern_covers_portuguese_capitals():
+    """The split pattern must recognize Ã/Õ/Ç as sentence-initial capitals."""
+    pattern = _get_domain_safe_split_pattern()
+    for ch in ("Ã", "Õ", "Ç", "Â", "Ê", "Ô", "À"):
+        assert re.search(pattern, f"fim. {ch}gua"), f"{ch} not treated as a capital"

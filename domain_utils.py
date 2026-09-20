@@ -12,21 +12,89 @@ from typing import Callable
 
 
 # Centralized TLD and exclusion patterns
-SINGLE_TLDS = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|br|ca|au"
+SINGLE_TLDS = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|br|ca|au|pt"
 COMPOUND_TLDS = r"co\.uk|com\.ar|com\.mx|com\.br|com\.au|co\.jp|co\.in|gov\.uk|org\.uk|ac\.uk"
+
+# A deliberately narrower TLD list, historically copy-pasted into several call
+# sites outside this module (sentence_formatter, punctuation_restorer). It omits
+# the country TLDs that most often collide with ordinary words (de, fr, br, ca,
+# au). Kept separate from SINGLE_TLDS on purpose: widening those call sites to
+# the full list would change Spanish and English behavior.
+SINGLE_TLDS_CONSERVATIVE = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|pt"
+
+# Uppercase/lowercase accented Latin characters used by the supported languages.
+# Defined here (the leaf module) so punctuation_restorer and podscripter can share
+# them without an import cycle. The Spanish-era classes ([A-ZÁÉÍÓÚÑ]) predate
+# Portuguese support and omit the nasal/circumflex vowels and the cedilla.
+UPPER_ACCENTED = "ÁÉÍÓÚÑÃÕÂÊÔÀÇÜ"
+LOWER_ACCENTED = "áéíóúñãõâêôàçü"
 
 # Spanish words that should NOT be treated as domain labels
 # These are common words that might appear before TLD-like suffixes in normal Spanish text
 SPANISH_EXCLUSIONS = r"uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|este|esta|ese|esa|aquel|aquella|el|la|lo|los|las|mi|tu|su|nuestro|vuestro|han|son|fue|era|muy|mas|pero|por|para|con|sin|como|cuando|donde|porque|aunque|mientras|durante|desde|hasta|entre|sobre|bajo|ante|tras|hacia|según|contra|mediante|salvo|excepto|incluso|menos|antes|después|luego|entonces|ahora|aquí|ahí|allí|allá|ayer|hoy|mañana|siempre|nunca|jamás|también|tampoco|solo|sólo|tanto|tan|más|menos|mejor|peor|mayor|menor|mismo|misma|otro|otra|cada|todo|toda|algún|alguna|ningún|ninguna|varios|varias|mucho|mucha|poco|poca|bastante|demasiado|algo|nada|alguien|nadie|cualquier|cualquiera"
+
+# Portuguese words that should NOT be treated as domain labels. Applied in
+# addition to SPANISH_EXCLUSIONS when language == 'pt' (many entries overlap:
+# "também", "entre", "durante", "desde", "nada", "algo").
+# Unaccented variants are included deliberately: ASR output frequently drops
+# Portuguese diacritics, and an unaccented "voce"/"nao" must be excluded too.
+PORTUGUESE_EXCLUSIONS = r"um|uma|dois|duas|três|tres|quatro|cinco|seis|sete|oito|nove|dez|este|esta|esse|essa|aquele|aquela|o|a|os|as|meu|minha|teu|tua|seu|sua|nosso|nossa|é|e|são|sao|foi|era|com|sem|muito|muita|mais|menos|mas|por|para|como|quando|onde|porque|embora|enquanto|durante|desde|até|ate|entre|sobre|sob|ante|perante|contra|mediante|salvo|exceto|inclusive|antes|depois|logo|então|entao|agora|aqui|ali|lá|la|ontem|hoje|amanhã|amanha|sempre|nunca|jamais|também|tambem|tampouco|só|so|somente|tanto|tão|tao|melhor|pior|maior|menor|mesmo|mesma|outro|outra|cada|todo|toda|algum|alguma|nenhum|nenhuma|vários|varias|pouco|pouca|bastante|demais|algo|nada|alguém|alguem|ninguém|ninguem|qualquer|tudo|você|voce|vocês|voces|nós|nos|não|nao|ainda|pois"
+
+# TLDs suppressed per language because they collide with extremely common words.
+# Two tables, because the two entry points carry different risk:
+#   * mask_domains matches only a *contiguous* "label.tld", which in ASR output is
+#     almost always a genuine domain.
+#   * fix_spaced_domains actively rejoins "label. tld" across a sentence break,
+#     so it needs to be stricter.
+# Portuguese "com" (= "with") is the motivating case: ".com" must stay enabled for
+# masking (it is the most common real TLD) but must never trigger a rejoin, or
+# "acabou. Com ele" becomes "acabou.com ele".
+_TLD_SUPPRESSIONS = {
+    'es': {'de', 'es'},
+    'pt': {'de'},
+}
+_TLD_SUPPRESSIONS_SPACED = {
+    'es': {'de', 'es'},
+    'pt': {'de', 'com'},
+}
 
 # Masking tokens
 SINGLE_MASK = "__DOT__"
 COMPOUND_MASK = "_DOT_"
 
 
+def _tlds_for(language: str | None, spaced: bool = False) -> str:
+    """Return the single-TLD alternation for `language`.
+
+    Args:
+        language: Language code, or None for the unrestricted list.
+        spaced: True for the `fix_spaced_domains` (rejoin) path, which suppresses
+            more TLDs than the masking path.
+    """
+    table = _TLD_SUPPRESSIONS_SPACED if spaced else _TLD_SUPPRESSIONS
+    suppressed = table.get((language or '').lower())
+    if not suppressed:
+        return SINGLE_TLDS
+    return "|".join(t for t in SINGLE_TLDS.split("|") if t not in suppressed)
+
+
+def _is_excluded_label(label: str, language: str | None = None) -> bool:
+    """Check if a label is a common word that should not be treated as a domain.
+
+    The Spanish exclusions are applied for every language (long-standing
+    behavior: they are a useful generic stopword guard). Portuguese adds its own
+    list on top when language == 'pt'.
+    """
+    if re.match(rf"^({SPANISH_EXCLUSIONS})$", label, re.IGNORECASE):
+        return True
+    if language and language.lower() == 'pt':
+        return bool(re.match(rf"^({PORTUGUESE_EXCLUSIONS})$", label, re.IGNORECASE))
+    return False
+
+
 def _is_spanish_word(label: str) -> bool:
-    """Check if a label is a common Spanish word that should not be treated as a domain."""
-    return bool(re.match(rf"^({SPANISH_EXCLUSIONS})$", label, re.IGNORECASE))
+    """Back-compat alias for `_is_excluded_label` with no language context."""
+    return _is_excluded_label(label)
 
 
 def mask_domains(text: str, use_exclusions: bool = True, language: str | None = None) -> str:
@@ -46,24 +114,22 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str | None = 
         "Visit www.google.com" -> "Visit www__DOT__google__DOT__com"
         "Necesita ser tratada.de hecho" -> "Necesita ser tratada.de hecho" (Spanish: .de/.es excluded)
     """
-    # Exclude .de and .es TLDs for Spanish text since "de" and "es" are extremely common Spanish words
-    single_tlds = SINGLE_TLDS
-    if language and language.lower() == 'es':
-        single_tlds = single_tlds.replace('de|', '').replace('|de', '')
-        single_tlds = single_tlds.replace('es|', '').replace('|es', '')
-    
+    # Suppress TLDs that collide with very common words in this language
+    # (Spanish: .de/.es; Portuguese: .de). See _TLD_SUPPRESSIONS.
+    single_tlds = _tlds_for(language)
+
     def _mask_single(m):
         label = m.group(1)
         tld = m.group(2)
-        if use_exclusions and _is_spanish_word(label):
-            return m.group(0)  # Return unchanged if it's a Spanish word
+        if use_exclusions and _is_excluded_label(label, language):
+            return m.group(0)  # Return unchanged if it's a common word
         return f"{label}{SINGLE_MASK}{tld}"
-        
+
     def _mask_compound(m):
         label = m.group(1)
         compound_tld = m.group(2)
-        if use_exclusions and _is_spanish_word(label):
-            return m.group(0)  # Return unchanged if it's a Spanish word
+        if use_exclusions and _is_excluded_label(label, language):
+            return m.group(0)  # Return unchanged if it's a common word
         # Replace dots in compound TLD: "co.uk" -> "co_DOT_uk"
         masked_tld = compound_tld.replace('.', COMPOUND_MASK)
         return f"{label}{SINGLE_MASK}{masked_tld}"
@@ -72,8 +138,8 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str | None = 
         subdomain = m.group(1)  # e.g., "www."
         domain = m.group(2)     # e.g., "google"  
         tld = m.group(3)        # e.g., "com"
-        if use_exclusions and _is_spanish_word(domain):
-            return m.group(0)  # Return unchanged if the domain part is a Spanish word
+        if use_exclusions and _is_excluded_label(domain, language):
+            return m.group(0)  # Return unchanged if the domain part is a common word
         # Replace dots with mask tokens: "www.domain.tld" -> "www__DOT__domain__DOT__tld"
         return f"{subdomain.replace('.', SINGLE_MASK)}{domain}{SINGLE_MASK}{tld}"
     
@@ -81,8 +147,8 @@ def mask_domains(text: str, use_exclusions: bool = True, language: str | None = 
         subdomain = m.group(1)     # e.g., "www."
         domain = m.group(2)        # e.g., "bbc"
         compound_tld = m.group(3)  # e.g., "co.uk"
-        if use_exclusions and _is_spanish_word(domain):
-            return m.group(0)  # Return unchanged if the domain part is a Spanish word
+        if use_exclusions and _is_excluded_label(domain, language):
+            return m.group(0)  # Return unchanged if the domain part is a common word
         # Replace dots: "www.domain.co.uk" -> "www__DOT__domain__DOT__co_DOT_uk"
         masked_tld = compound_tld.replace('.', COMPOUND_MASK)
         return f"{subdomain.replace('.', SINGLE_MASK)}{domain}{SINGLE_MASK}{masked_tld}"
@@ -147,24 +213,24 @@ def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str | N
         "Visit google. com and uno. de" -> "Visit google.com and uno. de" (with exclusions)
         "Tratada. de hecho" -> "Tratada. de hecho" (Spanish: .de/.es excluded)
     """
-    # Exclude .de and .es TLDs for Spanish text since "de" and "es" are extremely common Spanish words
-    single_tlds = SINGLE_TLDS
-    if language and language.lower() == 'es':
-        single_tlds = single_tlds.replace('de|', '').replace('|de', '')
-        single_tlds = single_tlds.replace('es|', '').replace('|es', '')
-    
+    # Suppress TLDs that collide with very common words in this language. Stricter
+    # than the masking path: Portuguese also suppresses ".com" here, because "com"
+    # means "with" and this function rejoins across a sentence break
+    # ("acabou. Com ele" must NOT become "acabou.com ele").
+    single_tlds = _tlds_for(language, spaced=True)
+
     def _fix_single_tld(m):
         label = m.group(1)
         tld = m.group(2)
-        if use_exclusions and _is_spanish_word(label):
-            return m.group(0)  # Return unchanged if it's a Spanish word
+        if use_exclusions and _is_excluded_label(label, language):
+            return m.group(0)  # Return unchanged if it's a common word
         return f"{label}.{tld.lower()}"
-    
+
     def _fix_compound_tld(pattern_func):
         def _compound_replacer(m):
             label = m.group(1)
-            if use_exclusions and _is_spanish_word(label):
-                return m.group(0)  # Return unchanged if it's a Spanish word
+            if use_exclusions and _is_excluded_label(label, language):
+                return m.group(0)  # Return unchanged if it's a common word
             return pattern_func(m)
         return _compound_replacer
     
@@ -196,7 +262,7 @@ def _get_domain_safe_split_pattern() -> str:
     """
     # This pattern splits on sentence terminators followed by whitespace and capital letters
     # It should be used on masked text where domains are protected
-    return r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])"
+    return rf"(?<=[.!?])\s+(?=[A-Z{UPPER_ACCENTED}¿¡])"
 
 
 def apply_safe_text_processing(text: str, processing_func: Callable[[str], str], use_exclusions: bool = True, language: str | None = None) -> str:
