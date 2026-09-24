@@ -502,12 +502,12 @@ def _finalize_text_common(text: str, language: str | None = None) -> str:
         return text
     out = _normalize_mixed_terminal_punctuation(text)
     out = re.sub(r"\s+", " ", out)
-    # Domain masking exclusions. This call has always passed language='es'
-    # regardless of the transcript language; that is preserved for en/es/fr/de to
-    # avoid a behavior change, while 'pt' needs its own exclusions so that the
-    # Portuguese word "com" is not treated as a TLD.
-    mask_lang = 'pt' if (language or '').lower() == 'pt' else 'es'
-    masked = mask_domains(out, use_exclusions=True, language=mask_lang)
+    # Domain masking exclusions, resolved from the transcript's own language.
+    # Until v0.13.0 this call hardcoded 'es' for everything except 'pt', so en/fr/de
+    # inherited Spanish's .de/.es TLD suppression and could not recognise a German
+    # or Spanish national domain. The common-word guard is unaffected either way:
+    # _is_excluded_label() applies SPANISH_EXCLUSIONS for every language.
+    masked = mask_domains(out, use_exclusions=True, language=language)
     # Ensure single space after sentence punctuation when followed by a letter (including lowercase accented)
     # But NOT for person initials like "C.S." where the period is part of the initial
     # Use negative lookbehind to avoid: periods in ellipses, periods after single capital letters (initials)
