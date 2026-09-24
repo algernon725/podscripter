@@ -48,6 +48,7 @@ from dataclasses import dataclass
 # Import Sentence and Utterance from sentence_splitter
 from sentence_splitter import Sentence, Utterance
 from domain_utils import SINGLE_TLDS_CONSERVATIVE
+from language_support import is_tailored
 
 logger = logging.getLogger("podscripter.formatter")
 
@@ -299,6 +300,10 @@ class SentenceFormatter:
             List with domain splits merged
         """
         if not sentences:
+            return sentences
+        # Generic languages: no rejoin across a sentence break, for the same reason
+        # fix_spaced_domains() skips them ("Non lo so." + "Io non..." is not "so.io").
+        if not is_tailored(self.language):
             return sentences
         
         merged: List[Sentence] = []

@@ -108,12 +108,14 @@ class SentenceSplitter:
     # Before v0.13.0 these were three flat sets shared by es/en/fr/de, so every
     # language had every other language's function words forbidden as sentence
     # endings — a Spanish sentence could not end on a German auxiliary. Portuguese
-    # could not join that pool at all (see the note on ALL_* below) and was
-    # special-cased onto the instance instead; splitting the pools folds that
-    # workaround away and makes `pt` an ordinary key.
+    # could not join that pool at all and was special-cased onto the instance
+    # instead; splitting the pools folds that workaround away and makes `pt` an
+    # ordinary key.
     #
-    # An unrecognised language falls back to the union of every set, which is what
-    # such a language received before this refactor.
+    # A language with no entry gets empty pools, so its splits follow Whisper's
+    # punctuation and the speaker boundaries. Until v0.14.0 it got the union of
+    # every set instead, which mixed five languages: Italian could not end a
+    # sentence on "era", "ora" or "vai", yet got no guard for "il" or "sono".
 
     # Connector words that should not start a new sentence when same speaker continues
     CONNECTOR_WORDS_BY_LANG = {
@@ -254,15 +256,6 @@ class SentenceSplitter:
         },
     }
 
-    # Union fallback for a language with no entry above. This is NOT a per-language
-    # pool: it mixes languages, so 'logo' (an English noun), 'vamos' (Spanish),
-    # 'vais' (French) and 'ora' are all present and would forbid valid splits if
-    # used for a supported language. It exists only to preserve the pre-v0.13.0
-    # behavior for unrecognised languages.
-    ALL_CONNECTOR_WORDS = set().union(*CONNECTOR_WORDS_BY_LANG.values())
-    ALL_COORDINATING_CONJUNCTIONS = set().union(*COORDINATING_CONJUNCTIONS_BY_LANG.values())
-    ALL_CONTINUATIVE_AUXILIARY_VERBS = set().union(*CONTINUATIVE_AUXILIARY_VERBS_BY_LANG.values())
-
     # Function words of the language being *taught*, quoted inside the transcript.
     #
     # This tool targets language-learning podcasts, where the host speaks one
@@ -392,17 +385,15 @@ class SentenceSplitter:
         # Resolve the language-keyed word pools onto this instance. Every read
         # site uses self.X, so no other code changes when a language is added:
         # add a key to the three *_BY_LANG dicts above.
-        self.CONNECTOR_WORDS = self.CONNECTOR_WORDS_BY_LANG.get(
-            language, self.ALL_CONNECTOR_WORDS
-        )
+        # A language with no entry (a generic language) gets empty pools.
+        self.CONNECTOR_WORDS = self.CONNECTOR_WORDS_BY_LANG.get(language, frozenset())
         self.COORDINATING_CONJUNCTIONS = self.COORDINATING_CONJUNCTIONS_BY_LANG.get(
-            language, self.ALL_COORDINATING_CONJUNCTIONS
+            language, frozenset()
         )
         self.CONTINUATIVE_AUXILIARY_VERBS = self.CONTINUATIVE_AUXILIARY_VERBS_BY_LANG.get(
-            language, self.ALL_CONTINUATIVE_AUXILIARY_VERBS
+            language, frozenset()
         )
         # Words of the taught language that this one may not end a sentence on.
-        # Empty for an unrecognised language, which already gets the full union.
         self.QUOTED_TEACHING_WORDS = self.QUOTED_TEACHING_LANGUAGE_WORDS.get(
             language, frozenset()
         )

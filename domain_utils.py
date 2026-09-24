@@ -10,6 +10,8 @@ domain handling across the codebase.
 import re
 from typing import Callable
 
+from language_support import is_tailored
+
 
 # Centralized TLD and exclusion patterns
 SINGLE_TLDS = r"com|net|org|co|es|io|edu|gov|uk|us|ar|mx|de|fr|br|ca|au|pt"
@@ -212,7 +214,16 @@ def fix_spaced_domains(text: str, use_exclusions: bool = True, language: str | N
     Example:
         "Visit google. com and uno. de" -> "Visit google.com and uno. de" (with exclusions)
         "Tratada. de hecho" -> "Tratada. de hecho" (Spanish: .de/.es excluded)
+        "Non lo so. Io non ci credo." -> unchanged (language='it': generic, no rejoin)
     """
+    # Generic languages (no language-specific processing) get no rejoin at all.
+    # Every TLD is a potential common word in *some* language -- Italian "io"
+    # ("I") turned "Non lo so. Io non ci credo." into "so.io" -- and there is no
+    # per-language suppression table for them. Contiguous domains are still
+    # protected by mask_domains(). language=None keeps the unrestricted list.
+    if language is not None and not is_tailored(language):
+        return text
+
     # Suppress TLDs that collide with very common words in this language. Stricter
     # than the masking path: Portuguese also suppresses ".com" here, because "com"
     # means "with" and this function rejoins across a sentence break

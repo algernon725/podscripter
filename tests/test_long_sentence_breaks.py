@@ -293,15 +293,18 @@ class TestWordPoolLanguageIsolation(unittest.TestCase):
                     self.assertNotEqual(pool, other_pool,
                                         f"{lang!r} and {other!r} share a pool")
 
-    def test_unknown_language_falls_back_to_the_union(self):
-        """A language with no entry keeps the pre-v0.13.0 pooled behavior."""
+    def test_unknown_language_gets_empty_pools(self):
+        """A language with no entry gets no grammatical guards (since v0.14.0).
+
+        It used to get the five-language union, which forbade valid Italian
+        sentence endings ("era", "ora", "vai") while guarding none of Italian's
+        own function words. Empty pools let splits follow Whisper's punctuation.
+        """
         splitter = self._splitter('it')
-        self.assertEqual(splitter.CONNECTOR_WORDS,
-                         SentenceSplitter.ALL_CONNECTOR_WORDS)
-        self.assertEqual(splitter.COORDINATING_CONJUNCTIONS,
-                         SentenceSplitter.ALL_COORDINATING_CONJUNCTIONS)
-        self.assertEqual(splitter.CONTINUATIVE_AUXILIARY_VERBS,
-                         SentenceSplitter.ALL_CONTINUATIVE_AUXILIARY_VERBS)
+        self.assertEqual(set(self._all_pools(splitter)), set(),
+                         "generic language got a word pool")
+        self.assertFalse(splitter._violates_grammatical_rules('era', 'Molto'),
+                         "'era' must not block an Italian sentence ending")
 
     def test_class_level_dicts_are_not_mutated(self):
         """Resolution must bind instance attributes, never edit the class dicts."""

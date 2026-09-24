@@ -169,7 +169,7 @@ flowchart TD
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
-  - Automatic spaCy capitalization (always enabled) with mixed-language support:
+  - Automatic spaCy capitalization (always enabled for tailored languages; skipped in generic mode) with mixed-language support:
     - English phrase detection in Spanish transcriptions using spaCy language detection or linguistic heuristics
     - Multi-layered location handling: spaCy NER + cross-linguistic analysis + conservative contextual patterns
     - Prevents English phrase over‑capitalization (e.g., "I am Going To Test" → "I am going to test")
@@ -262,16 +262,16 @@ flowchart TD
 ## Extensibility
 
 - Add languages via `LanguageConfig` (built by `_get_language_config(language)`) and per-language helpers. Thresholds come from `_get_language_thresholds(language)`, a base dict plus per-language overrides.
-- Word sets keyed by language (`COMPARATIVE_PARTICLES`, `INFINITIVE_GOVERNING_VERBS`, the forbidden-sentence-final sets, …) take a new key. Since v0.13.0 that includes the three splitter word pools: add a key to `CONNECTOR_WORDS_BY_LANG`, `COORDINATING_CONJUNCTIONS_BY_LANG` and `CONTINUATIVE_AUXILIARY_VERBS_BY_LANG` in `sentence_splitter.py`; `__init__` resolves them onto `self.*` and every read site already uses `self.`. They were a single shared es/en/fr/de pool until v0.13.0, which is why Portuguese had to be special-cased onto the instance — that workaround is gone. An unrecognised language falls back to `ALL_*`, the union, which is not a valid per-language pool (it mixes `logo`/`vamos`/`vais`/`ora`) and exists only for backward compatibility.
+- Word sets keyed by language (`COMPARATIVE_PARTICLES`, `INFINITIVE_GOVERNING_VERBS`, the forbidden-sentence-final sets, …) take a new key. Since v0.13.0 that includes the three splitter word pools: add a key to `CONNECTOR_WORDS_BY_LANG`, `COORDINATING_CONJUNCTIONS_BY_LANG` and `CONTINUATIVE_AUXILIARY_VERBS_BY_LANG` in `sentence_splitter.py`; `__init__` resolves them onto `self.*` and every read site already uses `self.`. They were a single shared es/en/fr/de pool until v0.13.0, which is why Portuguese had to be special-cased onto the instance — that workaround is gone. A language with no key gets empty pools (since v0.14.0; it previously got the mixed-language union, which forbade valid Italian endings like `era`/`ora`).
 - `QUOTED_TEACHING_LANGUAGE_WORDS` additionally forbids ending a sentence on a function word of the language being *taught* — language-learning podcasts quote the target language as vocabulary ("Esa palabra, so, tiene más de diez traducciones"). Add a key for a new language if its speakers commonly teach another.
 - Tune thresholds centrally without rewriting logic
 - Additional output formats can be added in the writer layer
 
 ## Known limitations
 
-- Non EN/ES/FR/PT languages are experimental (DE was demoted from primary in v0.8.7; German processing code is still present and functional)
+- Only languages with a spaCy model in the image (EN/ES/FR/PT, plus DE, experimental since v0.8.7) get language-specific processing. Every other Whisper language runs in generic mode (v0.14.0): the output is Whisper's own text in sentences and paragraphs, with no question detection, domain rejoining, grammatical split guards or capitalization. `language_support.is_tailored()` is the single predicate, derived at runtime from `spacy.util.get_installed_models()`.
 - Portuguese uses the light formatting path shared with EN/FR/DE, so it inherits that path's limitations: the location-comma heuristic runs before spaCy capitalization (so "de Lisboa Portugal" gets no comma, exactly as EN "from London England" does), and question detection matches on the first token only (so "a que horas …" is missed). Portuguese does NOT get the Spanish inverted `¿`/`¡` handling, which is correct — Portuguese has no opening marks.
-- spaCy capitalization requires language models; disabled if unavailable
+- spaCy capitalization requires language models; disabled if unavailable (generic mode)
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
 - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
 - **WIP**: Person initials (e.g., "C.S. Lewis", "J.K. Rowling") in non-English transcriptions may still split into separate sentences. Infrastructure is in place (`_normalize_initials_and_acronyms()`) but requires additional masking to protect initials through spaCy processing. See AGENTS.md "Known Open Issues" for details.
@@ -331,7 +331,9 @@ Tests: `tests/test_whisper_boundary_integration.py` covers extraction, gating, a
 
 Podscripter optionally uses speaker diarization to detect when speakers change, providing high-priority hints for sentence boundaries.
 
-**Library**: pyannote.audio 3.3.2
+**Library**: pyannote.audio 4.0.4 (community-1 pipeline)
+
+**Language**: diarization is purely acoustic (segmentation + speaker embeddings + clustering; the pipeline config has no language key), so it runs the same for every language, tailored or generic.
 
 **Integration**: Full speaker segment information (with labels and ranges) is threaded through the entire punctuation pipeline to enable speaker-aware sentence splitting.
 
@@ -447,5 +449,6 @@ Debugging:
 - `sentence_formatter.py`: unified post-processing merge operations with speaker-aware decisions (v0.5.0+)
 - `punctuation_restorer.py`: punctuation restoration, language formatting, capitalization
 - `domain_utils.py`: centralized domain detection, masking, and Spanish false domain prevention
+- `language_support.py`: which languages are tailored vs generic (`is_tailored()`), derived from the installed spaCy models; Whisper language-code validation
 - `speaker_diarization.py`: speaker change detection and boundary extraction (optional feature)
 - `Dockerfile`: runtime and dependency setup

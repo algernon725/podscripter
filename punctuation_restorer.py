@@ -85,6 +85,7 @@ from domain_utils import (
     LOWER_ACCENTED,
 )
 from sentence_splitter import SentenceSplitter, Sentence
+from language_support import is_tailored, spacy_model_name
 
 # Suppress PyTorch FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
@@ -1334,6 +1335,13 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         # ALWAYS return both the text AND the sentences list (v0.4.0+)
         # v0.6.0: Return Sentence objects instead of strings
         return result, formatted_sentence_objects
+    elif not is_tailored(language):
+        # Generic language: keep the splitter's sentences as Whisper wrote them.
+        # _apply_semantic_punctuation() above already reduced to "add '.' only if
+        # no terminal of any script is present" for these languages. No spaCy
+        # capitalization, greeting commas or location-appositive commas: every one
+        # of those is a per-language rule, and English stand-ins corrupt the text.
+        result = ' '.join(s.strip() for s in punctuated_sentences if s.strip())
     else:
         # Apply light, language-aware formatting for non-Spanish languages
         # Format each sentence individually
@@ -1359,17 +1367,17 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         result_capitalized = _apply_spacy_capitalization(result_masked_for_spacy, language)
         result = unmask_domains(result_capitalized)
 
-    # Fix location appositive punctuation across languages
-    result = _fix_location_appositive_punctuation(result, language)
-    
-    # Final universal cleanup
-    result = _finalize_text_common(result, language)
+        # Fix location appositive punctuation across languages
+        result = _fix_location_appositive_punctuation(result, language)
+
+        # Final universal cleanup
+        result = _finalize_text_common(result, language)
     
     # Return tuple: (processed_text, sentences_list)
     # v0.4.0+: ALWAYS return sentences_list (never None)
     # v0.6.0: Return Sentence objects instead of strings
-    # Only non-Spanish reaches here; the Spanish branch returned its own
-    # formatted_sentence_objects above.
+    # Only non-Spanish (light or generic path) reaches here; the Spanish branch
+    # returned its own formatted_sentence_objects above.
     final_sentence_objects = []
     for idx, sent_text in enumerate(punctuated_sentences):
         if idx < len(sentence_objects) and sentence_objects[idx] is not None:
@@ -1529,6 +1537,27 @@ class PunctuationContext:
     SPANISH_SPECIFIC = "spanish_specific"          # Spanish-specific formatting context
 
 
+# Sentence terminals across scripts, for generic languages. Whisper writes these
+# natively (Japanese "。", Chinese "？", Arabic "؟", Hindi "।", Armenian "՞",
+# Amharic "።", Burmese "။"), and the tailored rule below only knows ".!?" -- it
+# turned "行きましょうか？" into "行きましょうか？." and "كيف حالك؟" into "كيف حالك؟?".
+# ';' is included because it is the Greek question mark (Whisper emits U+003B, the
+# NFC form of U+037E); in other scripts a trailing ';' is left alone, not rewritten.
+_GENERIC_TERMINALS = frozenset(".!?…‽;\u037e。！？｡؟۔।॥။።፧՜՞")
+# Closing quotes/brackets that may follow the terminal: «Ciao.» / 「はい。」
+_GENERIC_CLOSERS = "\"'”’»›)]}）」』】〉》"
+# Trailing clause punctuation replaced by the added period.
+_GENERIC_TRAILING_CLAUSE = " ,:，、：،"
+
+
+def _ensure_generic_terminal(text: str) -> str:
+    """Append '.' to a generic-language sentence only if it has no terminal at all."""
+    core = text.rstrip().rstrip(_GENERIC_CLOSERS)
+    if core and core[-1] in _GENERIC_TERMINALS:
+        return text
+    return text.rstrip(_GENERIC_TRAILING_CLAUSE) + '.'
+
+
 def _should_add_terminal_punctuation(text: str, language: str, context: str | None = None, model=None) -> str:
     """
     Centralized logic for determining what terminal punctuation to add.
@@ -1545,7 +1574,13 @@ def _should_add_terminal_punctuation(text: str, language: str, context: str | No
     Returns:
         The text with appropriate terminal punctuation added
     """
-    if not text or text.endswith(('.', '!', '?')):
+    if not text:
+        return text
+    if not is_tailored(language):
+        # No continuation words, question detection or short-phrase rules: those
+        # are all language-specific. Keep Whisper's terminal whatever its script.
+        return _ensure_generic_terminal(text)
+    if text.endswith(('.', '!', '?')):
         return text
     
     context = context or PunctuationContext.STANDALONE_SEGMENT
@@ -1751,6 +1786,10 @@ def has_question_indicators(sentence, language):
     Returns:
         bool: True if sentence has question indicators
     """
+    # A generic language has no question words; English ones would be guesses.
+    if not is_tailored(language):
+        return False
+
     sentence_lower = sentence.lower()
     
     # Question words (Spanish excludes standalone 'por' and 'de'; handled as phrases like 'por qué', 'de quién')
@@ -2012,6 +2051,10 @@ def _get_exclamation_patterns(language):
         ]
     }
 
+    # A generic language has no seeds: scoring it against English exclamations
+    # would be guessing, so is_exclamation_semantic() returns False instead.
+    if not is_tailored(language):
+        return []
     return exclamation_patterns.get(language, exclamation_patterns['en'])
 
 def _format_non_spanish_text(text: str, language: str) -> str:
@@ -2115,7 +2158,7 @@ def _format_non_spanish_text(text: str, language: str) -> str:
         if not p:
             # Use question mark if starts with typical question words
             starts_question = False
-            starters = _get_language_config(language).question_starters or EN_QUESTION_STARTERS
+            starters = _get_language_config(language).question_starters
             lower_s = s.lower()
             for w in starters:
                 if lower_s.startswith(w + ' '):
@@ -2140,20 +2183,18 @@ def _format_non_spanish_text(text: str, language: str) -> str:
 _SPACY_PIPELINES = {}
 
 def _get_spacy_pipeline(language: str):
+    """The spaCy pipeline for `language`, or None for a generic language.
+
+    Until v0.14.0 a language without a model silently got `en_core_web_sm`, whose
+    tagger marks out-of-vocabulary foreign words PROPN -- so Italian came back as
+    "Ciao a Tutti, Benvenuti Al Podcast". No model now means no spaCy pass.
+    """
     if language in _SPACY_PIPELINES:
         return _SPACY_PIPELINES[language]
-    model_map = {
-        'en': 'en_core_web_sm',
-        'es': 'es_core_news_sm',
-        'fr': 'fr_core_news_sm',
-        'de': 'de_core_news_sm',
-        'pt': 'pt_core_news_sm',
-    }
-    name = model_map.get(language)
+    name = spacy_model_name(language)
     if not name:
-        # Fallback to English for unsupported languages
-        name = 'en_core_web_sm'
-        logger.warning(f"Language '{language}' not supported for spaCy. Using English model as fallback.")
+        _SPACY_PIPELINES[language] = None
+        return None
     try:
         nlp = spacy.load(name, disable=["lemmatizer"])  # speed
         _SPACY_PIPELINES[language] = nlp
@@ -2348,7 +2389,7 @@ def _apply_spacy_capitalization(text: str, language: str) -> str:
     - Fix overcapitalized English words while preserving proper sentence starts
     """
     nlp = _get_spacy_pipeline(language)
-    if not text.strip():
+    if nlp is None or not text.strip():
         return text
 
     try:
@@ -2828,6 +2869,9 @@ def _get_question_patterns(language):
         ]
     }
 
+    # A generic language has no seeds (see _get_exclamation_patterns).
+    if not is_tailored(language):
+        return []
     return question_patterns.get(language, question_patterns['en'])
 
 

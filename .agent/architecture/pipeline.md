@@ -23,6 +23,7 @@ Core files:
 - `sentence_splitter.py` — all sentence-boundary decisions (`SentenceSplitter`).
 - `sentence_formatter.py` — all post-processing merges (`SentenceFormatter`).
 - `domain_utils.py` — domain detection and masking utilities.
+- `language_support.py` — `is_tailored(language)`: the single "supported language" predicate, derived from installed spaCy models. Leaf module (lazy spaCy import).
 - `speaker_diarization.py` — optional speaker diarization.
 
 ## Model caching strategy
@@ -117,7 +118,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 ### Centralized punctuation system
 
-- `_should_add_terminal_punctuation()` — single centralized function for all period/punctuation insertion decisions (strips trailing `,;: ` before adding terminal marks).
+- `_should_add_terminal_punctuation()` — single centralized function for all period/punctuation insertion decisions (strips trailing `,;: ` before adding terminal marks). For generic (non-tailored) languages it delegates to `_ensure_generic_terminal()`: append `.` only when no terminal of any script is present (`。？؟।;…`), with no question/continuation logic.
 - `PunctuationContext` — context-aware rules: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`.
 - Benefit: single source of truth; prevents bugs like "Ve a" -> "Ve a.".
 
@@ -154,7 +155,7 @@ Whisper boundary thresholds (via `_get_language_thresholds(language)`):
 
 ## Speaker diarization integration
 
-Optional, opt-in feature (disabled by default to avoid dependency bloat). Uses pyannote.audio 4.0.4 (community-1 pipeline) with Hugging Face model caching.
+Optional, opt-in feature (disabled by default to avoid dependency bloat). Uses pyannote.audio 4.0.4 (community-1 pipeline) with Hugging Face model caching. Language-independent (acoustic only), so it is never gated on language — generic-mode languages get it too.
 
 Priority: Speaker boundaries > Whisper boundaries > Semantic coherence. Speaker boundaries are passed SEPARATELY to `restore_punctuation()` (not merged with Whisper boundaries) and converted via `_convert_speaker_timestamps_to_char_positions()`. Speaker boundary checks happen BEFORE the general `min_chunk_before_split` threshold so short phrases can break.
 

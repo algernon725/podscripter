@@ -31,6 +31,7 @@ SOURCE_FILES = [
     "sentence_formatter.py",
     "speaker_diarization.py",
     "domain_utils.py",
+    "language_support.py",
 ]
 
 TERMINATORS = (ast.Return, ast.Raise, ast.Break, ast.Continue)

@@ -26,7 +26,9 @@ SOFTWARE.
 """
 Transcribe audio files into sentences and save as TXT or SRT files.
 Primary language focus: English (en), Spanish (es), French (fr), Portuguese (pt).
-Other languages are considered experimental.
+German (de) is experimental. Any other Whisper language is transcribed in
+generic mode: Whisper's own punctuation and capitalization are preserved, with no
+language-specific processing (see language_support.py).
 """
 
 import re
@@ -59,7 +61,12 @@ from domain_utils import (
     LOWER_ACCENTED,
 )
 from sentence_splitter import Sentence, Utterance
+from language_support import is_tailored, is_whisper_language
 
+# Messaging only: which tailored languages are "primary" vs "experimental" (de).
+# Behavior is driven by language_support.is_tailored(), the single notion of
+# "supported" since v0.14.0 -- this set, get_supported_languages() and the
+# scattered per-language literals used to disagree.
 FOCUS_LANGS = {"en", "es", "fr", "pt"}
 
 # Function words the punctuation restorer sometimes over-capitalizes mid-sentence,
@@ -168,6 +175,11 @@ __all__ = [
 ]
 
 def get_supported_languages() -> dict[str, str]:
+    """Display names for common language codes.
+
+    Not the set that gets language-specific processing -- that is
+    `language_support.tailored_languages()`. Any Whisper language code is accepted.
+    """
     return {
         'en': 'English','es': 'Spanish','fr': 'French','de': 'German','ja': 'Japanese','ru': 'Russian','cs': 'Czech',
         'it': 'Italian','pt': 'Portuguese','nl': 'Dutch','pl': 'Polish','tr': 'Turkish','ar': 'Arabic','zh': 'Chinese',
@@ -175,22 +187,34 @@ def get_supported_languages() -> dict[str, str]:
     }
 
 def validate_language_code(language_code: str | None) -> str | None:
+    """Return `language_code` if Whisper accepts it; None means auto-detect.
+
+    Raises:
+        InvalidInputError: the code is not a Whisper language. Raised up front so
+            a typo fails in under a second instead of after loading the model.
+    """
     if language_code is None:
         return None
-    supported = get_supported_languages()
-    if language_code in supported:
-        return language_code
-    logger.warning(f"Language code '{language_code}' not in common list.")
-    logger.info("Primary language codes:")
-    for code in sorted(FOCUS_LANGS):
-        if code in supported:
-            logger.info(f"  {code}: {supported[code]}")
-    logger.info("Experimental language codes:")
-    for code, name in supported.items():
-        if code not in FOCUS_LANGS:
-            logger.info(f"  {code}: {name} (experimental)")
-    logger.info("Whisper supports many more languages. The code will still work if it's valid.")
+    if not is_whisper_language(language_code):
+        raise InvalidInputError(
+            f"Unknown language code '{language_code}'. Use a Whisper language code "
+            f"(e.g. {', '.join(sorted(FOCUS_LANGS))}) or 'auto'."
+        )
     return language_code
+
+def _language_mode_label(language: str) -> str:
+    """Banner suffix describing how `language` is processed."""
+    if not is_tailored(language):
+        return " (generic — no language-specific processing)"
+    if language not in FOCUS_LANGS:
+        return " (experimental)"
+    return ""
+
+def _log_generic_language_notice(language: str) -> None:
+    logger.info(
+        f"Language '{language}' has no language-specific processing: Whisper's own "
+        "punctuation and capitalization are preserved as-is."
+    )
 
 def _detect_cpu_count() -> int:
     """
@@ -277,7 +301,9 @@ def transcribe(
     Args:
         media_file: Path to the input media file.
         output_format: "txt" for sentences or "srt" for subtitles.
-        language: Language code (e.g., "en", "es", "fr", "pt", "de"). If None, auto-detect.
+        language: Whisper language code (e.g., "en", "es", "fr", "pt", "de", "it"). If None,
+                  auto-detect. Codes without an installed spaCy model are processed in
+                  generic mode (Whisper's own text, no language-specific rules).
         translate_to_english: If True, run Whisper with task="translate" (English output).
         single_call: If True, transcribe the whole file in one pass; otherwise chunk with overlap.
         model: Optional preloaded faster_whisper.WhisperModel instance to reuse.
@@ -311,7 +337,7 @@ def transcribe(
             - elapsed_secs: float
 
     Raises:
-        InvalidInputError: Input file missing/unreadable or invalid args.
+        InvalidInputError: Input file missing/unreadable, unknown language code, or invalid args.
         ModelLoadError: Faster-Whisper model failed to load.
         TranscriptionError: Transcription failed.
         OutputWriteError: Failed to write output file.
@@ -359,7 +385,14 @@ def _display_transcription_info(media_file, model_name, language, beam_size, com
     logger.info("="*60)
     logger.info(f"File name:        {Path(media_file).name}")
     logger.info(f"Model:            {_whisper_display_name(model_name)}")
-    logger.info(f"Language:         {'Auto-detect' if language is None else language}")
+    if language is None:
+        language_desc = "Auto-detect"
+    elif translate_to_english:
+        # Output is English, so the source language's mode does not apply.
+        language_desc = language
+    else:
+        language_desc = language + _language_mode_label(language)
+    logger.info(f"Language:         {language_desc}")
     logger.info(f"Task:             {'translate' if translate_to_english else 'transcribe'}")
     logger.info(f"Beam size:        {beam_size}")
     logger.info(f"Compute type:     {compute_type}")
@@ -516,7 +549,26 @@ def _write_txt(sentences, output_file, language: str | None = None):
             text = re.sub(r'(?<![.!?])(\s)' + word + r'\b', r'\1' + word.lower(), text)
         
         return text
-    
+
+    # Generic languages get no domain *rejoin* (fix_spaced_domains is a no-op for
+    # them, since rejoining "so. Io" -> "so.io" corrupts Italian), so contiguous
+    # domains are masked instead to keep the safety net from splitting them.
+    mask_before_spacing = language is not None and not is_tailored(language)
+
+    def _space_after_terminals(text: str) -> str:
+        """SAFETY NET: ensure a space after sentence-ending punctuation.
+
+        Catches concatenations that slipped through earlier stages. The regex also
+        splits domains ("google.com" -> "google. com"); fix_spaced_domains() then
+        rejoins them for tailored languages.
+        """
+        if mask_before_spacing:
+            text = mask_domains(text, use_exclusions=True, language=language)
+        text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', text)
+        if mask_before_spacing:
+            text = unmask_domains(text)
+        return fix_spaced_domains(text, use_exclusions=True, language=language)
+
     with open(output_file, "w") as f:
         prev_speaker = None
         sentences_with_speaker_changes = 0
@@ -526,11 +578,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
             if not isinstance(sentence_obj, Sentence):
                 s = (sentence_obj or "").strip()
                 if s:
-                    # SAFETY NET: Ensure space after sentence-ending punctuation
-                    # (This may incorrectly add spaces to domains, but fix_spaced_domains() will fix them)
-                    s = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', s)
-                    # Fix domains AFTER safety net (removes incorrectly added spaces from domains)
-                    s = fix_spaced_domains(s, use_exclusions=True, language=language)
+                    s = _space_after_terminals(s)
                     s = _fix_mid_sentence_capitals(s)
                     s = _capitalize_first_letter(s)
                     f.write(f"{s}\n\n")
@@ -581,10 +629,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                     for idx, merged in enumerate(merged_utterances):
                         text = merged['text'].strip()
                         if text:
-                            # SAFETY NET: Ensure space after sentence-ending punctuation
-                            text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', text)
-                            # Fix domains AFTER safety net (removes incorrectly added spaces)
-                            text = fix_spaced_domains(text, use_exclusions=True, language=language)
+                            text = _space_after_terminals(text)
                             text = _fix_mid_sentence_capitals(text)
                             # Capitalize each utterance since they become separate paragraphs
                             text = _capitalize_first_letter(text)
@@ -594,10 +639,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                     # Some utterances are too short - keep sentence together
                     full_text = sentence_obj.text.strip()
                     if full_text:
-                        # SAFETY NET: Ensure space after sentence-ending punctuation
-                        full_text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', full_text)
-                        # Fix domains AFTER safety net (removes incorrectly added spaces)
-                        full_text = fix_spaced_domains(full_text, use_exclusions=True, language=language)
+                        full_text = _space_after_terminals(full_text)
                         full_text = _fix_mid_sentence_capitals(full_text)
                         full_text = _capitalize_first_letter(full_text)
                         f.write(f"{full_text}\n\n")
@@ -608,12 +650,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
                 if not s:
                     continue
                 
-                # SAFETY NET: Ensure space after sentence-ending punctuation
-                # This catches any concatenations that slipped through earlier stages
-                s = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', s)
-                
-                # Fix domains AFTER safety net (removes incorrectly added spaces from domains)
-                s = fix_spaced_domains(s, use_exclusions=True, language=language)
+                s = _space_after_terminals(s)
                 s = _fix_mid_sentence_capitals(s)
                 s = _capitalize_first_letter(s)
                 f.write(f"{s}\n\n")
@@ -1222,6 +1259,7 @@ def _transcribe_with_sentences(
         _, out_dir = _validate_paths(media_file, str(output_dir))
     else:
         out_dir = None
+    language = validate_language_code(language)
     effective_cpu_threads = _resolve_cpu_threads(cpu_threads)
     if not quiet:
         _display_transcription_info(
@@ -1352,6 +1390,8 @@ def _transcribe_with_sentences(
         if not quiet:
             logger.info("Restoring punctuation...")
         lang_for_punctuation = 'en' if translate_to_english else (detected_language if language is None else language)
+        if not quiet and lang_for_punctuation and not is_tailored(lang_for_punctuation):
+            _log_generic_language_notice(lang_for_punctuation)
         
         # Extract Whisper boundaries for debugging
         from punctuation_restorer import _extract_segment_boundaries
@@ -1471,7 +1511,10 @@ def main():
     for logger_name in ['podscripter.splitter', 'podscripter.formatter']:
         logging.getLogger(logger_name).setLevel(log_level)
     language_arg = args.language.strip().lower() if args.language else "auto"
-    language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
+    try:
+        language: str | None = None if language_arg in ("auto", "") else validate_language_code(language_arg)
+    except InvalidInputError as e:
+        logger.error(str(e)); sys.exit(2)
     # Determine model precedence: CLI > env var > default
     env_model = (os.environ.get("WHISPER_MODEL") or "").strip()
     effective_model_name = None
@@ -1520,7 +1563,8 @@ def main():
             raw_output_file = Path(args.output_dir) / f"{base_name}_raw.txt"
             task = "translate" if args.translate else "transcribe"
             try:
-                _write_raw(result['segments'], str(raw_output_file), result.get('detected_language'), task)
+                # detected_language is only set for auto-detect; fall back to the explicit code.
+                _write_raw(result['segments'], str(raw_output_file), result.get('detected_language') or language, task)
                 logger.info(f"Raw output written to: {raw_output_file}")
             except Exception as e:
                 logger.error(f"Failed to write raw output: {e}")

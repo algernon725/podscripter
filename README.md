@@ -17,7 +17,7 @@
 - **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
 - **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
-- **Primary Language Support**: English (en), Spanish (es), French (fr), Portuguese (pt). Other languages are experimental.
+- **Language Support**: tailored processing for English (en), Spanish (es), French (fr), Portuguese (pt) and experimental German (de). Every other Whisper language is transcribed in generic mode, which keeps Whisper's own punctuation and capitalization.
 - **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with automatic spaCy-based capitalization.
 - **Optional Speaker Diarization**: Detect speaker changes for improved sentence boundaries in multi-speaker content (interviews, conversations, podcasts).
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
@@ -115,8 +115,6 @@ This opens an interactive terminal inside the container. You'll run all transcri
   ```
 
 >💡 **Model Caching**: The first run will download models (~1-2 GB). Subsequent runs will use cached models for faster startup.
-
->⚙️ **NLP Capitalization**: The image enables spaCy-based capitalization by default (NLP_CAPITALIZATION=1). To disable per run, pass `-e NLP_CAPITALIZATION=0` to `docker run`.
 
 ## Usage
 
@@ -221,7 +219,7 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | -------------------- | ----------- |
 | `media_file`         | Path to the audio or video file (e.g. `audio-files/example.mp3` or `audio-files/example.mp4`) |
 | `--output_dir`       | Directory where the transcription file will be saved |
-| `--language`         | Language code. Primary: `en`, `es`, `fr`, `pt`. Others are experimental. Default `auto` (auto-detect) |
+| `--language`         | Any Whisper language code. Tailored: `en`, `es`, `fr`, `pt` (`de` experimental); others run in generic mode. An unknown code exits with status 2. Default `auto` (auto-detect) |
 | `--output_format`    | Output format: `txt` or `srt` (default `txt`) |
 | `--single`           | Bypass manual chunking and process the full file in one call |
 | `--compute-type`     | Compute type for faster-whisper: `auto`, `int8`, `int8_float16`, `int8_float32`, `float16`, `float32` (default `auto`) |
@@ -238,16 +236,21 @@ Hoy vamos a hablar de algunos consejos de viaje.
 
 ## Supported Languages
 
-PodScripter supports automatic language detection and manual language selection for the following languages:
+PodScripter accepts any language Whisper supports, either auto-detected or set with `--language`. Each language is processed in one of two modes:
 
-| Language | Code | Language | Code |
-|----------|------|----------|------|
-| English  | `en` | Spanish  | `es` |
-| French   | `fr` | Portuguese | `pt` |
+- **Tailored** — language-specific punctuation, sentence-splitting and capitalization rules, with tests. These are exactly the languages with a spaCy model in the Docker image:
 
-Portuguese covers both Brazilian and European variants under the single `pt` code.
+  | Language | Code | Language | Code |
+  |----------|------|----------|------|
+  | English  | `en` | Spanish  | `es` |
+  | French   | `fr` | Portuguese | `pt` |
+  | German (experimental) | `de` | | |
 
-**Note**: Whisper can transcribe many additional languages, but only the four listed above have project-level optimization and tests. Other languages are considered experimental.
+  Portuguese covers both Brazilian and European variants under the single `pt` code.
+
+- **Generic** — every other language (Italian, Russian, Japanese, …). The transcript keeps Whisper's own punctuation and capitalization, laid out in sentences and paragraphs, and no language-specific rule is applied. The run's parameter banner says so, e.g. `Language: it (generic — no language-specific processing)`.
+
+Speaker diarization (`--enable-diarization`) is purely acoustic and works the same for every language.
 
 ## Automatic NLP Capitalization (spaCy)
 
@@ -255,7 +258,7 @@ Punctuation restoration uses Sentence-Transformers with automatic spaCy-based ca
 
 - Always enabled - spaCy models are included in the Docker image.
 - Automatically capitalizes names, places, and organizations while preserving language-specific connectors like "de", "del", "y", etc.
-- For unsupported languages, falls back to the English model.
+- Generic-mode languages (no spaCy model in the image) skip this pass entirely.
 
 This feature is CPU-only and uses cached spaCy "sm" models baked into the image.
 

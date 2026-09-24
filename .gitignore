@@ -17,3 +17,6 @@ COMMIT_MESSAGE.txt
 # Local development files
 .devcontainer/
 .claude/settings.local.json
+
+# In-progress work plans (agent scratch, not project documentation)
+/.agent/plans/

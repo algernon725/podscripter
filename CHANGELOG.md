@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-24
+
+Languages without language-specific support now degrade to Whisper's own output instead of corrupting it. The program accepted 100 Whisper language codes but had per-language code for only five (`en`, `es`, `fr`, `de`, `pt` — the ones with a spaCy model in the image). Every other language silently received the **English** rules, the same defect v0.12.0 fixed for Portuguese alone.
+
+### Fixed
+- **English rules applied to every other language.** For `--language it` (or `ru`, `ja`, …, or an auto-detected language) the pipeline loaded `en_core_web_sm`, scored sentences against English question/exclamation seeds, scanned for `what`/`where`/`when`, and used English question openers. What reached the TXT file:
+  - Japanese/Chinese `？` became `？.`, Arabic `؟` became `؟?`, and Greek `;` (its question mark) was rewritten to `?` — the terminal check only knew `.!?`, and the English seeds matched.
+  - `restore_punctuation()`'s returned text capitalized every out-of-vocabulary token: "Ciao a tutti, benvenuti al podcast" → "Ciao a Tutti, Benvenuti Al Podcast". (That string is not what the TXT writer uses — see Notes.)
+  - **Fix**: a language is either *tailored* or *generic*. Generic languages get no spaCy pass, no English question/exclamation scoring, and an "add `.` only if no terminal of any script is present" rule in `_should_add_terminal_punctuation()`. `_transformer_based_restoration()` gains a third branch that keeps the splitter's sentences as-is.
+- **Italian `io` destroyed sentence breaks.** `io` ("I") is a TLD, so the domain rejoin turned "Non lo so. Io non ci credo." into **"Non lo so.io non ci credo."** in the TXT output — the Portuguese `.com` bug from v0.12.0 again, and independent of spaCy. There are three rejoin paths (`fix_spaced_domains()`, the TXT writer's safety net, `SentenceFormatter._merge_domains()`) and all three now skip generic languages. Contiguous domains stay protected: the TXT writer masks them before its space-after-punctuation safety net, so `google.com` and `podcast.io` survive without a rejoin.
+- **Mixed-language split guards.** A generic language got the union of all five languages' splitter word pools, so Italian could not end a sentence on `era`, `ora` or `vai` while getting no guard for `il` or `sono`. It now gets empty pools and splits follow Whisper's punctuation and speaker boundaries. This deliberately changes v0.13.0 behavior; the `ALL_*` union is removed.
+- **Invalid language codes failed late.** `--language klingon` was accepted, loaded the Whisper model, and died minutes later with exit 4. `validate_language_code()` now rejects anything that is not a Whisper code with `InvalidInputError` (exit 2) in about a second. `transcribe()` validates too.
+- **`--dump-raw` header said `Language: unknown`** whenever `--language` was passed explicitly; it now falls back to the requested code.
+
+### Added
+- **`language_support.py`**: `is_tailored(language)` is the single "supported language" predicate. It is derived at runtime from `spacy.util.get_installed_models()`, so the Dockerfile is the source of truth, and it replaces three sets that disagreed: `FOCUS_LANGS` (now messaging only), the 20-entry `get_supported_languages()` (display names only), and scattered `== 'es'/'en'/…` literals.
+- **Mode reporting**: the parameters banner reads `Language: it (generic — no language-specific processing)` (or `(experimental)` for `de`), and one INFO line says Whisper's punctuation is preserved, for explicit and auto-detected languages alike. This replaces the mid-run `Using English model as fallback` warning.
+- `tests/test_unsupported_languages.py` (54 cases): round-trip preservation for it/ru/ja/zh/el/ar through `restore_punctuation()` and through `_assemble_sentences()` + `_write_txt()`, the `.io` case, domain survival, a drift guard tying `tailored_languages()` to the installed spaCy models, a pin on faster-whisper's private `_LANGUAGE_CODES`, CLI exit 2 without a model load, and diarization reachability for a generic language.
+
+### Changed
+- `tests/test_long_sentence_breaks.py`: `test_unknown_language_falls_back_to_the_union` rewritten as `test_unknown_language_gets_empty_pools`.
+
+### Documentation
+- README / `docs/README.md`: "Supported Languages" describes the two tiers. Removed the documented `NLP_CAPITALIZATION=0` switch, which never existed in the code, and the line presenting the English-model fallback as a feature.
+- Diarization is documented as language-independent: the pyannote pipeline is purely acoustic and has no language setting (README, `ARCHITECTURE.md`, `.agent/architecture/pipeline.md`). Corrected the stale "pyannote.audio 3.3.2" in `ARCHITECTURE.md` (the pin is 4.0.4).
+
+### Notes
+- **Minor bump (0.14.0)**: output changes for generic languages only. en/es/fr/de/pt verified byte-identical with a text-level probe over `restore_punctuation()`, `_assemble_sentences()` and `_write_txt()`, diffed against a clean worktree of v0.13.0: **6,148 cases, 0 diffs** (1,229 strings seeded from the test suite × 5 languages, each with and without Whisper segments, plus 250 real Whisper segments from a local Spanish episode run as es/pt/en). Suite: 751 passed / 36 xfailed (was 695/36).
+- **Found en route, not changed**: in the en/fr/de/pt light path, the `Sentence` objects the TXT writer consumes are built from the sentences *before* `_format_non_spanish_text()` and the spaCy pass run. Those passes only reach `restore_punctuation()`'s joined text, so no language gets spaCy capitalization in its TXT output (`i met john smith in london` stays lowercase). Fixing that would change tailored output, so it belongs in its own release.
+
 ## [0.13.0] - 2026-09-24
 
 Completes the v0.12.0 follow-up list. Where v0.12.1 deleted code that never ran, this release fixes three places where per-language behavior was faked by falling back to Spanish. Each was verified with a text-level probe over `_assemble_sentences()` + `_write_txt()` across es/en/fr/de/pt — 213 cases, including three real Whisper dumps from `audio-files/Episodio3*_raw.txt` (1,240 Spanish segments).
