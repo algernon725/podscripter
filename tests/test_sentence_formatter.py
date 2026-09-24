@@ -295,6 +295,33 @@ def test_emphatic_merge_german():
     assert result[0] == "Nein, nein.", f"Expected 'Nein, nein.', got: {result[0]}"
 
 
+def test_emphatic_merge_portuguese():
+    """Portuguese emphatic merge, including the ASR-dropped-accent repair.
+
+    The 'pt' branch of _merge_emphatic_words() shipped in v0.12.0 with no test.
+    Whisper frequently drops Portuguese diacritics, so 'nao' must normalize to
+    'não' the way 'si' normalizes to 'sí' in Spanish.
+    """
+    sentences = ["Não.", "nao.", "Não."]
+    formatter = SentenceFormatter('pt', speaker_segments=None)
+    result, metadata = formatter.format(sentences)
+    result = _texts(result)
+
+    assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
+    assert result[0] == "Não, não, não.", f"Expected 'Não, não, não.', got: {result[0]}"
+    assert sum(1 for m in metadata if m.merge_type == 'emphatic') == 1
+
+
+def test_emphatic_merge_portuguese_sim():
+    """'Sim.' repeats merge too."""
+    formatter = SentenceFormatter('pt', speaker_segments=None)
+    result, _ = formatter.format(["Sim.", "Sim."])
+    result = _texts(result)
+
+    assert len(result) == 1, f"Expected 1 sentence, got {len(result)}: {result}"
+    assert result[0] == "Sim, sim.", f"Expected 'Sim, sim.', got: {result[0]}"
+
+
 def test_no_emphatic_merge_for_unsupported_language():
     """Test that emphatic merge doesn't happen for unsupported languages"""
     sentences = ["No.", "No.", "No."]

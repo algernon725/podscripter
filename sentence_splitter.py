@@ -100,96 +100,193 @@ class SentenceMetadata:
 class SentenceSplitter:
     """Unified sentence splitting with punctuation provenance tracking."""
     
+    # The three word pools below are keyed by language and resolved onto the
+    # instance in __init__ as self.CONNECTOR_WORDS / self.COORDINATING_CONJUNCTIONS
+    # / self.CONTINUATIVE_AUXILIARY_VERBS, following the same `X.get(self.language)`
+    # convention as COMPARATIVE_PARTICLES and INFINITIVE_GOVERNING_VERBS below.
+    #
+    # Before v0.13.0 these were three flat sets shared by es/en/fr/de, so every
+    # language had every other language's function words forbidden as sentence
+    # endings — a Spanish sentence could not end on a German auxiliary. Portuguese
+    # could not join that pool at all (see the note on ALL_* below) and was
+    # special-cased onto the instance instead; splitting the pools folds that
+    # workaround away and makes `pt` an ordinary key.
+    #
+    # An unrecognised language falls back to the union of every set, which is what
+    # such a language received before this refactor.
+
     # Connector words that should not start a new sentence when same speaker continues
-    CONNECTOR_WORDS = {
-        'y', 'e', 'o', 'u',  # Spanish: and, and (before i-), or, or (before o-)
-        'pero', 'mas', 'sino',  # Spanish: but
-        'and', 'but', 'or',  # English: and, but, or
-        'et', 'ou', 'mais',  # French: and, or, but
-        'und', 'oder', 'aber',  # German: and, or, but
+    CONNECTOR_WORDS_BY_LANG = {
+        'es': {
+            'y', 'e', 'o', 'u',  # and, and (before i-), or, or (before o-)
+            'pero', 'mas', 'sino',  # but
+        },
+        'en': {
+            'and', 'but', 'or',
+        },
+        'fr': {
+            'et', 'ou', 'mais',  # and, or, but
+        },
+        'de': {
+            'und', 'oder', 'aber',  # and, or, but
+        },
+        'pt': {
+            'e', 'ou',  # and, or
+            'mas', 'porém', 'porem', 'contudo', 'todavia', 'entretanto',  # but/however
+            'nem',  # nor
+            'pois', 'logo', 'portanto',  # so/therefore
+            'então', 'entao',  # then
+        },
     }
-    
+
     # Coordinating conjunctions (should never end sentences)
-    COORDINATING_CONJUNCTIONS = {
-        'y', 'e', 'o', 'u', 'pero', 'mas', 'sino',  # Spanish
-        'and', 'but', 'or', 'nor', 'for', 'so', 'yet',  # English
-        'et', 'ou', 'mais', 'donc', 'or', 'ni', 'car',  # French
-        'und', 'oder', 'aber', 'denn', 'sondern',  # German
+    COORDINATING_CONJUNCTIONS_BY_LANG = {
+        'es': {'y', 'e', 'o', 'u', 'pero', 'mas', 'sino'},
+        'en': {'and', 'but', 'or', 'nor', 'for', 'so', 'yet'},
+        'fr': {'et', 'ou', 'mais', 'donc', 'or', 'ni', 'car'},
+        'de': {'und', 'oder', 'aber', 'denn', 'sondern'},
+        'pt': {
+            'e', 'ou', 'mas', 'nem', 'porém', 'porem', 'pois', 'logo',
+            'ora', 'todavia', 'contudo', 'entretanto', 'portanto',
+        },
     }
-    
+
     # Continuative/auxiliary verbs (should never end sentences)
-    CONTINUATIVE_AUXILIARY_VERBS = {
-        # Spanish: Infinitive forms (critical for phrases like "sin ser parte")
-        'ser', 'estar', 'haber', 'ir', 'tener', 'hacer', 'poder', 'deber',
-        'querer', 'saber', 'venir', 'decir', 'ver', 'dar', 'poner', 'salir',
-        
-        # Spanish: Preterite/past tense (critical for phrases like "fueron dirigidos")
-        'fue', 'fueron', 'fui', 'fuimos', 'fuiste', 'fuisteis',
-        'estuvo', 'estuvieron', 'estuve', 'estuvimos', 'estuviste', 'estuvisteis',
-        'hubo',  # impersonal preterite of haber
-        
-        # Spanish: Imperfect tense and auxiliary verbs (existing)
-        'estaba', 'estaban', 'estabas', 'estábamos', 'estabais',
-        'era', 'eran', 'eras', 'éramos', 'erais',
-        'había', 'habían', 'habías', 'habíamos', 'habíais',
-        'tenía', 'tenían', 'tenías', 'teníamos', 'teníais',
-        'iba', 'iban', 'ibas', 'íbamos', 'ibais',
-        'hacía', 'hacían', 'hacías', 'hacíamos', 'hacíais',
-        'podía', 'podían', 'podías', 'podíamos', 'podíais',
-        'debía', 'debían', 'debías', 'debíamos', 'debíais',
-        'quería', 'querían', 'querías', 'queríamos', 'queríais',
-        'sabía', 'sabían', 'sabías', 'sabíamos', 'sabíais',
-        'venía', 'venían', 'venías', 'veníamos', 'veníais',
-        'decía', 'decían', 'decías', 'decíamos', 'decíais',
-        'he', 'has', 'ha', 'hemos', 'habéis', 'han',
-        
-        # Spanish: Present tense of ser/estar (often followed by adjectives/participles)
-        'es', 'son', 'soy', 'somos', 'eres', 'sois',
-        'está', 'están', 'estoy', 'estamos', 'estás', 'estáis',
-        
-        # English: Infinitive forms
-        'be', 'have', 'do', 'go', 'get', 'make',
-        
-        # English: Past continuous and auxiliary verbs (existing + additions)
-        'was', 'were', 'had', 'been', 'have', 'has', 'being',
-        'is', 'are', 'am',  # Present tense often followed by participles
-        
-        # French: Infinitive forms
-        'être', 'avoir', 'aller', 'faire', 'pouvoir', 'devoir', 'vouloir', 'savoir',
-        
-        # French: Preterite/passé simple forms
-        'fut', 'furent', 'fus', 'fûmes', 'fûtes',
-        'eut', 'eurent', 'eus', 'eûmes', 'eûtes',
-        
-        # French: Present tense of être/avoir
-        'est', 'sont', 'suis', 'sommes', 'êtes',
-        'a', 'ont', 'ai', 'avons', 'avez',
-        
-        # French: Imperfect tense and auxiliary verbs (existing)
-        'étais', 'était', 'étions', 'étiez', 'étaient',
-        'avais', 'avait', 'avions', 'aviez', 'avaient',
-        'allais', 'allait', 'allions', 'alliez', 'allaient',
-        'faisais', 'faisait', 'faisions', 'faisiez', 'faisaient',
-        
-        # German: Infinitive forms
-        'sein', 'haben', 'werden', 'gehen', 'machen', 'können', 'müssen',
-        'wollen', 'sollen', 'dürfen',
-        
-        # German: Present tense of sein/haben/werden
-        'ist', 'sind', 'bin', 'bist', 'seid',
-        'hat', 'habe', 'hast', 'habt',
-        'wird', 'werden', 'wirst', 'werdet',
-        
-        # German: Imperfect tense and auxiliary verbs (existing)
-        'war', 'warst', 'waren', 'wart',
-        'hatte', 'hattest', 'hatten', 'hattet',
-        'ging', 'gingst', 'gingen', 'gingt',
-        'machte', 'machtest', 'machten', 'machtet',
-        'konnte', 'konntest', 'konnten', 'konntet',
-        'wollte', 'wolltest', 'wollten', 'wolltet',
-        'musste', 'musstest', 'mussten', 'musstet',
-        'sollte', 'solltest', 'sollten', 'solltet',
-        'wurde', 'wurdest', 'wurden', 'wurdet',
+    CONTINUATIVE_AUXILIARY_VERBS_BY_LANG = {
+        'es': {
+            # Infinitive forms (critical for phrases like "sin ser parte")
+            'ser', 'estar', 'haber', 'ir', 'tener', 'hacer', 'poder', 'deber',
+            'querer', 'saber', 'venir', 'decir', 'ver', 'dar', 'poner', 'salir',
+
+            # Preterite/past tense (critical for phrases like "fueron dirigidos")
+            'fue', 'fueron', 'fui', 'fuimos', 'fuiste', 'fuisteis',
+            'estuvo', 'estuvieron', 'estuve', 'estuvimos', 'estuviste', 'estuvisteis',
+            'hubo',  # impersonal preterite of haber
+
+            # Imperfect tense and auxiliary verbs
+            'estaba', 'estaban', 'estabas', 'estábamos', 'estabais',
+            'era', 'eran', 'eras', 'éramos', 'erais',
+            'había', 'habían', 'habías', 'habíamos', 'habíais',
+            'tenía', 'tenían', 'tenías', 'teníamos', 'teníais',
+            'iba', 'iban', 'ibas', 'íbamos', 'ibais',
+            'hacía', 'hacían', 'hacías', 'hacíamos', 'hacíais',
+            'podía', 'podían', 'podías', 'podíamos', 'podíais',
+            'debía', 'debían', 'debías', 'debíamos', 'debíais',
+            'quería', 'querían', 'querías', 'queríamos', 'queríais',
+            'sabía', 'sabían', 'sabías', 'sabíamos', 'sabíais',
+            'venía', 'venían', 'venías', 'veníamos', 'veníais',
+            'decía', 'decían', 'decías', 'decíamos', 'decíais',
+            'he', 'has', 'ha', 'hemos', 'habéis', 'han',
+
+            # Present tense of ser/estar (often followed by adjectives/participles)
+            'es', 'son', 'soy', 'somos', 'eres', 'sois',
+            'está', 'están', 'estoy', 'estamos', 'estás', 'estáis',
+        },
+        'en': {
+            # Infinitive forms
+            'be', 'have', 'do', 'go', 'get', 'make',
+
+            # Past continuous and auxiliary verbs
+            'was', 'were', 'had', 'been', 'has', 'being',
+            'is', 'are', 'am',  # Present tense often followed by participles
+        },
+        'fr': {
+            # Infinitive forms
+            'être', 'avoir', 'aller', 'faire', 'pouvoir', 'devoir', 'vouloir', 'savoir',
+
+            # Preterite/passé simple forms
+            'fut', 'furent', 'fus', 'fûmes', 'fûtes',
+            'eut', 'eurent', 'eus', 'eûmes', 'eûtes',
+
+            # Present tense of être/avoir
+            'est', 'sont', 'suis', 'sommes', 'êtes',
+            'a', 'ont', 'ai', 'avons', 'avez',
+
+            # Imperfect tense and auxiliary verbs
+            'étais', 'était', 'étions', 'étiez', 'étaient',
+            'avais', 'avait', 'avions', 'aviez', 'avaient',
+            'allais', 'allait', 'allions', 'alliez', 'allaient',
+            'faisais', 'faisait', 'faisions', 'faisiez', 'faisaient',
+        },
+        'de': {
+            # Infinitive forms
+            'sein', 'haben', 'werden', 'gehen', 'machen', 'können', 'müssen',
+            'wollen', 'sollen', 'dürfen',
+
+            # Present tense of sein/haben/werden
+            'ist', 'sind', 'bin', 'bist', 'seid',
+            'hat', 'habe', 'hast', 'habt',
+            'wird', 'wirst', 'werdet',
+
+            # Imperfect tense and auxiliary verbs
+            'war', 'warst', 'waren', 'wart',
+            'hatte', 'hattest', 'hatten', 'hattet',
+            'ging', 'gingst', 'gingen', 'gingt',
+            'machte', 'machtest', 'machten', 'machtet',
+            'konnte', 'konntest', 'konnten', 'konntet',
+            'wollte', 'wolltest', 'wollten', 'wolltet',
+            'musste', 'musstest', 'mussten', 'musstet',
+            'sollte', 'solltest', 'sollten', 'solltet',
+            'wurde', 'wurdest', 'wurden', 'wurdet',
+        },
+        'pt': {
+            # Infinitives
+            'ser', 'estar', 'haver', 'ir', 'ter', 'fazer', 'poder', 'dever',
+            'querer', 'saber', 'vir', 'dizer', 'ver', 'dar', 'pôr', 'sair',
+            # Present of ser
+            'é', 'são', 'sou', 'somos', 'és',
+            # Preterite of ser/ir (shared forms)
+            'foi', 'foram', 'fui', 'fomos', 'foste',
+            # Present + past of estar
+            'está', 'estão', 'estou', 'estamos', 'estás',
+            'estava', 'estavam', 'estive', 'esteve', 'estiveram',
+            # Present + past of ter
+            'tem', 'têm', 'tenho', 'temos', 'tens',
+            'tinha', 'tinham', 'tive', 'teve', 'tiveram',
+            # haver
+            'há', 'havia', 'haviam', 'houve',
+            # ir
+            'vai', 'vão', 'vou', 'vamos', 'vais', 'ia', 'iam',
+            # Imperfects that typically precede a complement
+            'era', 'eram', 'fazia', 'faziam', 'podia', 'podiam',
+            'devia', 'deviam', 'queria', 'queriam', 'sabia', 'sabiam',
+            'vinha', 'vinham', 'dizia', 'diziam',
+        },
+    }
+
+    # Union fallback for a language with no entry above. This is NOT a per-language
+    # pool: it mixes languages, so 'logo' (an English noun), 'vamos' (Spanish),
+    # 'vais' (French) and 'ora' are all present and would forbid valid splits if
+    # used for a supported language. It exists only to preserve the pre-v0.13.0
+    # behavior for unrecognised languages.
+    ALL_CONNECTOR_WORDS = set().union(*CONNECTOR_WORDS_BY_LANG.values())
+    ALL_COORDINATING_CONJUNCTIONS = set().union(*COORDINATING_CONJUNCTIONS_BY_LANG.values())
+    ALL_CONTINUATIVE_AUXILIARY_VERBS = set().union(*CONTINUATIVE_AUXILIARY_VERBS_BY_LANG.values())
+
+    # Function words of the language being *taught*, quoted inside the transcript.
+    #
+    # This tool targets language-learning podcasts, where the host speaks one
+    # language and quotes another as vocabulary. Episodio311 is the motivating
+    # case: a Spanish episode about conjunctions, where "so" appears twelve times
+    # as an English word under discussion. A quoted word is never a real sentence
+    # boundary — "Esa palabra, so, tiene más de diez traducciones" must not break
+    # after "so", which would strand the verb with no subject.
+    #
+    # Before v0.13.0 this was handled by accident: every language shared one pool,
+    # so Spanish inherited English's coordinators. Splitting the pools removed that
+    # protection, so the requirement is now stated explicitly. Keep these to
+    # coordinating conjunctions and other high-frequency function words that get
+    # quoted as vocabulary; they are only ever *added* to the forbidden-ending set,
+    # so a word listed here can still start a sentence and still be split around
+    # by any other rule.
+    QUOTED_TEACHING_LANGUAGE_WORDS = {
+        # Spanish/French/Portuguese/German courses teaching English quote these.
+        'es': COORDINATING_CONJUNCTIONS_BY_LANG['en'],
+        'fr': COORDINATING_CONJUNCTIONS_BY_LANG['en'],
+        'pt': COORDINATING_CONJUNCTIONS_BY_LANG['en'],
+        'de': COORDINATING_CONJUNCTIONS_BY_LANG['en'],
+        # English courses teaching Spanish are the common inverse.
+        'en': COORDINATING_CONJUNCTIONS_BY_LANG['es'],
     }
 
     # Comparative particles that bind backward to a preceding degree/quantity
@@ -278,58 +375,12 @@ class SentenceSplitter:
         'pt': _PT_INFINITIVE_RE,
     }
 
-    # --- Portuguese additions to the pooled (language-agnostic) sets below ---
-    #
-    # CONNECTOR_WORDS / COORDINATING_CONJUNCTIONS / CONTINUATIVE_AUXILIARY_VERBS
-    # are a single shared pool across es/en/fr/de, so Portuguese words CANNOT be
-    # appended to them: 'logo' (English noun), 'vamos' (Spanish "¡Vamos!"),
-    # 'vais' (French "J'y vais.") and 'ora' all legitimately end sentences in
-    # another supported language, and pooling them would forbid valid splits
-    # there. Instead these sets are unioned onto the *instance* in __init__ when
-    # language == 'pt', leaving the shared class attributes untouched.
-    PT_CONNECTOR_WORDS = {
-        'e', 'ou',  # and, or
-        'mas', 'porém', 'porem', 'contudo', 'todavia', 'entretanto',  # but/however
-        'nem',  # nor
-        'pois', 'logo', 'portanto',  # so/therefore
-        'então', 'entao',  # then
-    }
-
-    PT_COORDINATING_CONJUNCTIONS = {
-        'e', 'ou', 'mas', 'nem', 'porém', 'porem', 'pois', 'logo',
-        'ora', 'todavia', 'contudo', 'entretanto', 'portanto',
-    }
-
-    PT_CONTINUATIVE_AUXILIARY_VERBS = {
-        # Infinitives
-        'ser', 'estar', 'haver', 'ir', 'ter', 'fazer', 'poder', 'dever',
-        'querer', 'saber', 'vir', 'dizer', 'ver', 'dar', 'pôr', 'sair',
-        # Present of ser
-        'é', 'são', 'sou', 'somos', 'és',
-        # Preterite of ser/ir (shared forms)
-        'foi', 'foram', 'fui', 'fomos', 'foste',
-        # Present + past of estar
-        'está', 'estão', 'estou', 'estamos', 'estás',
-        'estava', 'estavam', 'estive', 'esteve', 'estiveram',
-        # Present + past of ter
-        'tem', 'têm', 'tenho', 'temos', 'tens',
-        'tinha', 'tinham', 'tive', 'teve', 'tiveram',
-        # haver
-        'há', 'havia', 'haviam', 'houve',
-        # ir
-        'vai', 'vão', 'vou', 'vamos', 'vais', 'ia', 'iam',
-        # Imperfects that typically precede a complement
-        'era', 'eram', 'fazia', 'faziam', 'podia', 'podiam',
-        'devia', 'deviam', 'queria', 'queriam', 'sabia', 'sabiam',
-        'vinha', 'vinham', 'dizia', 'diziam',
-    }
-
     def __init__(self, language: str, model, config: "LanguageConfig"):
         """
         Initialize sentence splitter.
-        
+
         Args:
-            language: Language code (en, es, fr, de)
+            language: Language code (en, es, fr, de, pt)
             model: SentenceTransformer model for semantic analysis
             config: LanguageConfig with thresholds and language-specific settings
         """
@@ -338,18 +389,25 @@ class SentenceSplitter:
         self.config = config
         self.logger = logging.getLogger("podscripter.splitter")
 
-        # Portuguese extends the shared word pools on this instance only, so
-        # es/en/fr/de keep reading the untouched class attributes. See the
-        # PT_* definitions above for why these cannot be pooled.
-        if language == 'pt':
-            self.CONNECTOR_WORDS = self.CONNECTOR_WORDS | self.PT_CONNECTOR_WORDS
-            self.COORDINATING_CONJUNCTIONS = (
-                self.COORDINATING_CONJUNCTIONS | self.PT_COORDINATING_CONJUNCTIONS
-            )
-            self.CONTINUATIVE_AUXILIARY_VERBS = (
-                self.CONTINUATIVE_AUXILIARY_VERBS | self.PT_CONTINUATIVE_AUXILIARY_VERBS
-            )
-        
+        # Resolve the language-keyed word pools onto this instance. Every read
+        # site uses self.X, so no other code changes when a language is added:
+        # add a key to the three *_BY_LANG dicts above.
+        self.CONNECTOR_WORDS = self.CONNECTOR_WORDS_BY_LANG.get(
+            language, self.ALL_CONNECTOR_WORDS
+        )
+        self.COORDINATING_CONJUNCTIONS = self.COORDINATING_CONJUNCTIONS_BY_LANG.get(
+            language, self.ALL_COORDINATING_CONJUNCTIONS
+        )
+        self.CONTINUATIVE_AUXILIARY_VERBS = self.CONTINUATIVE_AUXILIARY_VERBS_BY_LANG.get(
+            language, self.ALL_CONTINUATIVE_AUXILIARY_VERBS
+        )
+        # Words of the taught language that this one may not end a sentence on.
+        # Empty for an unrecognised language, which already gets the full union.
+        self.QUOTED_TEACHING_WORDS = self.QUOTED_TEACHING_LANGUAGE_WORDS.get(
+            language, frozenset()
+        )
+
+
         # Metadata tracking for debugging
         self.split_metadata: List[SentenceMetadata] = []
         self.removed_periods: List[Dict] = []
@@ -1131,7 +1189,12 @@ class SentenceSplitter:
         # Never end on coordinating conjunctions
         if current_clean in self.COORDINATING_CONJUNCTIONS:
             return True
-        
+
+        # Never end on a function word of the language being taught, quoted as
+        # vocabulary ("Esa palabra, so, tiene más de diez traducciones").
+        if current_clean in self.QUOTED_TEACHING_WORDS:
+            return True
+
         # Never end on continuative/auxiliary verbs
         if current_clean in self.CONTINUATIVE_AUXILIARY_VERBS:
             return True

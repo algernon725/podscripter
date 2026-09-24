@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-09-24
+
+Completes the v0.12.0 follow-up list. Where v0.12.1 deleted code that never ran, this release fixes three places where per-language behavior was faked by falling back to Spanish. Each was verified with a text-level probe over `_assemble_sentences()` + `_write_txt()` across es/en/fr/de/pt — 213 cases, including three real Whisper dumps from `audio-files/Episodio3*_raw.txt` (1,240 Spanish segments).
+
+### Fixed
+- **`_fix_mid_sentence_capitals()` ran Spanish rules on English, French and German.** The word list was resolved with a fallback to the Spanish entry, so any language without one got Spanish. This was corrupting real output: Spanish `'U'` (= "or" before o-) lowercased the acronym in "the U.S. Capitol" to "the u.S.", and the resulting lowercase letter then defeated the `(?<![A-Z])` initials guard in `_finalize_text_common()`, producing **"the u. S. Capitol"**. Spanish `'A'` and `'De'` likewise produced "Vitamin a" and "Robert de Niro".
+  - **Fix**: en/fr/de get their own lists, restricted to coordinating conjunctions. Single letters are now excluded in every language — "Plan A", "Section B" and acronym initials are legitimate capitals. A language with no entry is a no-op rather than inheriting Spanish.
+  - Probe: 2 of 213 cases changed, both the U.S. fix. The remaining `U.S.` → `U. S.` spacing is the separately tracked initials-normalization WIP and is unrelated.
+- **`_finalize_text_common()` hardcoded `language='es'`.** Its `mask_domains()` call passed `'es'` for every language except `'pt'`, so en/fr/de inherited Spanish's `.de`/`.es` TLD suppression. That suppression is deliberate in Spanish — "de" is a preposition and "es" a verb, so `tratada.de` must become `tratada. De` — but applied to German it shattered real domains: **"Besuchen Sie spiegel.de" became "spiegel. De"**.
+  - **Fix**: pass the caller's language. The change is narrower than it looks — `_is_excluded_label()` applies `SPANISH_EXCLUSIONS` for every language regardless, so only the TLD table in `_tlds_for()` is language-dependent. Spanish and Portuguese behavior is unchanged.
+
+### Changed
+- **The three splitter word pools are keyed by language.** `CONNECTOR_WORDS`, `COORDINATING_CONJUNCTIONS` and `CONTINUATIVE_AUXILIARY_VERBS` were single class attributes shared by es/en/fr/de, so a Spanish sentence had German auxiliaries and French `a`/`or` forbidden as endings. They are now `*_BY_LANG` dicts resolved onto the instance in `__init__`, following the `X.get(self.language)` convention already used by `COMPARATIVE_PARTICLES` and `INFINITIVE_GOVERNING_VERBS`. All nine production read sites already used `self.X` and were untouched. Adding a language now means adding a key; the Portuguese `PT_*` instance-union workaround is gone and `pt` is an ordinary entry. An unrecognised language falls back to `ALL_*`, the union, preserving the previous behavior.
+- **New `QUOTED_TEACHING_LANGUAGE_WORDS` guard.** Narrowing the pools surfaced a real dependency the ledger had not predicted. Probe-diffing changed exactly one of 213 cases: Episodio311, a Spanish episode *about* conjunctions, in which the English word "so" appears twelve times as quoted vocabulary. With English coordinators no longer pooled into Spanish, the splitter broke "Esa palabra, so, tiene como más de diez traducciones" after "so", stranding the verb with no subject. The accidental pooling had been load-bearing for code-switched language-teaching audio — this tool's core genre.
+  - Rather than restore the accident, the requirement is now stated: a language also refuses to end a sentence on a function word of the language it is teaching (es/fr/pt/de on the English coordinators, en on the Spanish ones). The guard is additive and checked in `_violates_grammatical_rules()`; the words are never merged into the language's own pools, so they can still start a sentence and are still split around by every other rule.
+  - With the guard in place the probe shows **one** boundary change across all 213 cases, and it is an improvement (two complete sentences correctly separated).
+
+### Added
+- `tests/test_finalize_text_language.py` (13 cases; 4 fail against the pre-fix code).
+- 13 mid-sentence-capitalization cases in `tests/test_txt_writer_multilingual.py` (8 fail pre-fix), covering both the conjunctions that should be lowered and the capitals that must survive.
+- `TestQuotedTeachingLanguageGuard` and a generalized `TestWordPoolLanguageIsolation` (renamed from `TestPortugueseWordPoolIsolation`, which pinned the old mechanism) in `tests/test_long_sentence_breaks.py`, now covering cross-language separation for all five languages and the union fallback.
+- `test_emphatic_merge_portuguese` / `_sim` in `tests/test_sentence_formatter.py` — the `pt` branch of `SentenceFormatter._merge_emphatic_words()` shipped in v0.12.0 with no test, including its ASR-dropped-accent repair (`nao` → `não`).
+
+### Notes
+- **Minor bump (0.13.0)** — en/fr/de transcript output changes. Suite: 695 passed / 36 xfailed (was 659/36 at v0.12.1).
+
 ## [0.12.1] - 2026-09-24
 
 ### Removed

@@ -262,7 +262,8 @@ flowchart TD
 ## Extensibility
 
 - Add languages via `LanguageConfig` (built by `_get_language_config(language)`) and per-language helpers. Thresholds come from `_get_language_thresholds(language)`, a base dict plus per-language overrides.
-- Word sets keyed by language (`COMPARATIVE_PARTICLES`, `INFINITIVE_GOVERNING_VERBS`, the forbidden-sentence-final sets, …) take a new key. The three *pooled* sets in `sentence_splitter.py` (`CONNECTOR_WORDS`, `COORDINATING_CONJUNCTIONS`, `CONTINUATIVE_AUXILIARY_VERBS`) are shared by es/en/fr/de and must NOT be appended to for a new language: words like `logo`/`vamos`/`vais` legitimately end sentences elsewhere. Follow the Portuguese pattern instead — a `PT_*` set unioned onto the instance in `SentenceSplitter.__init__`.
+- Word sets keyed by language (`COMPARATIVE_PARTICLES`, `INFINITIVE_GOVERNING_VERBS`, the forbidden-sentence-final sets, …) take a new key. Since v0.13.0 that includes the three splitter word pools: add a key to `CONNECTOR_WORDS_BY_LANG`, `COORDINATING_CONJUNCTIONS_BY_LANG` and `CONTINUATIVE_AUXILIARY_VERBS_BY_LANG` in `sentence_splitter.py`; `__init__` resolves them onto `self.*` and every read site already uses `self.`. They were a single shared es/en/fr/de pool until v0.13.0, which is why Portuguese had to be special-cased onto the instance — that workaround is gone. An unrecognised language falls back to `ALL_*`, the union, which is not a valid per-language pool (it mixes `logo`/`vamos`/`vais`/`ora`) and exists only for backward compatibility.
+- `QUOTED_TEACHING_LANGUAGE_WORDS` additionally forbids ending a sentence on a function word of the language being *taught* — language-learning podcasts quote the target language as vocabulary ("Esa palabra, so, tiene más de diez traducciones"). Add a key for a new language if its speakers commonly teach another.
 - Tune thresholds centrally without rewriting logic
 - Additional output formats can be added in the writer layer
 
