@@ -112,15 +112,13 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 - Ellipsis continuation and domain-aware splitting are exposed via `assemble_sentences_from_processed(processed, language)` (public API).
 - Comma spacing is centralized in `_normalize_comma_spacing(text)` and MUST NOT be re-implemented inline. It removes spaces before commas, deduplicates multiple commas, and ensures a single space after commas. Trade-off: thousands like "1,000" become "1, 000" (acceptable, prioritizes number-list spacing like "147,151,156" -> "147, 151, 156").
-- Private helpers: `_normalize_initials_and_acronyms`, `_normalize_dotted_acronyms_en` (legacy alias), `_fr_merge_short_connector_breaks`, and others.
-- Segment carry-over: when a segment ends without terminal punctuation, carry the trailing fragment into the next segment for French and Spanish.
+- Private helpers: `_normalize_initials_and_acronyms`, `_fr_merge_short_connector_breaks`, and others.
 - SRT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s).
 
 ### Centralized punctuation system
 
 - `_should_add_terminal_punctuation()` — single centralized function for all period/punctuation insertion decisions (strips trailing `,;: ` before adding terminal marks).
 - `PunctuationContext` — context-aware rules: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`.
-- `restore_punctuation_segment()` — segment-aware API for processing individual Whisper segments.
 - Benefit: single source of truth; prevents bugs like "Ve a" -> "Ve a.".
 
 ### Formatting internals (centralized constants and helpers)
@@ -130,7 +128,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
   - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`, `ES_CONNECTORS`, `ES_POSSESSIVES`.
   - French/German: `FR_GREETINGS`, `DE_GREETINGS`, `FR_QUESTION_STARTERS`, `DE_QUESTION_STARTERS`.
   - English: `EN_QUESTION_STARTERS`.
-- Spanish helper functions (pure, testable): `_es_greeting_and_leadin_commas`, `_es_wrap_imperative_exclamations`, `_es_normalize_tag_questions`, `_es_fix_collocations`, `_es_pair_inverted_questions`, `_es_merge_possessive_splits`, `_es_merge_aux_gerund`, `_es_merge_capitalized_one_word_sentences`, `_es_intro_location_appositive_commas`.
+- Spanish formatting is inline in the `if language == 'es':` branch of `_transformer_based_restoration()`: per-sentence capitalization (domain-guarded), terminal punctuation via `_should_add_terminal_punctuation(..., SPANISH_SPECIFIC)`, opening-`¿` insertion, then `_fix_location_appositive_punctuation()` and `_finalize_text_common()`. The standalone `_es_*` helpers and `_spanish_cleanup_postprocess()` were deleted in v0.12.1 — they had been unreachable since v0.6.0. Note the Spanish branch gets **no** spaCy capitalization pass; only the non-Spanish branch does.
 - Shared utilities: `_split_sentences_preserving_delims(text)`, `_normalize_mixed_terminal_punctuation(text)` (removes `!.`, `?.`, `!?`, compresses repeats), `_finalize_text_common(text)`, `assemble_sentences_from_processed(processed, language)`.
 - Public API hygiene: public functions are type-annotated (`restore_punctuation`, `transformer_based_restoration`, `apply_semantic_punctuation`, `is_question_semantic`, `is_exclamation_semantic`, `format_non_spanish_text`). `punctuation_restorer.py` is import-only (no `__main__`). Legacy `format_spanish_text` was removed.
 - Capitalization (spaCy mode): uses `LanguageConfig` connectors/possessives for Spanish to avoid mid-sentence mis-capitalization (e.g., `tu español`); multi-layered entity protection (spaCy NER + cross-linguistic analysis + contextual patterns); conservative location capitalization (only after strong cues like `vivo en`, `trabajo en`, `soy de`, `vengo de`).

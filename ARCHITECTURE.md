@@ -94,7 +94,7 @@ flowchart TD
 2. If not `--single`, split media into ~480s chunks with ~3s overlap.
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
-5. Restore punctuation using segment-aware processing (`restore_punctuation_segment()`) and assemble sentences using helper utilities (ellipsis/domain-aware; automatic spaCy capitalization).
+5. Restore punctuation and assemble sentences via `restore_punctuation()` → `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which drives `SentenceSplitter` for boundaries; then `SentenceFormatter` for merges (ellipsis/domain-aware; spaCy capitalization on the non-Spanish path).
 6. Write TXT or SRT.
 
 ## Components and responsibilities
@@ -147,8 +147,7 @@ flowchart TD
   - Debug support via `--dump-merge-metadata` flag
 
 - **Punctuation and formatting** (`punctuation_restorer.py`)
-  - `restore_punctuation(...)` → Uses `SentenceSplitter` for boundary decisions (v0.4.0+)
-  - `restore_punctuation_segment(...)` → segment-aware processing for individual Whisper segments
+  - `restore_punctuation(...)` → Uses `SentenceSplitter` for boundary decisions (v0.4.0+). This is the only entry point; it delegates to `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which forks into a Spanish branch and a light `_format_non_spanish_text()` branch for en/fr/pt/de.
   - **Centralized punctuation system**: `_should_add_terminal_punctuation()` with context-aware processing
   - **Context types**: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`
   - Sentence-Transformers semantic cues + curated regex rules

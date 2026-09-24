@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-09-24
+
+### Removed
+- **1,245 lines of unreachable and never-called code**, the two dead-code findings deferred from v0.12.0 plus everything the follow-up scan surfaced. `punctuation_restorer.py` went from 3,842 to 2,833 lines (−26%); the default test suite went from 46s to 19s.
+  - **The unreachable Spanish branch** — the `if language == 'es':` block in `_transformer_based_restoration()` returned mid-body, leaving 242 lines (73 statements) after it permanently unreachable. That region held the only call sites of `_spanish_cleanup_postprocess()` (306 lines), itself the only caller of nine `_es_*` helpers, so roughly 950 lines of Spanish machinery had not executed since the `return` landed in v0.6.0 (`6c4e598a`). The suite stayed green because `tests/test_spanish_helpers.py` unit-tested eight of those helpers directly — green tests over code that could not run.
+  - **Deleted rather than revived.** Current Spanish output is tuned around their absence: ES domain casing is correct *because* the ES spaCy pass never executed, and v0.10.3 already established that enabling equivalent inert Spanish post-processing regresses Spanish (accented proper nouns lowercased after a comma). Reviving would also have re-introduced a second `_load_sentence_transformer()` load and a semantic `¿…?` gate on every call.
+  - **`_apply_basic_punctuation_rules()`** — zero callers since `b5022c7` (Aug 2025), one day after it was added; v0.12.0 extended it with a `pt` branch without noticing. It held the intra-sentence emphatic-repeat comma (`sí sí` → `sí, sí`), which is why no language produces that comma today. Not revived: its second half re-applies `_should_add_terminal_punctuation()`, which would pre-empt the semantic `?`/`!` decision, and per the v0.5.0 consolidation emphatic handling belongs in `SentenceFormatter._merge_emphatic_words()`, which merges across separate sentences with a speaker gate and merge provenance.
+  - **Ten further never-called functions** found by the new orphan scan: `restore_punctuation_segment`, `_transformer_based_restoration_segment`, `_should_carry_forward_segment`, `_get_strong_end_indicators`, `_is_transitional_word`, `_normalize_dotted_acronyms_en` and `_domain_safe_regex_replace` (`punctuation_restorer.py`); `_transcribe_single_call` and `_transcribe_chunked` (`podscripter.py`, duplicating logic that `_transcribe_with_sentences()` inlines); `_convert_boundaries_to_word_indices` (`speaker_diarization.py`); `_mask_domains_legacy` and `_unmask_domains_legacy` (`domain_utils.py`). Also removed the dynamically-dead fallback `return` at the end of `_transformer_based_restoration()` and the tautological `if language != 'es':` guard preceding it.
+
+### Added
+- **`tests/test_no_unreachable_code.py`** — the AST scan that found the bug, kept as a permanent guard over all six source modules. It asserts (1) no statement follows a `return`/`raise`/`break`/`continue` in the same block, and (2) every module-level function has at least one reference somewhere in the project or its tests. The second check is what surfaced the ten extra orphans. This guards the defect *class*, not the instance: the next unreachable branch or orphaned helper fails a test instead of living for nine months.
+
+### Fixed
+- **Documentation that described dead code as live** — `ARCHITECTURE.md` told readers the pipeline restores punctuation via `restore_punctuation_segment()`, a function with no callers; `.agent/architecture/pipeline.md` listed the nine unreachable `_es_*` helpers as the Spanish formatting path. Both now describe the real call chain (`restore_punctuation` → `_advanced_punctuation_restoration` → `_transformer_based_restoration`) and note that the Spanish branch gets no spaCy capitalization pass. The history ledger's question-detection note, which credited the unreachable `_es_pair_inverted_questions()`, now names the inline branch that actually runs; its conclusion is unchanged. Corrected a reference to a nonexistent `SentenceFormatter._merge_emphatic_repeats()` (the real symbol is `_merge_emphatic_words()`).
+
+### Notes
+- **Patch bump (0.12.1)** — deletion only, no behavioral change. Verified with a text-level probe over `_assemble_sentences()` + `_write_txt()` across es/en/fr/de/pt: **213 cases byte-identical**, including three real Whisper dumps (`Episodio310/311/312_raw.txt`, 1,240 segments of Spanish). Suite: 659 passed / 36 xfailed (was 656/36; `test_spanish_helpers.py`'s 10 tests removed, its one live test moved to `test_normalize_comma_spacing.py`, 12 new guard tests added).
+- **Still open** from the v0.12.0 follow-ups: the `{lang: set}` refactor of the pooled splitter word sets, the `_fix_mid_sentence_capitals` Spanish fallback for en/fr/de, and the hardcoded `'es'` in `_finalize_text_common`. All three are behavior changes and are tracked in `.agent/troubleshooting/history.md`.
+
 ## [0.12.0] - 2026-09-20
 
 ### Added

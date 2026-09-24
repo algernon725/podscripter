@@ -6,7 +6,7 @@ This test ensures the refactored comma spacing logic works correctly
 and consistently across all call sites.
 """
 
-from punctuation_restorer import _normalize_comma_spacing
+from punctuation_restorer import _finalize_text_common, _normalize_comma_spacing
 import pytest
 
 pytestmark = pytest.mark.core
@@ -84,3 +84,14 @@ def test_empty_and_edge_cases():
     assert _normalize_comma_spacing(",") == ","
     assert _normalize_comma_spacing(",,") == ", "
     assert _normalize_comma_spacing(" , ") == ", "
+
+
+def test_duplicate_commas_are_deduped_in_finalize():
+    """_finalize_text_common() applies the same normalization end-to-end.
+
+    Moved here in v0.12.1 from tests/test_spanish_helpers.py, which was deleted
+    along with the dead Spanish helpers it covered.
+    """
+    s = "Hola, , descubrí este podcast hace tres años."
+    out = _finalize_text_common(s)
+    assert out == "Hola, descubrí este podcast hace tres años.", out

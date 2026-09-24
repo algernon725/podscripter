@@ -314,14 +314,3 @@ def create_domain_aware_regex(pattern: str, replacement: str, use_exclusions: bo
             language
         )
     return _domain_aware_sub
-
-
-# Legacy compatibility - old function signatures for backward compatibility
-def _mask_domains_legacy(text: str, tld_pattern: str | None = None) -> str:
-    """Legacy function for backward compatibility."""
-    return mask_domains(text, use_exclusions=True)
-
-
-def _unmask_domains_legacy(text: str) -> str:
-    """Legacy function for backward compatibility.""" 
-    return unmask_domains(text)
