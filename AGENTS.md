@@ -83,6 +83,7 @@ Before submitting any changes:
 - [ ] Error handling included for edge cases
 - [ ] Code follows the project's architectural patterns
 - [ ] Undocumented quirk fixed? Append a ledger bullet to [history.md Resolved bugs](.agent/troubleshooting/history.md#resolved-bugs) in the existing format: `- <Bug> (Fixed vX.X.X): <technical cause>; functions changed. Tests: test_x.py.`
+- [ ] New `## [X.Y.Z]` section in [CHANGELOG.md](CHANGELOG.md)? Tag the release commit too — `git tag vX.Y.Z <sha>` (lightweight, matching the existing tags). The CHANGELOG and `history.md` cross-reference versions constantly ("since v0.6.0", "superseded by v0.5.2"); without a tag those references cannot be resolved to a commit. Leave pushing the tag to the maintainer.
 
 ## Project Goals
 
