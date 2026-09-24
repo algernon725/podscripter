@@ -65,13 +65,17 @@ FOCUS_LANGS = {"en", "es", "fr", "pt"}
 # Function words the punctuation restorer sometimes over-capitalizes mid-sentence,
 # per language. Used by the TXT writer's _fix_mid_sentence_capitals().
 #
-# KNOWN ISSUE (pre-existing, deliberately preserved here): languages without an
-# entry fall back to the Spanish list, which is what every language did before
-# this map existed. That is wrong for en/fr/de — it lowercases English "A"/"O"
-# mid-sentence ("Section A Contains" -> "Section a Contains") — but changing it
-# is a behavior change for those languages and belongs in its own commit with its
-# own regression run. Portuguese gets a correct list rather than inheriting the
-# Spanish one, which is the only change here.
+# A language with no entry here gets an empty list, i.e. the pass is a no-op.
+# Until v0.13.0 it fell back to the Spanish list instead, which corrupted English:
+# Spanish "U" (= "or" before o-) lowercased the acronym in "the U.S. Capitol",
+# and the resulting "the u.S." then defeated the initials guard in
+# _finalize_text_common(), yielding "the u. S. Capitol".
+#
+# Keep these lists conservative. Only add a word that is never legitimately
+# capitalized mid-sentence in that language. Single letters are excluded on
+# purpose everywhere: "Plan A", "Section B", "Vitamin D" and acronym initials are
+# all valid. German is deliberately the shortest list, since German capitalizes
+# every noun.
 _MID_SENTENCE_LOWERCASE_WORDS: dict[str, tuple[str, ...]] = {
     'es': (
         'Y', 'E', 'O', 'U', 'A', 'De', 'En', 'Por', 'Para', 'Con', 'Sin',
@@ -85,6 +89,15 @@ _MID_SENTENCE_LOWERCASE_WORDS: dict[str, tuple[str, ...]] = {
         'Pelo', 'Pela', 'Por', 'Para', 'Com', 'Sem', 'Sobre', 'Entre',
         'Até', 'Desde', 'Um', 'Uma', 'Uns', 'Umas',
         'Aqui', 'Ali', 'Lá', 'Também', 'Todo', 'Todos', 'Toda', 'Todas',
+    ),
+    'en': (
+        'And', 'But', 'Or', 'Nor', 'Yet',
+    ),
+    'fr': (
+        'Et', 'Ou', 'Mais', 'Donc', 'Ni', 'Car',
+    ),
+    'de': (
+        'Und', 'Oder', 'Aber', 'Denn', 'Sondern',
     ),
 }
 
@@ -489,9 +502,7 @@ def _write_txt(sentences, output_file, language: str | None = None):
         will re-capitalize the first word if it's truly at sentence start.
         """
         import re
-        common_words = _MID_SENTENCE_LOWERCASE_WORDS.get(
-            language or '', _MID_SENTENCE_LOWERCASE_WORDS['es']
-        )
+        common_words = _MID_SENTENCE_LOWERCASE_WORDS.get(language or '', ())
 
         # Lowercase these words only when they appear MID-SENTENCE (not at sentence starts)
         # After sentence-ending punctuation (.!?), words should stay capitalized as they start new sentences
