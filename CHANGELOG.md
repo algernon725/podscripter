@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-25
+
+spaCy is removed. Its capitalization pass had not reached the transcript since v0.4.0: the TXT file is written from `Sentence` objects built before the pass ran, so its output went only into `restore_punctuation()`'s returned string, which `_assemble_sentences()` uses only for empty input. Spanish never had a reachable pass. Transcripts are byte-identical before and after; the image loses the `spacy` package and five models, and en/fr/de/pt runs no longer load a model and parse the whole transcript only to discard the result.
+
+### Removed
+- **spaCy capitalization** (`punctuation_restorer.py`): `_apply_spacy_capitalization()`, `_detect_english_phrases_with_spacy()`, `_get_spacy_pipeline()`, the `import spacy` and the optional `spacy_language_detection` import (never installed in the image). About 540 lines, including the `LanguageConfig.connectors`/`possessives` fields and the `ES_CONNECTORS`/`ES_POSSESSIVES`/`PT_CONNECTORS`/`PT_POSSESSIVES` sets, which only that pass read.
+- **Dockerfile**: `spacy==3.8.11` and the `en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`, `pt_core_news_sm` wheels. Nothing else in the image depends on them.
+- **`language_support.spacy_model_name()`**.
+
+### Changed
+- **`language_support.is_tailored()` uses a static list.** `TAILORED_LANGUAGES = {"en", "es", "fr", "de", "pt"}` replaces the lookup of installed spaCy models. Same five languages, so no behavior change. Adding a language now means writing its rules and adding its code to that set.
+
+### Tests
+- `test_unsupported_languages.py`: the installed-models drift guard is replaced by a pin on the tailored set; the three `_get_spacy_pipeline` cases are gone; new `test_spacy_is_not_imported` checks, in a fresh interpreter, that importing the pipeline modules does not load spaCy, so an accidental re-introduction fails before `docker build` does.
+- `test_german_sentence_splitting.py`: the two `introduction-*` cases expected spaCy's `Hans`/`Anna`. They assert on `restore_punctuation()[0]`; the TXT file never had those names capitalized. Expectations now match the pipeline (`hans`, `anna`).
+- `test_english_sentence_splitting.py::…[do-not-split-dotted-acronym-DC]`: no longer xfail. The "NLP output drift" was spaCy.
+- `test_initials_normalization.py::test_person_initials_survive_full_pipeline`: no longer xfail. Its reason blamed spaCy re-spacing initials, but it ran Spanish (no spaCy pass) through `restore_punctuation()`, which does not normalize initials; `_assemble_sentences()` does, before calling it. The test now uses `_assemble_sentences()` and passes.
+- Suite: **751 passed / 34 xfailed** (was 751 / 36).
+
+### Documentation
+- README (both copies), `AGENTS.md`, `ARCHITECTURE.md`, `.agent/architecture/pipeline.md` and `cli-spec.md` no longer describe spaCy capitalization or derive the tailored set from spaCy models. `ARCHITECTURE.md` known limitations now say names and places keep Whisper's casing.
+- `tests/README.md` documents the blind spot: the conftest `restore_punctuation` wrapper returns a string the TXT writer never uses.
+- `history.md`: ledger entry for the removal, the initials misdiagnosis corrected, and an open limitation for proper-noun casing on lowercase input.
+
+### Notes
+- **Minor bump (0.15.0)**: a dependency and a public helper are removed and the image changes; transcript output does not change.
+- **Verification**: TXT output compared between `3dc15a3` and this change over 11,778 inputs (every test-suite string literal of 4+ words and a lowercased, unpunctuated copy of each, in en/es/fr/de/pt, plus three full local Spanish episodes): 0 differences.
+- **Why spaCy was added, in hindsight**: the 2025-08 run-on sample behind it (`52b0c29`, `tests/test_spanish_runon_fix.py`) came from the old `transcribe_sentences.py`, whose `re.split(r'[.!?]+(?:\s+|$)', …)` deleted sentence-ending marks (the sample keeps `¿` but lost its `?`). Its proper nouns were already capitalized. Current Whisper output is punctuated and cased.
+
 ## [0.14.0] - 2026-09-24
 
 Languages without language-specific support now degrade to Whisper's own output instead of corrupting it. The program accepted 100 Whisper language codes but had per-language code for only five (`en`, `es`, `fr`, `de`, `pt` — the ones with a spaCy model in the image). Every other language silently received the **English** rules, the same defect v0.12.0 fixed for Portuguese alone.
@@ -33,7 +62,7 @@ Languages without language-specific support now degrade to Whisper's own output 
 
 ### Notes
 - **Minor bump (0.14.0)**: output changes for generic languages only. en/es/fr/de/pt verified byte-identical with a text-level probe over `restore_punctuation()`, `_assemble_sentences()` and `_write_txt()`, diffed against a clean worktree of v0.13.0: **6,148 cases, 0 diffs** (1,229 strings seeded from the test suite × 5 languages, each with and without Whisper segments, plus 250 real Whisper segments from a local Spanish episode run as es/pt/en). Suite: 751 passed / 36 xfailed (was 695/36).
-- **Found en route, not changed — regression since v0.4.0**: in the en/fr/de/pt light path, the `Sentence` objects the TXT writer uses are built *before* `_format_non_spanish_text()`, the spaCy pass and `_fix_location_appositive_punctuation()` run, so those passes only reach `restore_punctuation()`'s joined text. Before v0.4.0 (`af6096f`) this path returned no sentence list and the writer used the spaCy-capitalized text. The loss shows on run-on, unpunctuated Whisper output — the case spaCy was integrated for: "talking with sarah from london she works at microsoft" keeps its lowercase names, and German loses noun capitalization entirely. The fix must carry over **only** the spaCy capitalization: on well-formed text the light path's comma heuristics do damage (`Victor, Hugo`, `São, Paulo`, a Portuguese question merged into the previous sentence). Spanish is a separate gap: its branch has no spaCy pass at all (deliberately — see v0.10.3/v0.12.1), so run-on Spanish gets no proper-noun capitalization either.
+- **Found en route, not changed — regression since v0.4.0**: in the en/fr/de/pt light path, the `Sentence` objects the TXT writer uses are built *before* `_format_non_spanish_text()`, the spaCy pass and `_fix_location_appositive_punctuation()` run, so those passes only reach `restore_punctuation()`'s joined text. Before v0.4.0 (`af6096f`) this path returned no sentence list and the writer used the spaCy-capitalized text. The loss shows on run-on, unpunctuated Whisper output — the case spaCy was integrated for: "talking with sarah from london she works at microsoft" keeps its lowercase names, and German loses noun capitalization entirely. The fix must carry over **only** the spaCy capitalization: on well-formed text the light path's comma heuristics do damage (`Victor, Hugo`, `São, Paulo`, a Portuguese question merged into the previous sentence). Spanish is a separate gap: its branch has no spaCy pass at all (deliberately — see v0.10.3/v0.12.1), so run-on Spanish gets no proper-noun capitalization either. *Resolved in 0.15.0 by removing spaCy: its output never reached the transcript, and output is unchanged without it.*
 
 ## [0.13.0] - 2026-09-24
 

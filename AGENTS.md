@@ -19,7 +19,6 @@ This file is a lean hub. Detailed technical content lives in modular `.agent/` f
 - **Whisper** (faster-whisper): OpenAI speech-to-text for transcription.
 - **Sentence-Transformers**: semantic understanding and punctuation restoration.
 - **Hugging Face Hub (caches)**: used by `sentence-transformers`; managed via `HF_HOME` and optional offline mode.
-- **spaCy (mandatory)**: capitalization and entity awareness; models baked into the Docker image (`en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `pt_core_news_sm`, `de_core_news_sm`).
 - **pyannote.audio 4.0.4**: optional speaker diarization.
 - **Docker**: reproducible environments.
 - **Python 3.12+**: primary language.

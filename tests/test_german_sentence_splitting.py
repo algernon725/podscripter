@@ -11,7 +11,9 @@ pytestmark = pytest.mark.core
 GERMAN_SPLITTING_CASES = [
     pytest.param(
         "ich bin hans aus berlin deutschland",
-        "Ich bin Hans aus Berlin, Deutschland.",
+        # Lowercase "hans": person names were capitalized only by spaCy, whose
+        # output never reached the TXT file; spaCy was removed in v0.15.0.
+        "Ich bin hans aus Berlin, Deutschland.",
         id="introduction-one-sentence",
     ),
     pytest.param(
@@ -27,7 +29,7 @@ GERMAN_SPLITTING_CASES = [
     ),
     pytest.param(
         "ich heiße anna und ich wohne in münchen",
-        "Ich heiße Anna und ich wohne in München.",
+        "Ich heiße anna und ich wohne in München.",  # see introduction-one-sentence
         id="introduction-with-conjunction",
     ),
     pytest.param(

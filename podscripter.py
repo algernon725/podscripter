@@ -302,8 +302,8 @@ def transcribe(
         media_file: Path to the input media file.
         output_format: "txt" for sentences or "srt" for subtitles.
         language: Whisper language code (e.g., "en", "es", "fr", "pt", "de", "it"). If None,
-                  auto-detect. Codes without an installed spaCy model are processed in
-                  generic mode (Whisper's own text, no language-specific rules).
+                  auto-detect. Codes outside `language_support.TAILORED_LANGUAGES` are
+                  processed in generic mode (Whisper's own text, no language-specific rules).
         translate_to_english: If True, run Whisper with task="translate" (English output).
         single_call: If True, transcribe the whole file in one pass; otherwise chunk with overlap.
         model: Optional preloaded faster_whisper.WhisperModel instance to reuse.

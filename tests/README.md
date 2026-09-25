@@ -58,6 +58,14 @@ Tests are categorized using pytest markers (defined in `pyproject.toml`):
 - `tests/conftest.py` — shared fixtures (`MockConfig`, language-specific `SentenceSplitter` instances, `restore_punctuation` wrapper)
 - `pyproject.toml` — pytest configuration, marker definitions, and default run options
 
+**The `restore_punctuation` wrapper does not test the transcript.** It returns
+`restore_punctuation()[0]`, a joined string the TXT writer never uses: the file is
+written from the returned `Sentence` objects. Some formatting only reaches that string,
+and it also skips steps that `_assemble_sentences()` runs first, such as initials
+normalization. A spaCy capitalization pass went unnoticed for nine months because its
+output only reached that string (removed in v0.15.0). To test what users actually get,
+assert on `podscripter._assemble_sentences()` + `_write_txt()`.
+
 ### Caching and rate limiting
 
 - Always mount model cache volumes to avoid repeated downloads and HTTP 429 errors

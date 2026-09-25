@@ -5,12 +5,13 @@ Test normalization of person initials and organizational acronyms.
 Tests both the _normalize_initials_and_acronyms function directly (unit tests)
 and the end-to-end pipeline behavior through restore_punctuation.
 
-Known limitation: spaCy's _apply_spacy_capitalization() can re-space initials
-downstream, so the end-to-end pipeline does not always preserve compact initials.
-The normalization function itself works correctly.
+Normalization runs in podscripter._assemble_sentences(), before
+restore_punctuation(). restore_punctuation() on its own does not normalize, so
+end-to-end checks must go through _assemble_sentences().
 """
 
 from conftest import restore_punctuation
+from podscripter import _assemble_sentences
 from punctuation_restorer import _normalize_initials_and_acronyms
 import pytest
 
@@ -99,16 +100,16 @@ def test_english_organizational_acronyms():
                 f"[{test['description']}] Expected acronym '{acronym}' not found in '{result}'"
 
 
-@pytest.mark.xfail(reason="WIP: spaCy _apply_spacy_capitalization re-spaces initials downstream")
 def test_person_initials_survive_full_pipeline():
-    """Person initials should survive the full restore_punctuation pipeline.
+    """Person initials survive the full pipeline (_assemble_sentences).
 
-    Currently fails because spaCy's tokenizer/detokenizer re-inserts spaces
-    during _apply_spacy_capitalization(), undoing the normalization.
-    See AGENTS.md 'Person Initials Normalization (WIP - Partial)'.
+    This was an xfail blamed on spaCy re-spacing initials. The real cause was
+    that it called restore_punctuation(), which never normalizes; the pipeline
+    normalizes first, in _assemble_sentences().
     """
-    result = restore_punctuation(
-        'es a C. S. Lewis porque él escribió muchos libros', 'es'
+    sentences, _ = _assemble_sentences(
+        'es a C. S. Lewis porque él escribió muchos libros', [], 'es', True
     )
+    result = ' '.join(s.text for s in sentences)
     assert 'C.S. Lewis' in result, \
         f"Expected compact 'C.S. Lewis' in pipeline output, got: '{result}'"

@@ -23,7 +23,7 @@ Core files:
 - `sentence_splitter.py` — all sentence-boundary decisions (`SentenceSplitter`).
 - `sentence_formatter.py` — all post-processing merges (`SentenceFormatter`).
 - `domain_utils.py` — domain detection and masking utilities.
-- `language_support.py` — `is_tailored(language)`: the single "supported language" predicate, derived from installed spaCy models. Leaf module (lazy spaCy import).
+- `language_support.py` — `is_tailored(language)`: the single "supported language" predicate, backed by the static `TAILORED_LANGUAGES` set (v0.15.0). Leaf module.
 - `speaker_diarization.py` — optional speaker diarization.
 
 ## Model caching strategy
@@ -36,7 +36,6 @@ Core files:
   - Hugging Face models generally: `/root/.cache/huggingface`.
   - Pyannote speaker diarization models: under `HF_HOME` (`/root/.cache/huggingface`). pyannote.audio 4.x uses `HF_HOME`; `PYANNOTE_CACHE` is no longer used.
 - Use a singleton model loader to avoid repeated model instantiation within a process.
-- spaCy capitalization is always enabled; models are baked into the Docker image: `en_core_web_sm`, `es_core_news_sm`, `fr_core_news_sm`, `de_core_news_sm`.
 - Sentence-Transformers loader rule: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` (avoids the "Creating a new one with mean pooling" message while still using caches). Also sets `HF_HOME` and may set `HF_HUB_OFFLINE=1` when a local model directory is used.
 
 ## Volume mounts
@@ -126,13 +125,13 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 - Centralized thresholds/configs: `LanguageConfig` via `_get_language_config(language)` and `_get_language_thresholds(language)` (a base dict plus per-language overrides; `es` and `pt` share the Romance split profile) control Spanish semantic thresholds (`semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`) and splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`). Also provides per-language greetings and question-starter lists for en/fr/de/es/pt.
 - Per-language constants in `punctuation_restorer.py`:
-  - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`, `ES_CONNECTORS`, `ES_POSSESSIVES`.
+  - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`.
   - French/German: `FR_GREETINGS`, `DE_GREETINGS`, `FR_QUESTION_STARTERS`, `DE_QUESTION_STARTERS`.
   - English: `EN_QUESTION_STARTERS`.
-- Spanish formatting is inline in the `if language == 'es':` branch of `_transformer_based_restoration()`: per-sentence capitalization (domain-guarded), terminal punctuation via `_should_add_terminal_punctuation(..., SPANISH_SPECIFIC)`, opening-`¿` insertion, then `_fix_location_appositive_punctuation()` and `_finalize_text_common()`. The standalone `_es_*` helpers and `_spanish_cleanup_postprocess()` were deleted in v0.12.1 — they had been unreachable since v0.6.0. Note the Spanish branch gets **no** spaCy capitalization pass; only the non-Spanish branch does.
+- Spanish formatting is inline in the `if language == 'es':` branch of `_transformer_based_restoration()`: per-sentence capitalization (domain-guarded), terminal punctuation via `_should_add_terminal_punctuation(..., SPANISH_SPECIFIC)`, opening-`¿` insertion, then `_fix_location_appositive_punctuation()` and `_finalize_text_common()`. The standalone `_es_*` helpers and `_spanish_cleanup_postprocess()` were deleted in v0.12.1 — they had been unreachable since v0.6.0.
 - Shared utilities: `_split_sentences_preserving_delims(text)`, `_normalize_mixed_terminal_punctuation(text)` (removes `!.`, `?.`, `!?`, compresses repeats), `_finalize_text_common(text)`, `assemble_sentences_from_processed(processed, language)`.
 - Public API hygiene: public functions are type-annotated (`restore_punctuation`, `transformer_based_restoration`, `apply_semantic_punctuation`, `is_question_semantic`, `is_exclamation_semantic`, `format_non_spanish_text`). `punctuation_restorer.py` is import-only (no `__main__`). Legacy `format_spanish_text` was removed.
-- Capitalization (spaCy mode): uses `LanguageConfig` connectors/possessives for Spanish to avoid mid-sentence mis-capitalization (e.g., `tu español`); multi-layered entity protection (spaCy NER + cross-linguistic analysis + contextual patterns); conservative location capitalization (only after strong cues like `vivo en`, `trabajo en`, `soy de`, `vengo de`).
+- No proper-noun capitalization pass: names and places keep Whisper's casing. The spaCy pass was removed in v0.15.0; since v0.4.0 its output had only reached `restore_punctuation()`'s returned string, which the TXT writer does not use.
 - Tuning guidance: prefer editing constants/thresholds over changing logic; avoid one-off hacks; after any change run `pytest` inside Docker with model caches mounted.
 
 ## Sentence splitting (4-signal hybrid)

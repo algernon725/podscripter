@@ -51,7 +51,7 @@ This module now focuses on punctuation restoration and language-specific formatt
 #
 # - Spanish keyword/constants:
 #   * ES_QUESTION_WORDS_CORE, ES_QUESTION_STARTERS_EXTRA
-#   * ES_GREETINGS, ES_CONNECTORS, ES_POSSESSIVES
+#   * ES_GREETINGS
 #   * Spanish helpers live in functions prefixed with _es_ (e.g., _es_greeting_and_leadin_commas)
 #
 # - French/German keyword/constants:
@@ -85,7 +85,7 @@ from domain_utils import (
     LOWER_ACCENTED,
 )
 from sentence_splitter import SentenceSplitter, Sentence
-from language_support import is_tailored, spacy_model_name
+from language_support import is_tailored
 
 # Suppress PyTorch FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
@@ -110,19 +110,6 @@ except ImportError:
     logger.warning("SentenceTransformers not available. Advanced punctuation restoration may be limited.")
 
 
-# SpaCy import for NLP-based capitalization (mandatory)
-import spacy
-
-# Try to import language detection for mixed-language content
-try:
-    from spacy_language_detection import LanguageDetector  # type: ignore[reportMissingImports]
-    SPACY_LANG_DETECTION_AVAILABLE = True
-except ImportError:
-    LanguageDetector = None
-    SPACY_LANG_DETECTION_AVAILABLE = False
-    logger.info("spacy-language-detection not available. Will use fallback heuristics for mixed-language content.")
-
-
 _SENTENCE_TRANSFORMER_SINGLETON = None
 
 """
@@ -131,21 +118,6 @@ Lightweight utilities and caches
 
 # Precompiled, shared regexes
 PUNCT_SPLIT_RE = re.compile(r'([.!?]+)')
-
-# Spanish language config: connectors and possessives
-ES_POSSESSIVES = {
-    "tu", "tus", "su", "sus", "mi", "mis", "nuestro", "nuestra", "nuestros", "nuestras"
-}
-ES_CONNECTORS = {
-    # Core function words that should not be capitalized mid-sentence
-    "de", "del", "la", "las", "los", "el", "lo",
-    "y", "e", "o", "u",
-    "en", "a", "con", "por", "para", "sin", "sobre", "entre",
-    # Foreign particles seen in names
-    "da", "di", "do", "du", "van", "von", "des", "le",
-    # Possessives/determiners
-    *ES_POSSESSIVES,
-}
 
 # Spanish keywords for questions and greetings (centralized)
 ES_QUESTION_WORDS_CORE = ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'por qué']
@@ -173,30 +145,7 @@ DE_QUESTION_STARTERS = [
 # English question starters (for completeness in light formatter)
 EN_QUESTION_STARTERS = ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'do', 'does', 'did', 'is', 'are', 'can', 'could', 'would', 'will', 'am']
 
-# Portuguese language config: connectors and possessives.
-# Covers both Brazilian and European Portuguese (Whisper reports a single 'pt').
-PT_POSSESSIVES = {
-    "meu", "minha", "meus", "minhas",
-    "teu", "tua", "teus", "tuas",
-    "seu", "sua", "seus", "suas",
-    "nosso", "nossa", "nossos", "nossas",
-}
-PT_CONNECTORS = {
-    # Articles
-    "o", "a", "os", "as", "um", "uma", "uns", "umas",
-    # Preposition+article contractions (very frequent; must never be capitalized
-    # mid-sentence nor end a sentence)
-    "do", "da", "dos", "das", "no", "na", "nos", "nas",
-    "ao", "à", "aos", "às", "pelo", "pela", "pelos", "pelas",
-    "num", "numa", "dum", "duma", "neste", "nesse", "naquele", "deste", "desse", "daquele",
-    # Bare prepositions
-    "de", "em", "para", "por", "com", "sem", "sobre", "entre", "até", "desde",
-    # Conjunctions
-    "e", "ou", "mas", "nem",
-    # Possessives/determiners
-    *PT_POSSESSIVES,
-}
-
+# Portuguese keywords. Cover both Brazilian and European Portuguese (Whisper reports a single 'pt').
 PT_QUESTION_WORDS_CORE = ['que', 'o que', 'quê', 'onde', 'quando', 'como', 'quem',
                           'qual', 'quais', 'por que', 'porquê', 'porque']
 PT_QUESTION_STARTERS_EXTRA = ['pode', 'podes', 'podem', 'sabe', 'sabes', 'quer', 'queres',
@@ -255,64 +204,43 @@ def _get_language_thresholds(language: str) -> dict:
 
 @dataclass
 class LanguageConfig:
-    connectors: set
-    possessives: set
     thresholds: dict
     greetings: list
     question_starters: list
 
 
 def _get_language_config(language: str) -> LanguageConfig:
-    # Generic defaults
-    default_connectors = {
-        "de", "del", "la", "las", "los", "el", "lo",
-        "y", "e", "o", "u",
-        "en", "a", "con", "por", "para", "sin", "sobre", "entre",
-        "da", "di", "do", "du", "van", "von", "des", "le",
-    }
     if language == 'es':
         return LanguageConfig(
-            connectors=ES_CONNECTORS,
-            possessives=ES_POSSESSIVES,
             thresholds=_get_language_thresholds(language),
             greetings=ES_GREETINGS,
             question_starters=ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA,
         )
     if language == 'fr':
         return LanguageConfig(
-            connectors=default_connectors,
-            possessives=set(),
             thresholds=_get_language_thresholds(language),
             greetings=FR_GREETINGS,
             question_starters=FR_QUESTION_STARTERS,
         )
     if language == 'de':
         return LanguageConfig(
-            connectors=default_connectors,
-            possessives=set(),
             thresholds=_get_language_thresholds(language),
             greetings=DE_GREETINGS,
             question_starters=DE_QUESTION_STARTERS,
         )
     if language == 'en':
         return LanguageConfig(
-            connectors=default_connectors,
-            possessives=set(),
             thresholds=_get_language_thresholds(language),
             greetings=['hello'],
             question_starters=EN_QUESTION_STARTERS,
         )
     if language == 'pt':
         return LanguageConfig(
-            connectors=PT_CONNECTORS,
-            possessives=PT_POSSESSIVES,
             thresholds=_get_language_thresholds(language),
             greetings=PT_GREETINGS,
             question_starters=PT_QUESTION_WORDS_CORE + PT_QUESTION_STARTERS_EXTRA,
         )
     return LanguageConfig(
-        connectors=default_connectors,
-        possessives=set(),
         thresholds=_get_language_thresholds(language),
         greetings=[],
         question_starters=[],
@@ -1338,9 +1266,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
     elif not is_tailored(language):
         # Generic language: keep the splitter's sentences as Whisper wrote them.
         # _apply_semantic_punctuation() above already reduced to "add '.' only if
-        # no terminal of any script is present" for these languages. No spaCy
-        # capitalization, greeting commas or location-appositive commas: every one
-        # of those is a per-language rule, and English stand-ins corrupt the text.
+        # no terminal of any script is present" for these languages. No greeting
+        # commas or location-appositive commas: each is a per-language rule, and
+        # English stand-ins corrupt the text.
         result = ' '.join(s.strip() for s in punctuated_sentences if s.strip())
     else:
         # Apply light, language-aware formatting for non-Spanish languages
@@ -1360,12 +1288,6 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             formatted_sentences.append(sentence)
         
         result = ' '.join(formatted_sentences)
-
-        # SpaCy capitalization pass (always applied)
-        # Mask domains before spaCy to prevent it from capitalizing domain names as proper nouns
-        result_masked_for_spacy = mask_domains(result, use_exclusions=True, language=language)
-        result_capitalized = _apply_spacy_capitalization(result_masked_for_spacy, language)
-        result = unmask_domains(result_capitalized)
 
         # Fix location appositive punctuation across languages
         result = _fix_location_appositive_punctuation(result, language)
@@ -2177,470 +2099,6 @@ def _format_non_spanish_text(text: str, language: str) -> str:
     if pt_masked:
         out = unmask_domains(out)
     return out
-
-
-# ---------------- NLP Capitalization (spaCy) ----------------
-_SPACY_PIPELINES = {}
-
-def _get_spacy_pipeline(language: str):
-    """The spaCy pipeline for `language`, or None for a generic language.
-
-    Until v0.14.0 a language without a model silently got `en_core_web_sm`, whose
-    tagger marks out-of-vocabulary foreign words PROPN -- so Italian came back as
-    "Ciao a Tutti, Benvenuti Al Podcast". No model now means no spaCy pass.
-    """
-    if language in _SPACY_PIPELINES:
-        return _SPACY_PIPELINES[language]
-    name = spacy_model_name(language)
-    if not name:
-        _SPACY_PIPELINES[language] = None
-        return None
-    try:
-        nlp = spacy.load(name, disable=["lemmatizer"])  # speed
-        _SPACY_PIPELINES[language] = nlp
-        return nlp
-    except Exception as e:
-        # If we can't load the model, this is a critical error since SpaCy is now mandatory
-        raise RuntimeError(f"Failed to load spaCy model '{name}': {e}")
-
-
-def _detect_english_phrases_with_spacy(text: str, target_language: str) -> set:
-    """Detect English phrases within text using spaCy language detection or heuristics.
-    
-    Returns a set of token indices that are likely English words.
-    Prioritizes NER entities (locations, people, organizations) to avoid misclassification.
-    """
-    english_token_idxs = set()
-    
-        
-    # Get both the target language pipeline and English pipeline
-    target_nlp = _get_spacy_pipeline(target_language)
-    english_nlp = _get_spacy_pipeline('en')
-        
-    try:
-        # Process with target language pipeline first
-        doc = target_nlp(text)
-        
-        # STEP 1: Identify protected entities (locations, people, orgs) that should NOT be treated as English
-        protected_entities = set()
-        protected_types = {"PERSON", "ORG", "GPE", "LOC", "NORP"}  # Include demonyms (NORP)
-        for ent in doc.ents:
-            if ent.label_ in protected_types:
-                # Filter out obviously incorrect entity classifications for Spanish
-                if target_language == 'es' and len(ent.text) == 1:
-                    continue  # Single characters are rarely valid entities
-                
-                # Don't protect common Spanish words that spaCy incorrectly classifies as entities
-                if target_language == 'es':
-                    ent_text_lower = ent.text.lower()
-                    # Skip entities that are obviously Spanish verbs/nouns being misclassified
-                    if (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', ent_text_lower) or  # infinitive + reflexive
-                        re.match(r'^[a-z]+(me|te|se|nos|os)$', ent_text_lower) or  # reflexive verbs
-                        # Common Spanish noun patterns that shouldn't be entities
-                        re.match(r'^[a-z]+(a|o|as|os)$', ent_text_lower) and len(ent_text_lower) > 3):  # likely common nouns
-                        continue
-                
-                for token in ent:
-                    protected_entities.add(token.i)
-            elif ent.label_ == "MISC":
-                # For MISC entities, don't protect any tokens - let the English detection handle them
-                # This prevents spaCy's confused mixed-language groupings from interfering
-                pass
-        
-        # STEP 1b: Add heuristic protection for common location patterns that spaCy might miss in mixed content
-        # Look for words in location-indicating contexts (case-insensitive to catch lowercase instances)
-        location_context_patterns = [
-            r'\bde\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "de colombia", "de santander" 
-            r'\ben\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "en colombia"
-            r'\ba\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',   # "a colombia"
-            r'\bto\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "to colombia" (English)
-            r'\bin\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)', # "in colombia" (English)
-            r'\bgoing\s+to\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "going to colombia"
-            r'\bvivo\s+en\s+([a-záéíóúñA-ZÁÉÍÓÚÑ]+)',  # "vivo en colombia"
-        ]
-        
-        for pattern in location_context_patterns:
-            for match in re.finditer(pattern, text, re.IGNORECASE):
-                location_word = match.group(1)
-                # Find the token index for this location word
-                for token in doc:
-                    if (token.text.lower() == location_word.lower() and 
-                        token.idx >= match.start(1) and token.idx < match.end(1)):
-                        protected_entities.add(token.i)
-                        break
-        
-        # STEP 1c: Use cross-linguistic analysis - if a word appears to be PROPN in English pipeline but not in Spanish context,
-        # it might be a location that Spanish spaCy missed due to mixed content
-        if english_nlp and target_language == 'es':
-            try:
-                # Process same text with English pipeline to see if it catches locations
-                en_doc = english_nlp(text)
-                for en_ent in en_doc.ents:
-                    if en_ent.label_ in {"GPE", "LOC"}:
-                        # Find corresponding tokens in Spanish doc
-                        for token in doc:
-                            if (token.text.lower() == en_ent.text.lower() and 
-                                token.idx >= en_ent.start_char and token.idx < en_ent.end_char):
-                                protected_entities.add(token.i)
-            except Exception:
-                pass
-        
-        # STEP 2: Use spacy-language-detection if available
-        if LanguageDetector is not None and target_language == 'es':
-            try:
-                # Add language detector to a temporary pipeline
-                temp_nlp = spacy.load('es_core_news_sm')
-                language_detector = LanguageDetector()
-                temp_nlp.add_pipe(language_detector, name='language_detector', last=True)
-                
-                # Process text with language detection
-                lang_doc = temp_nlp(text)
-                
-                # Check sentences for English content
-                for sent in lang_doc.sents:
-                    if hasattr(sent._, 'language') and sent._.language.get('language') == 'en':
-                        # Mark tokens as English, but exclude protected entities
-                        for token in sent:
-                            if token.i not in protected_entities:
-                                english_token_idxs.add(token.i)
-            except Exception:
-                # Fall through to heuristic method
-                pass
-        
-        # STEP 3: Fallback heuristics for English detection (with entity protection)
-        if not english_token_idxs:
-            # Look for English patterns using linguistic features
-            for token in doc:
-                # Skip if this token is part of a protected entity
-                if token.i in protected_entities:
-                    continue
-                    
-                is_likely_english = False
-                
-                # Check for common English function words that don't exist in Spanish
-                english_only_words = {
-                    'i', 'am', 'going', 'to', 'the', 'a', 'an', 'this', 'that', 'these', 'those',
-                    'you', 'we', 'they', 'he', 'she', 'it', 'me', 'him', 'her', 'us', 'them',
-                    'my', 'your', 'his', 'her', 'its', 'our', 'their',
-                    'do', 'does', 'did', 'don\'t', 'doesn\'t', 'didn\'t',
-                    'have', 'has', 'had', 'haven\'t', 'hasn\'t', 'hadn\'t',
-                    'will', 'would', 'won\'t', 'wouldn\'t', 'can', 'could', 'can\'t', 'couldn\'t',
-                    'should', 'shouldn\'t', 'may', 'might', 'must', 'mustn\'t',
-                    'is', 'are', 'was', 'were', 'isn\'t', 'aren\'t', 'wasn\'t', 'weren\'t',
-                    'be', 'being', 'been', 'get', 'got', 'getting',
-                    'think', 'thought', 'know', 'knew', 'see', 'saw', 'look', 'looked',
-                    'good', 'bad', 'better', 'best', 'worse', 'worst',
-                    'in', 'on', 'at', 'by', 'for', 'with', 'without', 'about', 'from',
-                    'and', 'or', 'but', 'so', 'if', 'when', 'where', 'why', 'how', 'what', 'who',
-                    'very', 'really', 'quite', 'just', 'only', 'also', 'too', 'still', 'already',
-                    'test', 'skirt', 'shirt', 'dress', 'pants', 'clothes'
-                }
-                
-                if token.text.lower() in english_only_words:
-                    is_likely_english = True
-                
-                # Check for English morphological patterns
-                elif re.match(r'^[a-z]+(ing|ed|ly|er|est)$', token.text.lower()):
-                    is_likely_english = True
-                
-                # Check for English contractions
-                elif re.match(r"^[a-z]+'[a-z]+$", token.text.lower()):
-                    is_likely_english = True
-                
-                if is_likely_english:
-                    english_token_idxs.add(token.i)
-            
-            # STEP 4: Extend detection to nearby tokens in likely English phrases
-            # If we find English words, extend to adjacent non-Spanish tokens
-            extended_idxs = set(english_token_idxs)
-            for idx in english_token_idxs:
-                # Check previous and next tokens
-                for offset in [-2, -1, 1, 2]:
-                    neighbor_idx = idx + offset
-                    if 0 <= neighbor_idx < len(doc):
-                        neighbor = doc[neighbor_idx]
-                        # Skip if neighbor is a protected entity
-                        if neighbor_idx in protected_entities:
-                            continue
-                        # Skip if clearly Spanish or punctuation
-                        if (neighbor.is_punct or neighbor.is_space or
-                            neighbor.text.lower() in {'de', 'la', 'el', 'en', 'y', 'que', 'a', 'con', 'por', 'para', 'es', 'son', 'soy'}):
-                            continue
-                        # Include if length > 1 and not clearly Spanish
-                        if len(neighbor.text) > 1:
-                            extended_idxs.add(neighbor_idx)
-            
-            english_token_idxs = extended_idxs
-                
-    except Exception as e:
-        logger.debug(f"Error in English phrase detection: {e}")
-        
-    return english_token_idxs
-
-
-def _apply_spacy_capitalization(text: str, language: str) -> str:
-    """Capitalize named entities and proper nouns using spaCy, conservatively.
-
-    - Capitalize tokens in entities PERSON/ORG/GPE/LOC
-    - Capitalize tokens with POS=PROPN  
-    - Preserve particles: de, del, la, las, los, y, o, da, di, do, du, van, von, du, des, le
-    - Skip URLs/emails/handles
-    - Detect and properly handle English phrases in mixed-language content
-    - Fix overcapitalized English words while preserving proper sentence starts
-    """
-    nlp = _get_spacy_pipeline(language)
-    if nlp is None or not text.strip():
-        return text
-
-    try:
-        doc = nlp(text)
-    except Exception:
-        return text
-
-    # For Spanish, be very conservative with spaCy's entity detection since it's unreliable with mixed content
-    ent_token_idxs = set()
-    if language == 'es':
-        # Only trust clear, unambiguous entities from spaCy
-        for ent in doc.ents:
-            if ent.label_ in {"ORG"}:  # Organizations are usually reliable
-                for t in ent:
-                    ent_token_idxs.add(t.i)
-            elif ent.label_ in {"GPE", "LOC"} and len(ent.text) > 1:
-                # Only trust location entities that don't look like Spanish common words
-                ent_lower = ent.text.lower()
-                if not (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', ent_lower) or
-                        re.match(r'^[a-z]+(me|te|se|nos|os)$', ent_lower) or
-                        re.match(r'^[a-z]+(a|o|as|os)$', ent_lower) and len(ent_lower) > 3):
-                    for t in ent:
-                        ent_token_idxs.add(t.i)
-    else:
-        # For other languages, trust spaCy more
-        ent_types = {"PERSON", "ORG", "GPE", "LOC"}
-        for ent in doc.ents:
-            if ent.label_ in ent_types:
-                for t in ent:
-                    ent_token_idxs.add(t.i)
-
-    # Never capitalize these connectors (common Spanish function words)
-    cfg = _get_language_config(language)
-    connectors = cfg.connectors
-    
-    # Detect English phrases for mixed-language content
-    english_phrase_idxs = set()
-    if language == 'es':
-        english_phrase_idxs = _detect_english_phrases_with_spacy(text, language)
-
-    def should_capitalize(tok) -> bool:
-        txt = tok.text
-        # Skip tokens in detected English phrases (but allow proper nouns/entities)
-        if tok.i in english_phrase_idxs and tok.i not in ent_token_idxs:
-            return False
-        # Skip URLs/email/handles or tokens that themselves look like domain fragments.
-        # SINGLE_MASK covers already-masked domains ("exemplo__DOT__com"), which carry
-        # no literal dot for the regex below to catch and which spaCy would otherwise
-        # tag PROPN and capitalize.
-        if (any(ch in txt for ch in ['@', '/', '://'])
-                or SINGLE_MASK in txt
-                or re.search(r"\w+\.\w+", txt)):
-            return False
-        # Skip TLD token in domain pattern split across tokens: label '.' TLD
-        try:
-            if tok.i >= 2:
-                prev_dot = doc[tok.i - 1].text
-                prev_label = doc[tok.i - 2].text
-                if prev_dot == '.' and re.fullmatch(r"[A-Za-z0-9-]+", prev_label) and re.fullmatch(r"[A-Za-z]{2,24}", txt):
-                    return False
-        except Exception:
-            pass
-        
-        # ALWAYS preserve person initials (single or multiple capital letters with periods)
-        # This handles names like "C.S. Lewis", "J.K. Rowling", "J.R.R. Tolkien"
-        # Match patterns like "C.", "C.S.", "J.R.R."
-        if re.fullmatch(r"[A-Z]\.([A-Z]\.)*", txt):
-            # Look ahead to see if followed by a capitalized name (likely surname)
-            try:
-                if tok.i + 1 < len(doc):
-                    next_tok = doc[tok.i + 1]
-                    next_txt = next_tok.text
-                    # If followed by a capitalized word (e.g., "C.S." followed by "Lewis")
-                    if next_txt and next_txt[0].isupper() and len(next_txt) > 1 and next_txt.isalpha():
-                        return True
-            except Exception:
-                pass
-        
-        low = txt.lower()
-        if low in connectors:
-            return False
-        if tok.i in ent_token_idxs:
-            if low in connectors and tok.ent_iob_ != 'B':
-                return False
-            return True
-        if tok.pos_ == 'PROPN':
-            if low in connectors:
-                return False
-            # For Spanish: be very conservative with PROPN since spaCy often misclassifies common words  
-            if language == 'es':
-                # Don't capitalize obvious Spanish morphological patterns
-                if (re.match(r'^[a-z]+(ar|er|ir)(me|te|se|nos|os)?$', low) or  # verbs + reflexives
-                    re.match(r'^[a-z]+(me|te|se|nos|os)$', low)):  # pure reflexives
-                    return False
-                # Only capitalize if already uppercase (preserving existing capitalization)
-                if not tok.text[0].isupper():
-                    return False
-            else:
-                # For other languages, be more permissive
-                if tok.text[0].isupper():
-                    return True
-            return True
-        
-        # Additional heuristic: capitalize words that look like location names based on context
-        # even if spaCy didn't detect them as entities (common in mixed-language content)
-        # Be more restrictive and only capitalize when we have strong indicators it's a location
-        if (language == 'es' and tok.is_alpha and len(tok.text) > 3 and 
-            not low in connectors and tok.i > 0):
-            
-            prev_token = doc[tok.i - 1]
-            
-            # Only capitalize after specific contextual cues that strongly suggest locations
-            location_context = False
-            
-            # Pattern 1: After specific verbs + prepositions that indicate location
-            if (tok.i > 1):
-                prev2_token = doc[tok.i - 2]
-                verb_location_patterns = {
-                    ('vivo', 'en'), ('trabajo', 'en'), ('nací', 'en'), ('estudié', 'en'),
-                    ('voy', 'a'), ('fui', 'a'), ('viajé', 'a'), ('mudé', 'a'),
-                    ('vengo', 'de'), ('soy', 'de'), ('llegué', 'de')
-                }
-                if (prev2_token.text.lower(), prev_token.text.lower()) in verb_location_patterns:
-                    location_context = True
-            
-            # Pattern 2: After "en" when the word looks like a proper noun (starts with capital or uncommon ending)
-            if (prev_token.text.lower() == 'en' and 
-                (tok.text[0].isupper() or  # Already capitalized in input
-                 low.endswith(('nia', 'dad', 'burg', 'land', 'shire', 'ford', 'ton')))):  # Place-like endings
-                location_context = True
-            
-            # Pattern 3: After "de" only if the word was already capitalized (indicating proper noun)
-            if (prev_token.text.lower() == 'de' and tok.text[0].isupper()):
-                # Only capitalize if it was already a proper noun in the input
-                location_context = True
-            
-            if location_context:
-                return True
-            # English patterns: "in Colombia", "to Colombia", "going to Colombia"  
-            if (prev_token.text.lower() in {'in', 'to'} and 
-                len(prev_token.text) <= 2):
-                return True
-            # Two tokens back: "vivo en Colombia", "going to Colombia"
-            if (tok.i > 1):
-                prev2_token = doc[tok.i - 2]
-                if (prev2_token.text.lower() in {'vivo', 'trabajo', 'nací', 'estudié'} and
-                    prev_token.text.lower() == 'en'):
-                    return True
-                if (prev2_token.text.lower() in {'going', 'traveling', 'moving'} and
-                    prev_token.text.lower() == 'to'):
-                    return True
-        
-        return False
-
-    out = []
-    for tok in doc:
-        t = tok.text
-        
-        # Fix overcapitalized English words in detected phrases
-        if tok.i in english_phrase_idxs and t and t[0].isupper() and len(t) > 1:
-            # Lowercase English words in phrases, except sentence-initial "I"
-            if t.lower() == 'i':
-                # Keep "I" capitalized as it's always capitalized in English
-                pass
-            else:
-                # Check if this is at the start of a sentence
-                is_sentence_start = (tok.i == 0 or 
-                                   (tok.i > 0 and doc[tok.i - 1].text in {'.', '!', '?', '¿', '¡'}))
-                if not is_sentence_start:
-                    t = t[0].lower() + t[1:]
-        elif should_capitalize(tok):
-            if t:
-                t = t[0].upper() + t[1:]
-            # Spanish-specific de-capitalization for possessive + noun artifacts: "tu Español" -> "tu español"
-            if language == 'es' and tok.i > 0:
-                prev = doc[tok.i - 1].text.lower()
-                if prev in _get_language_config(language).possessives and re.match(r"^[A-ZÁÉÍÓÚÑ]", t):
-                    t = t[0].lower() + t[1:]
-            # Additionally, avoid capitalizing possessive itself mid-sentence: "Tu" -> "tu"
-        if language == 'es':
-            if tok.text in {w.title() for w in _get_language_config(language).possessives}:
-                # Lowercase unless at sentence start
-                at_sent_start = getattr(tok, 'is_sent_start', False)
-                prev_text = doc[tok.i - 1].text if tok.i > 0 else ''
-                if not at_sent_start and prev_text not in {'.', '!', '?', '¿', '¡'}:
-                    t = t.lower()
-        out.append(t + tok.whitespace_)
-    result = ''.join(out)
-
-    if language == 'es':
-        # Entity-driven appositive commas: PERSON (,)? de GPE (,) GPE
-        # Insert missing comma after PERSON when followed by "de <GPE/...>"
-        # and missing comma between two consecutive GPE/LOC entities.
-        try:
-            edits: list[tuple[int, str]] = []
-            for sent in doc.sents:
-                # Work within sentence text slice
-                for ent in doc.ents:
-                    if ent.label_ != 'PERSON':
-                        continue
-                    if not (sent.start_char <= ent.start_char and ent.end_char <= sent.end_char):
-                        continue
-                    # Find next non-space char after PERSON
-                    tail = text[ent.end_char:sent.end_char]
-                    tail_lstrip = tail.lstrip()
-                    if not tail_lstrip:
-                        continue
-                    # If already has a comma immediately after spaces, skip first comma insertion
-                    has_comma = tail_lstrip.startswith(',')
-                    # After optional comma and spaces, check for 'de'
-                    after = tail_lstrip[1:].lstrip() if has_comma else tail_lstrip
-                    if not after.lower().startswith('de'):
-                        continue
-                    # Insert comma after PERSON if missing
-                    if not has_comma:
-                        edits.append((ent.end_char, ','))
-                    # Now check for two consecutive location entities: GPE/LOC (,)? GPE/LOC
-                    # Find first entity that starts after this PERSON within the sentence
-                    following_ents = [e for e in doc.ents if e.start_char >= ent.end_char and e.start_char < sent.end_char and e.label_ in {"GPE","LOC"}]
-                    if len(following_ents) >= 2:
-                        first_loc = following_ents[0]
-                        between = text[first_loc.end_char:following_ents[1].start_char]
-                        # If there is no comma between two locations, insert one
-                        if ',' not in between:
-                            edits.append((first_loc.end_char, ','))
-            # Apply edits in reverse order so positions remain valid
-            if edits:
-                for pos, ins in sorted(edits, key=lambda x: x[0], reverse=True):
-                    # Insert before any spaces at position (keep comma tight to previous token)
-                    result = result[:pos] + ins + result[pos:]
-        except Exception:
-            pass
-
-        # Capitalize names after introduction cues (general, not whitelists)
-        def cap_word(w: str) -> str:
-            return w[:1].upper() + w[1:] if w else w
-        stop_after_intro = {"de", "del", "la", "el", "los", "las", "y", "e", "o", "u"}
-        # mi nombre es / me llamo / yo soy + Name
-        def intro_repl(m: re.Match) -> str:
-            cue = m.group(1)
-            nxt = m.group(2)
-            return f"{cue} {nxt if nxt.lower() in stop_after_intro else cap_word(nxt)}"
-        result = re.sub(r'(?i)\b(mi nombre es|me llamo|yo soy)\s+([\wáéíóúñÁÉÍÓÚÑ-]+)', intro_repl, result)
-        # Locations after vivo en / trabajo en + Place (skip stopwords)
-        def loc_repl(m: re.Match) -> str:
-            cue = m.group(1)
-            nxt = m.group(2)
-            return f"{cue} {nxt if nxt.lower() in stop_after_intro else cap_word(nxt)}"
-        result = re.sub(r'(?i)\b(vivo en|trabajo en)\s+([\wáéíóúñÁÉÍÓÚÑ-]+)', loc_repl, result)
-    
-    return result
 
 
 def _apply_french_hyphenation(sentence: str) -> str:

@@ -11,7 +11,6 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
 - **Primary dependencies**:
   - Faster-Whisper (ASR)
   - Sentence-Transformers (semantic cues for punctuation)
-  - spaCy (mandatory; automatic capitalization; models baked into Docker)
   - pydub (chunking)
 - **Runtime**: Docker container; model caches bound via volumes
 
@@ -94,7 +93,7 @@ flowchart TD
 2. If not `--single`, split media into ~480s chunks with ~3s overlap.
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
-5. Restore punctuation and assemble sentences via `restore_punctuation()` → `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which drives `SentenceSplitter` for boundaries; then `SentenceFormatter` for merges (ellipsis/domain-aware; spaCy capitalization on the non-Spanish path).
+5. Restore punctuation and assemble sentences via `restore_punctuation()` → `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which drives `SentenceSplitter` for boundaries; then `SentenceFormatter` for merges (ellipsis/domain-aware).
 6. Write TXT or SRT.
 
 ## Components and responsibilities
@@ -158,7 +157,6 @@ flowchart TD
   - Spanish false domain prevention: centralized exclusion logic prevents Spanish words (e.g., `uno.de`, `este.es`, `naturales.es`) from being incorrectly treated as domains
   - Natural language domain merge guards (v0.4.4): prevents false domain merges when sentences end with words matching TLDs (e.g., "jugar." + "Es que..." should NOT merge as "jugar.es"). Only merges if sentence is short (< 50 chars) OR label is capitalized, ensuring domain detection targets actual URL mentions rather than natural language coincidences
   - Spanish processing wraps all transformations with domain masking/unmasking so that URLs (including subdomains like `www.example.com`) remain intact through punctuation and capitalization stages
-  - Pipeline order correction (Spanish): automatic spaCy capitalization now runs before greeting/comma insertion to avoid capitalization feedback loops and over-capitalization of common words
   - Location appositive normalization (EN/ES/FR/DE): punctuation-restoration converts ", <preposition> <Location>. <Location>" to ", <preposition> <Location>, <Location>" using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; PT: de/do/da/dos/das/em; DE: aus/von/in). Also normalizes direct comma-separated forms like "City, Region. and/pero/y …" to keep the location intact and continue the clause. Includes a new-sentence guard to avoid merging when the following fragment starts a new sentence with a subject (e.g., "Y yo …", "And I …", "Et je …", "Und ich …").
   - TXT writer multilingual location protection: during final TXT splitting, protects appositive location patterns like ", <preposition> <Location>. <Location>" to avoid breaking location descriptions. Applies across EN/ES/FR/PT/DE using language-specific prepositions (ES: de; EN: from/in; FR: de/du/des; PT: de/do/da/dos/das/em; DE: aus/von/in); restores protected periods after splitting.
   - Spanish greeting and inverted-question guards:
@@ -169,15 +167,6 @@ flowchart TD
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
-  - Automatic spaCy capitalization (always enabled for tailored languages; skipped in generic mode) with mixed-language support:
-    - English phrase detection in Spanish transcriptions using spaCy language detection or linguistic heuristics
-    - Multi-layered location handling: spaCy NER + cross-linguistic analysis + conservative contextual patterns
-    - Prevents English phrase over‑capitalization (e.g., "I am Going To Test" → "I am going to test")
-    - Preserves location capitalization when already present in the input (e.g., "de Santander, Colombia")
-    - Conservative location capitalization to avoid false positives:
-      - Capitalize after strong cues (e.g., `vivo en`, `trabajo en`, `soy de`, `vengo de`)
-      - After `de`, capitalize only when the next token was already capitalized in the input
-      - After `en`, capitalize when the next token was already capitalized; avoid common nouns
   - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
 ## Configuration
@@ -224,7 +213,7 @@ flowchart TD
     - Use `.dockerignore` to exclude large local media and caches (`audio-files/`, `models/`)
 - **Error handling**
   - Early exits for invalid input or unwritable output
-  - Conservative fallbacks when ST/spaCy unavailable
+  - Conservative fallbacks when Sentence-Transformers is unavailable
   - Typed exceptions surfaced from the orchestrator and mapped to exit codes:
     - `InvalidInputError` (2), `ModelLoadError` (3), `TranscriptionError` (4), `OutputWriteError` (5), unexpected (1)
   - Logging via a single `podscripter` logger; three levels:
@@ -269,12 +258,12 @@ flowchart TD
 
 ## Known limitations
 
-- Only languages with a spaCy model in the image (EN/ES/FR/PT, plus DE, experimental since v0.8.7) get language-specific processing. Every other Whisper language runs in generic mode (v0.14.0): the output is Whisper's own text in sentences and paragraphs, with no question detection, domain rejoining, grammatical split guards or capitalization. `language_support.is_tailored()` is the single predicate, derived at runtime from `spacy.util.get_installed_models()`.
-- Portuguese uses the light formatting path shared with EN/FR/DE, so it inherits that path's limitations: the location-comma heuristic runs before spaCy capitalization (so "de Lisboa Portugal" gets no comma, exactly as EN "from London England" does), and question detection matches on the first token only (so "a que horas …" is missed). Portuguese does NOT get the Spanish inverted `¿`/`¡` handling, which is correct — Portuguese has no opening marks.
-- spaCy capitalization requires language models; disabled if unavailable (generic mode)
+- Only the languages in `language_support.TAILORED_LANGUAGES` (EN/ES/FR/PT, plus DE, experimental since v0.8.7) get language-specific processing. Every other Whisper language runs in generic mode (v0.14.0): the output is Whisper's own text in sentences and paragraphs, with no question detection, domain rejoining, grammatical split guards or capitalization. `language_support.is_tailored()` is the single predicate, backed by a static list since v0.15.0.
+- Portuguese uses the light formatting path shared with EN/FR/DE, so it inherits that path's limitations: the location-comma heuristic needs capitalized place names and nothing capitalizes lowercase input (so "de lisboa portugal" gets no comma, exactly as EN "from london england" does), and question detection matches on the first token only (so "a que horas …" is missed). Portuguese does NOT get the Spanish inverted `¿`/`¡` handling, which is correct — Portuguese has no opening marks.
+- No proper-noun capitalization: names and places keep Whisper's casing. spaCy capitalization was removed in v0.15.0; its output had not reached the transcript since v0.4.0.
 - Perfect punctuation restoration is not guaranteed; favors robust heuristics
 - Thousands separators include a space after commas (e.g., `1, 000`) due to centralized comma spacing. This trade-off was chosen to reliably fix number-list spacing in transcripts.
-- **WIP**: Person initials (e.g., "C.S. Lewis", "J.K. Rowling") in non-English transcriptions may still split into separate sentences. Infrastructure is in place (`_normalize_initials_and_acronyms()`) but requires additional masking to protect initials through spaCy processing. See AGENTS.md "Known Open Issues" for details.
+- Person initials (e.g., "C. S. Lewis" → "C.S. Lewis") are normalized by `_normalize_initials_and_acronyms()` in `_assemble_sentences()`, before `restore_punctuation()`; calling `restore_punctuation()` directly skips that step.
 
 ## Recent architectural improvements
 
@@ -449,6 +438,6 @@ Debugging:
 - `sentence_formatter.py`: unified post-processing merge operations with speaker-aware decisions (v0.5.0+)
 - `punctuation_restorer.py`: punctuation restoration, language formatting, capitalization
 - `domain_utils.py`: centralized domain detection, masking, and Spanish false domain prevention
-- `language_support.py`: which languages are tailored vs generic (`is_tailored()`), derived from the installed spaCy models; Whisper language-code validation
+- `language_support.py`: which languages are tailored vs generic (`is_tailored()`, a static list); Whisper language-code validation
 - `speaker_diarization.py`: speaker change detection and boundary extraction (optional feature)
 - `Dockerfile`: runtime and dependency setup

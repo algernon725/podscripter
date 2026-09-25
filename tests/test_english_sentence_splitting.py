@@ -13,7 +13,6 @@ ENGLISH_SPLITTING_CASES = [
         "And President Trump is putting the D. C. Police Department under federal control.",
         "And President Trump is putting the DC Police Department under federal control.",
         id="do-not-split-dotted-acronym-DC",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
     ),
     pytest.param(
         "He calls the U. S. Capitol a place of unchecked crime and squalor.",

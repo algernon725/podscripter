@@ -18,7 +18,7 @@
 - **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
 - **Language Support**: tailored processing for English (en), Spanish (es), French (fr), Portuguese (pt) and experimental German (de). Every other Whisper language is transcribed in generic mode, which keeps Whisper's own punctuation and capitalization.
-- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration, with automatic spaCy-based capitalization.
+- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration. Names and places keep the casing Whisper gives them.
 - **Optional Speaker Diarization**: Detect speaker changes for improved sentence boundaries in multi-speaker content (interviews, conversations, podcasts).
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
 - **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
@@ -236,7 +236,7 @@ Hoy vamos a hablar de algunos consejos de viaje.
 
 PodScripter accepts any language Whisper supports, either auto-detected or set with `--language`. Each language is processed in one of two modes:
 
-- **Tailored** — language-specific punctuation, sentence-splitting and capitalization rules, with tests. These are exactly the languages with a spaCy model in the Docker image:
+- **Tailored** — language-specific punctuation and sentence-splitting rules, with tests:
 
   | Language | Code | Language | Code |
   |----------|------|----------|------|
@@ -249,16 +249,6 @@ PodScripter accepts any language Whisper supports, either auto-detected or set w
 - **Generic** — every other language (Italian, Russian, Japanese, …). The transcript keeps Whisper's own punctuation and capitalization, laid out in sentences and paragraphs, and no language-specific rule is applied. The run's parameter banner says so, e.g. `Language: it (generic — no language-specific processing)`.
 
 Speaker diarization (`--enable-diarization`) is purely acoustic and works the same for every language.
-
-## Automatic NLP Capitalization (spaCy)
-
-Punctuation restoration uses Sentence-Transformers with automatic spaCy-based capitalization that capitalizes named entities and proper nouns for English, Spanish, French, and Portuguese.
-
-- Always enabled - spaCy models are included in the Docker image.
-- Automatically capitalizes names, places, and organizations while preserving language-specific connectors like "de", "del", "y", etc.
-- Generic-mode languages (no spaCy model in the image) skip this pass entirely.
-
-This feature is CPU-only and uses cached spaCy "sm" models baked into the image.
 
 ## Development
 

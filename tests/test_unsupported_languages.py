@@ -2,9 +2,9 @@
 """
 Generic (non-tailored) languages must degrade to Whisper's own output.
 
-Only languages with an installed spaCy model get language-specific processing.
-Until v0.14.0 every other language silently received the *English* rules, which
-corrupted text Whisper had already produced correctly:
+Only the languages in `language_support.TAILORED_LANGUAGES` get language-specific
+processing. Until v0.14.0 every other language silently received the *English*
+rules, which corrupted text Whisper had already produced correctly:
 
   * English spaCy capitalized every out-of-vocabulary foreign token
     ("Ciao a Tutti, Benvenuti Al Podcast").
@@ -25,18 +25,15 @@ import time
 import types
 
 import pytest
-import spacy
 
 import podscripter
 from language_support import (
     is_tailored,
-    spacy_model_name,
     tailored_languages,
     whisper_languages,
 )
 from podscripter import _assemble_sentences, _write_txt, validate_language_code, InvalidInputError
 from punctuation_restorer import (
-    _get_spacy_pipeline,
     _get_question_patterns,
     _get_exclamation_patterns,
     has_question_indicators,
@@ -86,22 +83,34 @@ def _paragraphs(txt):
 
 # ---------------------------------------------------------------- the predicate
 
-def test_tailored_set_matches_installed_spacy_models():
-    """Drift guard: behavior is tied to the models baked into the Dockerfile."""
-    installed = {name.split('_', 1)[0] for name in spacy.util.get_installed_models()
-                 if '_core_' in name}
-    assert set(tailored_languages()) == installed
+def test_tailored_set_is_pinned():
+    """Adding or dropping a tailored language must be a deliberate, reviewed change."""
+    assert tailored_languages() == {'en', 'es', 'fr', 'de', 'pt'}
 
 
 @pytest.mark.parametrize("language", ['en', 'es', 'fr', 'de', 'pt'])
 def test_image_languages_are_tailored(language):
     assert is_tailored(language), f"{language!r} lost its language-specific processing"
-    assert spacy_model_name(language), f"no spaCy model resolved for {language!r}"
+    assert is_tailored(language.upper())
 
 
 @pytest.mark.parametrize("language", ['it', 'ru', 'ja', 'zh', 'el', 'ar', None, ''])
 def test_other_languages_are_generic(language):
     assert not is_tailored(language)
+
+
+def test_spacy_is_not_imported():
+    """spaCy was removed in v0.15.0 (its output never reached the transcript).
+
+    The Docker image no longer installs it, so an import that slips back in would
+    only fail at `docker build`. Catch it here, in a fresh interpreter.
+    """
+    code = ("import sys, podscripter, punctuation_restorer, sentence_splitter, "
+            "sentence_formatter, domain_utils, language_support; "
+            "sys.exit('spacy' in sys.modules)")
+    proc = subprocess.run([sys.executable, '-c', code], cwd=REPO_ROOT,
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, f"spaCy was imported\n{proc.stderr[-2000:]}"
 
 
 def test_whisper_language_codes_still_resolve():
@@ -112,11 +121,6 @@ def test_whisper_language_codes_still_resolve():
 
 
 # --------------------------------------------------------- no English stand-ins
-
-@pytest.mark.parametrize("language", ['it', 'ru', 'zz'])
-def test_generic_language_gets_no_spacy_pipeline(language):
-    assert _get_spacy_pipeline(language) is None
-
 
 @pytest.mark.parametrize("language", ['it', 'ru'])
 def test_generic_language_gets_no_english_question_rules(language):

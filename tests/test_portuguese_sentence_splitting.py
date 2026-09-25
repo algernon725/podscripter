@@ -58,10 +58,11 @@ PORTUGUESE_SPLITTING_CASES = [
         "Eu sou o João de Lisboa, Portugal.",
         id="location-appositive-comma",
         marks=pytest.mark.xfail(
-            reason="Shared light-path gap: the location-comma heuristic runs before "
-                   "spaCy capitalization, so it never sees capitalized place names. "
-                   "en ('from London England') and fr ('de Paris France') behave "
-                   "identically."
+            reason="Shared light-path gap: the location-comma heuristic needs "
+                   "capitalized place names, and nothing capitalizes lowercase input "
+                   "(spaCy, removed in v0.15.0, only ever capitalized a discarded "
+                   "string). en ('from London England') and fr ('de Paris France') "
+                   "behave identically."
         ),
     ),
     pytest.param(

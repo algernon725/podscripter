@@ -4,53 +4,30 @@ Which languages get language-specific processing.
 
 podscripter has two processing modes:
 
-  * **Tailored** languages have a spaCy model installed (baked into the Docker
-    image) and the per-language rules that go with it: question/exclamation
-    detection, sentence-splitting guards, domain rejoining, capitalization.
+  * **Tailored** languages have per-language rules in this codebase:
+    question/exclamation detection, sentence-splitting guards, domain
+    rejoining, formatting.
   * **Generic** languages get Whisper's own text laid out into sentences and
     paragraphs, with every language-specific heuristic switched off. Before
     v0.14.0 they silently received the *English* rules instead, which corrupted
     output Whisper had already produced correctly.
 
-The tailored set is derived at runtime from the installed spaCy models, so the
-Dockerfile is the single source of truth: installing `it_core_news_sm` would
-promote Italian to tailored without a code change here.
+The tailored set is a static list. Adding a language means writing its rules
+and adding its code to TAILORED_LANGUAGES; nothing is inferred from installed
+packages. (Before v0.15.0 the set was derived from the installed spaCy models.)
 
-Leaf module: no project imports, and spaCy / faster-whisper are imported lazily
-inside functions, so `domain_utils` can depend on this module without gaining a
-spaCy import at module load.
+Leaf module: no project imports, and faster-whisper is imported lazily inside
+a function, so `domain_utils` can depend on this module cheaply.
 """
 
-import re
 from functools import lru_cache
 
-# spaCy's trained pipelines are named "<lang>_core_<genre>_<size>".
-_SPACY_CORE_MODEL_RE = re.compile(r"^([a-z]{2,3})_core_")
-
-
-@lru_cache(maxsize=1)
-def _installed_spacy_models() -> dict[str, str]:
-    """Map language code -> installed spaCy core model name.
-
-    When several models exist for one language, the alphabetically first name
-    wins, so the choice is deterministic.
-    """
-    try:
-        import spacy.util
-        names = spacy.util.get_installed_models()
-    except Exception:
-        return {}
-    models: dict[str, str] = {}
-    for name in sorted(names):
-        m = _SPACY_CORE_MODEL_RE.match(name)
-        if m:
-            models.setdefault(m.group(1), name)
-    return models
+TAILORED_LANGUAGES: frozenset[str] = frozenset({"en", "es", "fr", "de", "pt"})
 
 
 def tailored_languages() -> frozenset[str]:
     """Language codes that get language-specific processing."""
-    return frozenset(_installed_spacy_models())
+    return TAILORED_LANGUAGES
 
 
 def is_tailored(language: str | None) -> bool:
@@ -60,12 +37,7 @@ def is_tailored(language: str | None) -> bool:
     notions that existed before v0.14.0 (FOCUS_LANGS, get_supported_languages()
     and scattered `== 'es'/'en'/...` literals).
     """
-    return (language or "").lower() in _installed_spacy_models()
-
-
-def spacy_model_name(language: str | None) -> str | None:
-    """The installed spaCy model for `language`, or None for a generic language."""
-    return _installed_spacy_models().get((language or "").lower())
+    return (language or "").lower() in TAILORED_LANGUAGES
 
 
 @lru_cache(maxsize=1)
