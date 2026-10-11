@@ -15,7 +15,7 @@
 - **Local Processing**: No API keys or usage limits, run everything on your own machine.
 - **Dockerized Environment**: Easily install and run the tool in an isolated container.
 - **Flexible Input**: Supports both audio files (MP3, WAV, etc.) and video files (MP4, etc.).
-- **Multiple Output Formats**: Choose between TXT (sentence-separated) or SRT (subtitles).
+- **Multiple Output Formats**: Choose between TXT (sentence-separated), SRT or VTT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
 - **Language Support**: tailored processing for English (en), Spanish (es), French (fr), Portuguese (pt) and experimental German (de). Every other Whisper language is transcribed in generic mode, which keeps Whisper's own punctuation and capitalization.
 - **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration. Names and places keep the casing Whisper gives them.
@@ -124,7 +124,7 @@ From inside the Docker Container, run:
 
 ```bash
 python podscripter.py <media_file> --output_dir <output_dir> \
-  [--language <code>|auto] [--output_format {txt|srt}] [--single] \
+  [--language <code>|auto] [--output_format {txt|srt|vtt}] [--single] \
   [--compute-type {auto,int8,int8_float16,int8_float32,float16,float32}] \
   [--beam-size <int>] [--no-vad] [--vad-speech-pad-ms <int>] \
   [--enable-diarization] [--min-speakers <int>] [--max-speakers <int>] \
@@ -160,6 +160,12 @@ python podscripter.py audio-files/example.mp3 --output_dir audio-files
 ```bash
 python podscripter.py audio-files/example.mp3 --output_dir audio-files --output_format srt
 ```
+
+**VTT (WebVTT subtitles)**
+```bash
+python podscripter.py audio-files/example.mp3 --output_dir audio-files --output_format vtt
+```
+Same cues and timing as SRT. Use VTT for captions in a web page's `<audio>`/`<video>` player (browsers support only WebVTT in `<track>`) or for podcast platforms that ask for a `.vtt` transcript.
 
 **Single-call (no manual chunking)**
 ```bash
@@ -219,7 +225,7 @@ Hoy vamos a hablar de algunos consejos de viaje.
 | `media_file`         | Path to the audio or video file (e.g. `audio-files/example.mp3` or `audio-files/example.mp4`) |
 | `--output_dir`       | Directory where the transcription file will be saved |
 | `--language`         | Any Whisper language code. Tailored: `en`, `es`, `fr`, `pt` (`de` experimental); others run in generic mode. An unknown code exits with status 2. Default `auto` (auto-detect) |
-| `--output_format`    | Output format: `txt` or `srt` (default `txt`) |
+| `--output_format`    | Output format: `txt`, `srt` or `vtt` (default `txt`) |
 | `--single`           | Bypass manual chunking and process the full file in one call |
 | `--compute-type`     | Compute type for faster-whisper: `auto`, `int8`, `int8_float16`, `int8_float32`, `float16`, `float32` (default `auto`) |
 | `--beam-size`        | Beam size for decoding (default `3`) |
@@ -283,7 +289,7 @@ rm -rf models/sentence-transformers/* models/huggingface/*
 ```
 
 ## Output
-Transcriptions are saved in sentence-separated `.txt` or `.srt`
+Transcriptions are saved as sentence-separated `.txt`, or as `.srt` or `.vtt` subtitles
 
 ---
 

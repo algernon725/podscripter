@@ -1,13 +1,13 @@
 # PodScripter Architecture
 
-PodScripter transcribes audio/video into punctuated, readable text and SRT subtitles. It uses Faster-Whisper for ASR and a hybrid semantic + rule approach for punctuation and formatting. The system is designed to run entirely in Docker with model caches mounted for reproducibility and offline operation.
+PodScripter transcribes audio/video into punctuated, readable text and SRT/VTT subtitles. It uses Faster-Whisper for ASR and a hybrid semantic + rule approach for punctuation and formatting. The system is designed to run entirely in Docker with model caches mounted for reproducibility and offline operation.
 
 > This document is the canonical, human-facing architecture overview. For dense, agent-oriented quick references see the `.agent/` files: [pipeline.md](.agent/architecture/pipeline.md) (caching, mounts, orchestration, diarization), [cli-spec.md](.agent/architecture/cli-spec.md) (flags, exit codes, logging), and [history.md](.agent/troubleshooting/history.md) (bug history, edge cases, testing). When the pipeline changes, update both this file and `.agent/architecture/pipeline.md`.
 
 ## System context
 
 - **Inputs**: Audio/video files (e.g., MP3, MP4, WAV)
-- **Outputs**: Plain text (`.txt`) or subtitles (`.srt`)
+- **Outputs**: Plain text (`.txt`) or subtitles (`.srt`, `.vtt`)
 - **Primary dependencies**:
   - Faster-Whisper (ASR)
   - Sentence-Transformers (semantic cues for punctuation)
@@ -28,7 +28,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT subti
 - **Non-goals**
   - End-to-end cloud service or hosted UI
   - Perfect linguistic analysis for all languages
-  - Arbitrary output formats beyond TXT/SRT
+  - Arbitrary output formats beyond TXT/SRT/VTT
 
 ## High-level architecture
 
@@ -61,7 +61,7 @@ flowchart TD
   subgraph post["Postprocessing"]
     Dedup["Dedupe + Global Timestamps"]
     Punct["Punctuation + Sentence Assembly (helpers in punctuation_restorer.py)"]
-    Format["Formatting: txt / srt"]
+    Format["Formatting: txt / srt / vtt"]
   end
 
   ASRraw --> Dedup --> Punct --> Format --> Storage
@@ -94,7 +94,7 @@ flowchart TD
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
 5. Restore punctuation and assemble sentences via `restore_punctuation()` → `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which drives `SentenceSplitter` for boundaries; then `SentenceFormatter` for merges (ellipsis/domain-aware).
-6. Write TXT or SRT.
+6. Write TXT, SRT or VTT.
 
 ## Components and responsibilities
 
@@ -102,7 +102,7 @@ flowchart TD
   - Parse args; validate paths
   - Choose single-call vs chunked mode
   - Manage model load, model selection, translation task, VAD settings, continuity prompts
-  - Write outputs (TXT/SRT)
+  - Write outputs (TXT/SRT/VTT)
   - Optional raw debug dump when `--dump-raw` is set: writes `<basename>_raw.txt` containing detected language (if auto), task, segment count, and per-segment timings/text
   - Optional merge metadata dump when `--dump-merge-metadata` is set: writes `<basename>_merges.txt` with merge provenance (v0.5.0+)
 
@@ -167,7 +167,7 @@ flowchart TD
   - Sentence assembly public helper:
     - `assemble_sentences_from_processed(processed, language)` which performs ellipsis continuation, domain-aware splitting, and French short-connector merging
   - Cross-segment carry of trailing fragments for French and Spanish
-  - SRT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
+  - SRT/VTT normalization in CLI: reading-speed-based cue timing; INFO log summarizes trimmed cues
 
 ## Configuration
 
@@ -179,7 +179,7 @@ flowchart TD
 - **Runtime flags** (CLI)
   - `--output_dir <dir>` (required)
   - `--language <code>|auto` (default auto)
-  - `--output_format {txt|srt}` (default txt)
+  - `--output_format {txt|srt|vtt}` (default txt)
   - `--single` (disable manual chunking)
   - `--model {tiny,base,small,medium,large,large-v2,large-v3}` (default `medium`; precedence: CLI > `WHISPER_MODEL` env > default)
   - `--translate` (Whisper `task=translate`; punctuation uses English rules)

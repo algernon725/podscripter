@@ -8,7 +8,7 @@ Related: [Pipeline architecture](pipeline.md) | [Troubleshooting history](../tro
 
 - `--output_dir <dir>` — required.
 - `--language <code>|auto` — default `auto`. Any Whisper code (`faster_whisper.tokenizer._LANGUAGE_CODES`); an unknown code is rejected by `validate_language_code()` before any model loads (exit 2). Codes outside `language_support.TAILORED_LANGUAGES` run in generic mode, reported in the parameters banner.
-- `--output_format {txt|srt}` — default `txt`.
+- `--output_format {txt|srt|vtt}` — default `txt`. Any other value raises `InvalidInputError` (exit 2) from the library API too.
 - `--single` — bypass manual chunking (single-call transcription).
 - `--model {tiny,base,small,medium,large,large-v2,large-v3}` — default `medium`. Precedence: CLI > `WHISPER_MODEL` env > default.
 - `--translate` — Whisper `task=translate`; punctuation uses English rules.
@@ -53,7 +53,7 @@ Exit codes:
   - Connector-word evaluations with speaker-continuity checks
   - Sentence-ending decisions at every potential boundary
 - Replace ad-hoc prints with `logger.info/warning/error/debug`.
-- The SRT path logs a normalization summary (trimmed cues, max/total seconds) when writing subtitles.
+- The SRT/VTT path logs a normalization summary (trimmed cues, max/total seconds) when writing subtitles.
 
 ## Environment variables
 

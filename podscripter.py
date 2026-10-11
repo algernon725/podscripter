@@ -24,7 +24,7 @@ SOFTWARE.
 """
 
 """
-Transcribe audio files into sentences and save as TXT or SRT files.
+Transcribe audio files into sentences and save as TXT, SRT or VTT files.
 Primary language focus: English (en), Spanish (es), French (fr), Portuguese (pt).
 German (de) is experimental. Any other Whisper language is transcribed in
 generic mode: Whisper's own punctuation and capitalization are preserved, with no
@@ -133,6 +133,10 @@ ALLOWED_MODEL_NAMES = [
     "large-v2",
     "large-v3",
 ]
+
+# Output formats: punctuated sentences (txt) or subtitle cues (srt, vtt)
+OUTPUT_FORMATS = ("txt", "srt", "vtt")
+SUBTITLE_FORMATS = ("srt", "vtt")
 
 logger = logging.getLogger("podscripter")
 
@@ -300,7 +304,7 @@ def transcribe(
 
     Args:
         media_file: Path to the input media file.
-        output_format: "txt" for sentences or "srt" for subtitles.
+        output_format: "txt" for sentences, or "srt"/"vtt" for subtitles.
         language: Whisper language code (e.g., "en", "es", "fr", "pt", "de", "it"). If None,
                   auto-detect. Codes outside `language_support.TAILORED_LANGUAGES` are
                   processed in generic mode (Whisper's own text, no language-specific rules).
@@ -317,7 +321,7 @@ def transcribe(
         quiet: Reduce log output from this function (caller controls logging handlers/levels).
         vad_filter: Enable voice activity detection during transcription.
         vad_speech_pad_ms: VAD speech pad in milliseconds.
-        write_output: If True, write a .txt or .srt file to `output_dir` and set `output_path`.
+        write_output: If True, write a .txt, .srt or .vtt file to `output_dir` and set `output_path`.
                       If False, no files are written and `output_dir` may be None.
         output_dir: Directory to write outputs when `write_output=True`.
         enable_diarization: If True, perform speaker diarization for improved sentence boundaries.
@@ -658,14 +662,31 @@ def _write_txt(sentences, output_file, language: str | None = None):
         
         logger.debug(f"Found {sentences_with_speaker_changes} sentences with speaker changes")
 
+def _format_cue_timestamp(seconds: float, ms_sep: str) -> str:
+    """Format seconds as HH:MM:SS<ms_sep>mmm (',' for SRT, '.' for WebVTT)."""
+    total_ms = max(0, round(float(seconds) * 1000))
+    h, rem = divmod(total_ms, 3_600_000); m, rem = divmod(rem, 60_000); s, ms = divmod(rem, 1000)
+    return f"{h:02}:{m:02}:{s:02}{ms_sep}{ms:03}"
+
 def _write_srt(segments, output_file):
-    def format_timestamp(seconds):
-        h = int(seconds // 3600); m = int((seconds % 3600) // 60); s = int(seconds % 60); ms = int((seconds - int(seconds)) * 1000)
-        return f"{h:02}:{m:02}:{s:02},{ms:03}"
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, 1):
-            start = format_timestamp(seg['start']); end = format_timestamp(seg['end']); text = seg['text'].strip()
+            start = _format_cue_timestamp(seg['start'], ","); end = _format_cue_timestamp(seg['end'], ","); text = seg['text'].strip()
             f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
+
+def _write_vtt(segments, output_file):
+    """Write segments as a WebVTT file (UTF-8, as the spec requires)."""
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("WEBVTT\n\n")
+        for seg in segments:
+            text = (seg['text'] or "").strip()
+            if not text:
+                continue
+            # Cue text is markup: escape it, and collapse blank lines (a blank line ends the cue)
+            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            text = re.sub(r"\n\s*\n+", "\n", text)
+            start = _format_cue_timestamp(seg['start'], "."); end = _format_cue_timestamp(seg['end'], ".")
+            f.write(f"{start} --> {end}\n{text}\n\n")
 
 def _write_raw(segments, output_file, detected_language: str | None = None, task: str = "transcribe"):
     """Write raw transcription data for debugging purposes."""
@@ -1246,6 +1267,8 @@ def _transcribe_with_sentences(
     dump_merge_metadata: bool = False,
 ) -> TranscriptionResult:
     _t0 = time.time()
+    if output_format not in OUTPUT_FORMATS:
+        raise InvalidInputError(f"Unknown output format '{output_format}'. Valid options: {', '.join(OUTPUT_FORMATS)}.")
     # Validate media path
     media_path = Path(media_file)
     if not media_path.exists() or not media_path.is_file():
@@ -1343,9 +1366,9 @@ def _transcribe_with_sentences(
                     if cf.exists():
                         cf.unlink()
     base_name = Path(media_file).stem
-    if output_format == "srt":
+    if output_format in SUBTITLE_FORMATS:
         all_segments = sorted(all_segments, key=lambda d: d["start"]) if all_segments else []
-        # Normalize SRT cue timing to avoid lingering during silence
+        # Normalize subtitle cue timing to avoid lingering during silence
         original_ends = [seg["end"] for seg in all_segments]
         normalized_segments = _normalize_srt_cues(all_segments)
         # Compute normalization stats for logging
@@ -1364,16 +1387,17 @@ def _transcribe_with_sentences(
         all_segments = normalized_segments
         if not quiet:
             logger.info(
-                f"SRT normalization: trimmed {trimmed_count}/{len(all_segments)} cues "
+                f"{output_format.upper()} normalization: trimmed {trimmed_count}/{len(all_segments)} cues "
                 f"(max trim {max_trim:.1f}s, total {total_trim:.1f}s)"
             )
         output_path: str | None = None
         if write_output and out_dir is not None:
-            output_file = Path(out_dir) / f"{base_name}.srt"
+            output_file = Path(out_dir) / f"{base_name}.{output_format}"
+            writer = _write_vtt if output_format == "vtt" else _write_srt
             try:
-                _write_srt(all_segments, str(output_file))
+                writer(all_segments, str(output_file))
             except Exception as e:
-                raise OutputWriteError(f"Failed to write SRT: {e}")
+                raise OutputWriteError(f"Failed to write {output_format.upper()}: {e}")
             output_path = str(output_file)
         return {
             "segments": cast(list[SegmentDict], all_segments),
@@ -1458,7 +1482,7 @@ def _cleanup_chunks(media_file):
             logger.warning(f"Error removing chunk file {p}: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Transcribe audio/video to sentences (TXT) or subtitles (SRT).")
+    parser = argparse.ArgumentParser(description="Transcribe audio/video to sentences (TXT) or subtitles (SRT/VTT).")
     parser.add_argument("media_file", help="Path to the media file to transcribe")
     parser.add_argument("--output_dir", required=True, help="Directory where output will be written")
     parser.add_argument("--language", default="auto", help="Language code (e.g., en, es, fr, pt). Use 'auto' for auto-detect")
@@ -1469,7 +1493,7 @@ def main():
         default=None,
         help=f"Whisper model to use (default: {DEFAULT_MODEL_NAME})",
     )
-    parser.add_argument("--output_format", choices=["txt", "srt"], default="txt", help="Output format (txt or srt)")
+    parser.add_argument("--output_format", choices=OUTPUT_FORMATS, default="txt", help="Output format (txt, srt or vtt)")
     parser.add_argument("--single", action="store_true", help="Transcribe the entire file in a single call (no manual chunking)")
     parser.add_argument("--translate", action="store_true", help="Translate output to English (sets Whisper task=translate)")
     parser.add_argument("--compute-type", dest="compute_type", default=DEFAULT_COMPUTE_TYPE, choices=["auto", "int8", "int8_float16", "int8_float32", "float16", "float32"], help="faster-whisper compute type")

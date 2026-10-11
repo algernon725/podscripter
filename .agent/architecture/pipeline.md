@@ -14,7 +14,7 @@ Audio Input
   -> Punctuation Restoration
   -> Sentence Splitting            # SentenceSplitter
   -> Post-processing Merge         # SentenceFormatter
-  -> Output (TXT/SRT)
+  -> Output (TXT/SRT/VTT)
 ```
 
 Core files:
@@ -72,7 +72,7 @@ Chunking and merge helpers (private, in `podscripter.py`):
 
 Robustness/hygiene:
 - Chunks written into a `TemporaryDirectory` for automatic cleanup.
-- SRT export sorts segments by start time.
+- SRT/VTT export sorts segments by start time. Both formats share the same normalized cues; only the file syntax differs.
 - Early input/output validation via `_validate_paths`.
 - Constants hoisted: `DEFAULT_CHUNK_SEC`, `DEFAULT_OVERLAP_SEC`, `DEDUPE_EPSILON_SEC`, `PROMPT_TAIL_CHARS`.
 - Prefer `pathlib.Path` over `os.path`/`glob`; keep orchestration helpers private.
@@ -113,7 +113,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 - Ellipsis continuation and domain-aware splitting are exposed via `assemble_sentences_from_processed(processed, language)` (public API).
 - Comma spacing is centralized in `_normalize_comma_spacing(text)` and MUST NOT be re-implemented inline. It removes spaces before commas, deduplicates multiple commas, and ensures a single space after commas. Trade-off: thousands like "1,000" become "1, 000" (acceptable, prioritizes number-list spacing like "147,151,156" -> "147, 151, 156").
 - Private helpers: `_normalize_initials_and_acronyms`, `_fr_merge_short_connector_breaks`, and others.
-- SRT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s).
+- SRT/VTT normalization: reading-speed-based cue timing to prevent lingering in silences (defaults: cps=15.0, min=2.0s, max=5.0s, gap=0.25s).
 
 ### Centralized punctuation system
 

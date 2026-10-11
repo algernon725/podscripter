@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-10-11
+
+WebVTT output: `--output_format vtt` writes a `.vtt` file with the same cues and timing as SRT. Browsers play only WebVTT in an HTML5 `<track>` element, so a podcast page's `<audio>`/`<video>` player can show captions without conversion, and podcast platforms that ask for a `.vtt` transcript can take the file directly.
+
+### Added
+- **`--output_format vtt`** (`podscripter.py`): new `_write_vtt()`. It writes the `WEBVTT` header, `HH:MM:SS.mmm` timestamps, unnumbered cues, UTF-8, and cue text with `&`, `<`, `>` escaped (an unescaped `&` or `<` is parsed as markup, and `-->` would read as a timing line). Blank lines inside cue text are collapsed and empty cues skipped. VTT shares the SRT branch of `_transcribe_with_sentences()`: same sort, same `_normalize_srt_cues()` timing, so the two files differ only in syntax. The normalization log line now names the format (`VTT normalization: …`).
+- **`OUTPUT_FORMATS`** constant (`txt`, `srt`, `vtt`), used for the CLI `choices` and for validation.
+
+### Changed
+- **`transcribe()` rejects unknown `output_format` values** with `InvalidInputError` (exit 2 from the CLI). Before, any value other than `"srt"` silently produced TXT.
+- **Subtitle timestamps are rounded, not truncated.** New `_format_cue_timestamp()` replaces the formatter inside `_write_srt()`. The old one truncated float milliseconds (`2.3` s became `00:00:02,299`). Some SRT timestamps move by 1 ms.
+- **`_write_srt()` opens its file as UTF-8** explicitly, like the other writers, instead of relying on the locale.
+
+### Tests
+- New `test_vtt_writer.py` (16 cases, `core`): header and unnumbered cues, timestamp format and rounding (including carry into the next minute), markup escaping, blank-line collapsing, empty-cue skipping, UTF-8 round-trip for Spanish/French text in both writers, SRT vs VTT syntax, and rejection of an unknown output format.
+- Suite: **767 passed / 34 xfailed** (was 751 / 34).
+
+### Documentation
+- README (both copies): VTT in the feature list, usage synopsis, examples (with the `<track>`/podcast use case), flag table and output note.
+- `ARCHITECTURE.md`, `.agent/architecture/cli-spec.md` and `pipeline.md`: TXT/SRT becomes TXT/SRT/VTT; normalization covers both subtitle formats.
+
+### Notes
+- **Minor bump (0.16.0)**: new output format. TXT output does not change.
+- **Verification**: `es/mls_es_two_speakers_long.flac` (9 min) transcribed as SRT and as VTT gives 203 cues in each, with identical timings and text. The VTT parses as valid (header, timing lines, monotonic starts, no `-->` in text) and keeps non-ASCII text intact.
+- **Possible follow-up**: speaker voice tags (`<v Speaker 1>`) when `--enable-diarization` is set. The subtitle path does not use diarization output today.
+
 ## [0.15.0] - 2026-09-25
 
 spaCy is removed. Its capitalization pass had not reached the transcript since v0.4.0: the TXT file is written from `Sentence` objects built before the pass ran, so its output went only into `restore_punctuation()`'s returned string, which `_assemble_sentences()` uses only for empty input. Spanish never had a reachable pass. Transcripts are byte-identical before and after; the image loses the `spacy` package and five models, and en/fr/de/pt runs no longer load a model and parse the whole transcript only to discard the result.
