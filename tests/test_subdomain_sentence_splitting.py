@@ -13,20 +13,10 @@ the transcript was broken; it now runs _assemble_sentences() -> _write_txt().
 """
 
 import pytest
+from conftest import transcript
 from domain_utils import mask_domains, unmask_domains
-from podscripter import _assemble_sentences, _write_txt
 
 pytestmark = pytest.mark.core
-
-
-def _transcript(text, language, tmp_path):
-    """Run text through the real TXT path and return the file contents."""
-    sentences, _ = _assemble_sentences(
-        text, [{'start': 0.0, 'end': 5.0, 'text': text}], language, True
-    )
-    out = tmp_path / 'out.txt'
-    _write_txt(sentences, str(out), language=language)
-    return ' '.join(out.read_text(encoding='utf-8').split())
 
 
 @pytest.mark.parametrize("language,text,domains", [
@@ -53,7 +43,7 @@ def _transcript(text, language, tmp_path):
 ])
 def test_subdomain_survives_txt_output(language, text, domains, tmp_path):
     """Domains (with or without a subdomain prefix) reach the transcript intact."""
-    result = _transcript(text, language, tmp_path)
+    result = transcript(text, language, tmp_path)
     for domain in domains:
         assert domain in result, (
             f"[{language}] domain '{domain}' split in transcript: '{result}'"

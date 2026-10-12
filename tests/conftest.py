@@ -20,6 +20,22 @@ def restore_punctuation(text, language='en', **kwargs):
     return result
 
 
+def transcript(text, language, tmp_path):
+    """Run text through the real TXT path and return the transcript, whitespace-collapsed.
+
+    Unlike the restore_punctuation wrapper above, this is what users get:
+    _assemble_sentences() -> _write_txt(). Prefer it for output assertions (#22).
+    """
+    from podscripter import _assemble_sentences, _write_txt
+
+    sentences, _ = _assemble_sentences(
+        text, [{'start': 0.0, 'end': 5.0, 'text': text}], language, True
+    )
+    out = tmp_path / 'transcript.txt'
+    _write_txt(sentences, str(out), language=language)
+    return ' '.join(out.read_text(encoding='utf-8').split())
+
+
 class MockConfig:
     """Shared mock config for tests that need SentenceSplitter without full language config."""
     def __init__(self, **overrides):

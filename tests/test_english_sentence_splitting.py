@@ -20,12 +20,6 @@ ENGLISH_SPLITTING_CASES = [
         id="do-not-split-dotted-acronym-US",
     ),
     pytest.param(
-        "He compared the speed and power of this crackdown to what's happening on the U.S.-Mexico border.",
-        "He compared the speed and power of this crackdown to what's happening on the US-Mexico border.",
-        id="compact-dotted-acronym-US-before-hyphen",
-        marks=pytest.mark.xfail(reason="Bug #20: dotted abbreviations are re-spaced ('U. S. -Mexico')"),
-    ),
-    pytest.param(
         "i am john from new york city",
         "I am John from New York City.",
         id="introduction-one-sentence",

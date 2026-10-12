@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] - 2026-10-12
+
+English abbreviations keep their usual form in TXT transcripts: `a.m.`, `e.g.`, `Ph.D.`, `U.S.-Mexico` and `C.S. Lewis` no longer come out as `a. m.`, `e. g.`, `Ph. D.`, `U. S.-Mexico` and `C. S. Lewis`. Spanish, German, French and Portuguese are unchanged: their spaced forms (`EE. UU.`, `a. m.`, `z. B.`) are the standard style. Also, a sentence that begins with a website address no longer has it capitalized (`www.tierragrata.org hay una parte…`, not `Www.tierragrata.org…`), in any language.
+
+### Fixed
+- **English dotted abbreviations stay compact** in TXT transcripts: `a.m.`, `p.m.`, `e.g.`, `i.e.`, `Ph.D.`, `U.S.`, `D.C.`, and initials such as `C.S. Lewis` and `J.R.R. Tolkien`.
+- **Website addresses at the start of a sentence stay lowercase**, including addresses with `www.` or another subdomain. Seen in real output: Episodio314 had `Www.tierragrata.org`.
+
+### Developers
+- **Cause (abbreviations)**: `_write_txt()`'s safety net `_space_after_terminals()` (`podscripter.py`) inserts a space after every `.` followed by a letter. That also undid the compact `C.S. Lewis` that `_normalize_initials_and_acronyms()` produces upstream.
+- **Fix (abbreviations)**: for languages in `_COMPACT_ABBREVIATION_LANGUAGES` (`{'en'}`), `_space_after_terminals()` masks runs of 1–2-letter pieces that each end in a dot (`_DOTTED_ABBREVIATION_RE`) before spacing. It reuses the domain mask token, so the existing `unmask_domains()` call restores them. Only internal dots are masked, so a sentence glued on after an abbreviation is still separated.
+- **Why English only**: maintainer decision on #20. The spaced forms are standard in Spanish (RAE: `EE. UU.`, `a. m.`), German (Duden: `z. B.`), French and Portuguese, and the writer already produces them.
+- **Cause and fix (sentence-start domains)**: two capitalization steps capitalized the first letter regardless of domains. `_capitalize_first_letter()` in `_write_txt()` now skips a sentence whose first token is a domain (per `mask_domains()`). The Spanish branch of `_transformer_based_restoration()` (`punctuation_restorer.py`) already had a domain guard, but its regex recognized only `label.tld`; it now also accepts subdomain prefixes.
+- **Trade-off (English only)**: two 1–2-letter words joined without a space, each ending in a dot (`is.It.`), are no longer separated. Whisper produced zero unspaced joins in six full local episodes.
+- **Verified**: TXT output before vs. after over 9,226 inputs (test-suite strings in en/es/fr/de/pt, plus six full local Spanish episodes). 24 outputs changed: 20 English abbreviations kept compact, 3 cases of an artificial test string `tratada.de manhã` (Portuguese) run as en/fr/de, where `.de` counts as a domain, so it is no longer capitalized, and Episodio314's `Www.tierragrata.org` line. The other five episodes are byte-identical, and no Spanish or Portuguese test string changed.
+- **Tests**: new `tests/test_txt_abbreviation_spacing.py` (9 cases, real TXT path): English abbreviations, Spanish/German spaced forms as decision guards, a glued sentence still separated, and sentence-start domains in es/en. 6 fail against the pre-fix code. New shared `transcript()` helper in `tests/conftest.py` runs `_assemble_sentences()` → `_write_txt()` (the helper proposed in #22); `test_subdomain_sentence_splitting.py` now uses it. Removed the `compact-dotted-acronym-US-before-hyphen` xfail from `test_english_sentence_splitting.py`: it asserted `restore_punctuation()[0]` and expected `US-Mexico`, but the normalizer doesn't collapse before a hyphen and `U.S.-Mexico` is standard English; the new real-path case covers it. Suite: **791 passed / 33 xfailed** (was 782 / 34).
+
+### Notes
+- **Patch bump (0.16.2)**: fixes user-visible output. Only TXT output changes.
+
 ## [0.16.1] - 2026-10-12
 
 Website addresses now come through intact in TXT transcripts. Before, any address with `www.` or another prefix was broken by a space in every language (`www.tierragrata.org` became `www. tierragrata.org`), and in Portuguese even plain `.com` addresses were broken (`exemplo.com` became `exemplo. com`). SRT and VTT output were not affected.

@@ -57,6 +57,7 @@ from domain_utils import (
     fix_spaced_domains,
     mask_domains,
     unmask_domains,
+    SINGLE_MASK,
     UPPER_ACCENTED,
     LOWER_ACCENTED,
 )
@@ -107,6 +108,15 @@ _MID_SENTENCE_LOWERCASE_WORDS: dict[str, tuple[str, ...]] = {
         'Und', 'Oder', 'Aber', 'Denn', 'Sondern',
     ),
 }
+
+# Languages whose dotted abbreviations the TXT writer keeps compact ("a.m.",
+# "e.g.", "Ph.D.", "U.S.", "C.S. Lewis"). Everywhere else the writer's
+# space-after-period safety net spaces them ("EE. UU.", "a. m.", "z. B.",
+# "C. S. Lewis"), which is the standard style in Spanish, German, French and
+# Portuguese (#20). A run of 1-2 letter pieces each ending in a dot; the
+# lookbehind keeps it from matching the tail of a longer word ("uno.de.").
+_COMPACT_ABBREVIATION_LANGUAGES = frozenset({'en'})
+_DOTTED_ABBREVIATION_RE = re.compile(r'(?<![\w.])(?:[A-Za-z]{1,2}\.){2,}')
 
 DEFAULT_CHUNK_SEC = 480
 DEFAULT_OVERLAP_SEC = 3
@@ -512,8 +522,15 @@ def _write_txt(sentences, output_file, language: str | None = None):
         language: Language code for domain fixing
     """
     def _capitalize_first_letter(text: str) -> str:
-        """Capitalize the first letter of a sentence if it's lowercase, handling special chars."""
+        """Capitalize the first letter of a sentence if it's lowercase, handling special chars.
+
+        A sentence that starts with a domain is left alone ("www.tierragrata.org
+        tiene…", not "Www.…"; v0.16.2, #20).
+        """
         if not text:
+            return text
+        first_token = text.lstrip('¿¡"\'(').split(maxsplit=1)
+        if first_token and mask_domains(first_token[0], use_exclusions=True, language=language) != first_token[0]:
             return text
         # Find the first alphabetic character
         for i, char in enumerate(text):
@@ -566,8 +583,15 @@ def _write_txt(sentences, output_file, language: str | None = None):
         for domains that arrived already spaced, but before unmasking: otherwise
         it reads a domain's TLD as a new label and glues on the next sentence
         ("exemple.fr. De plus" -> "exemple.fr.de plus").
+
+        In English, dotted abbreviations are masked too, with the same token,
+        so unmask_domains() restores them (v0.16.2, #20).
         """
         text = mask_domains(text, use_exclusions=True, language=language)
+        if language in _COMPACT_ABBREVIATION_LANGUAGES:
+            text = _DOTTED_ABBREVIATION_RE.sub(
+                lambda m: m.group(0)[:-1].replace('.', SINGLE_MASK) + '.', text
+            )
         text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', text)
         text = fix_spaced_domains(text, use_exclusions=True, language=language)
         return unmask_domains(text)

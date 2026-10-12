@@ -1198,8 +1198,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             
             # Capitalize first letter (but not for domains)
             if sentence and sentence[0].isalpha():
-                # Don't capitalize if this looks like a domain name
-                if not re.match(rf'^[a-zA-Z0-9\u00C0-\u017F\-]+\.({SINGLE_TLDS_CONSERVATIVE})\b', sentence.lower()):
+                # Don't capitalize if this looks like a domain name, including one
+                # with a subdomain ("www.tierragrata.org", v0.16.2, #20)
+                if not re.match(rf'^(?:[a-z0-9\-]+\.)*[a-zA-Z0-9\u00C0-\u017F\-]+\.({SINGLE_TLDS_CONSERVATIVE})\b', sentence.lower()):
                     sentence = sentence[0].upper() + sentence[1:]
 
             # Ensure sentence ends with single terminal punctuation
