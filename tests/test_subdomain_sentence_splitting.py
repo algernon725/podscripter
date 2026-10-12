@@ -1,47 +1,62 @@
 #!/usr/bin/env python3
 """
-Regression test for subdomain sentence splitting bug.
+Regression test for subdomain splitting in the TXT transcript.
 
-Ensures that domains with subdomain prefixes (www., blog., ftp., etc.) 
-are not incorrectly split during Spanish transcription processing.
+Ensures that domains with subdomain prefixes (www., blog., ftp., etc.) survive
+into the written transcript intact, in every tailored language.
 
-Bug was: "Visit www.google.com" became "Visit www. Google.com" and split into two sentences.
-Fix: Enhanced domain masking to handle subdomain patterns before space insertion.
+Bug was: "Visit www.google.com" became "Visit www. google.com" (#21). The TXT
+writer's _space_after_terminals() spaced every dot and only fix_spaced_domains()
+repaired "label. tld", never the "www. " prefix. This test used to check
+restore_punctuation()[0], which the TXT writer never uses, so it passed while
+the transcript was broken; it now runs _assemble_sentences() -> _write_txt().
 """
 
 import pytest
-from conftest import restore_punctuation
 from domain_utils import mask_domains, unmask_domains
+from podscripter import _assemble_sentences, _write_txt
 
 pytestmark = pytest.mark.core
 
 
-def test_subdomain_sentence_splitting():
-    """Test that subdomain patterns are not split during sentence processing."""
+def _transcript(text, language, tmp_path):
+    """Run text through the real TXT path and return the file contents."""
+    sentences, _ = _assemble_sentences(
+        text, [{'start': 0.0, 'end': 5.0, 'text': text}], language, True
+    )
+    out = tmp_path / 'out.txt'
+    _write_txt(sentences, str(out), language=language)
+    return ' '.join(out.read_text(encoding='utf-8').split())
 
-    test_cases = [
-        ("Visit www.google.com for search", "Visit www.google.com for search."),
-        ("Go to blog.example.org please", "Go to blog.example.org please."),
-        ("Check ftp.downloads.net today", "Check ftp.downloads.net today."),
-        ("Ve a espanolistos.com ahora", "Ve a espanolistos.com ahora."),
-        ("Visita www.espanolistos.com por favor", "Visita www.espanolistos.com por favor."),
-        ("Visit mail.company.co.uk", "Visit mail.company.co.uk."),
-        ("Check api.service.com", "Check api.service.com."),
-        ("Go to cdn.assets.net", "Go to cdn.assets.net."),
-        ("Visit help.support.org", "Visit help.support.org."),
-        ("Visit www.google.com and then espanolistos.com", "Visit www.google.com and then espanolistos.com."),
-    ]
 
-    for original, expected in test_cases:
-        result = restore_punctuation(original, language='es')
-
-        has_split_domain = any(pattern in result for pattern in [
-            ". com", ". org", ". net", ". co.uk", ". com.br",
-            "www. ", "blog. ", "ftp. ", "api. ", "cdn. "
-        ])
-
-        assert not has_split_domain, (
-            f"Domain split detected for '{original}': got '{result}'"
+@pytest.mark.parametrize("language,text,domains", [
+    ('es', "Visit www.google.com for search", ["www.google.com"]),
+    ('es', "Go to blog.example.org please", ["blog.example.org"]),
+    ('es', "Check ftp.downloads.net today", ["ftp.downloads.net"]),
+    ('es', "Ve a espanolistos.com ahora", ["espanolistos.com"]),
+    ('es', "Visita www.espanolistos.com por favor", ["www.espanolistos.com"]),
+    ('es', "Visit mail.company.co.uk", ["mail.company.co.uk"]),
+    ('es', "Check api.service.com", ["api.service.com"]),
+    ('es', "Go to cdn.assets.net", ["cdn.assets.net"]),
+    ('es', "Visit help.support.org", ["help.support.org"]),
+    ('es', "Visit www.google.com and then espanolistos.com", ["www.google.com", "espanolistos.com"]),
+    # Real Whisper output (Episodio314): the transcript had "www. tierragrata.org".
+    ('es', "Bueno, en nuestra página web www.tierragrata.org hay una parte que se llama Contribuye.",
+     ["www.tierragrata.org"]),
+    ('en', "Go to blog.example.com and subscribe.", ["blog.example.com"]),
+    ('fr', "Allez sur www.exemple.fr pour plus d'informations.", ["www.exemple.fr"]),
+    ('de', "Besuchen Sie www.spiegel.de für mehr.", ["www.spiegel.de"]),
+    ('pt', "Acesse www.exemplo.com.br agora.", ["www.exemplo.com.br"]),
+    # Portuguese suppresses the ".com" rejoin ("acabou. Com ele"), so a plain .com
+    # domain was split to "exemplo. com" with nothing to repair it.
+    ('pt', "Acesse exemplo.com agora.", ["exemplo.com"]),
+])
+def test_subdomain_survives_txt_output(language, text, domains, tmp_path):
+    """Domains (with or without a subdomain prefix) reach the transcript intact."""
+    result = _transcript(text, language, tmp_path)
+    for domain in domains:
+        assert domain in result, (
+            f"[{language}] domain '{domain}' split in transcript: '{result}'"
         )
 
 

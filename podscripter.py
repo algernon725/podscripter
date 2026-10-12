@@ -554,24 +554,23 @@ def _write_txt(sentences, output_file, language: str | None = None):
         
         return text
 
-    # Generic languages get no domain *rejoin* (fix_spaced_domains is a no-op for
-    # them, since rejoining "so. Io" -> "so.io" corrupts Italian), so contiguous
-    # domains are masked instead to keep the safety net from splitting them.
-    mask_before_spacing = language is not None and not is_tailored(language)
-
     def _space_after_terminals(text: str) -> str:
         """SAFETY NET: ensure a space after sentence-ending punctuation.
 
-        Catches concatenations that slipped through earlier stages. The regex also
-        splits domains ("google.com" -> "google. com"); fix_spaced_domains() then
-        rejoins them for tailored languages.
+        Catches concatenations that slipped through earlier stages. Contiguous
+        domains are masked first so the regex cannot split them. Relying on
+        fix_spaced_domains() alone to rejoin them is not enough: it repairs only
+        "label. tld", never a "www. " prefix (v0.16.1, #21), it rejoins nothing
+        for generic languages ("so. Io" -> "so.io" would corrupt Italian), and
+        Portuguese suppresses the ".com" rejoin ("acabou. Com ele"). It still runs
+        for domains that arrived already spaced, but before unmasking: otherwise
+        it reads a domain's TLD as a new label and glues on the next sentence
+        ("exemple.fr. De plus" -> "exemple.fr.de plus").
         """
-        if mask_before_spacing:
-            text = mask_domains(text, use_exclusions=True, language=language)
+        text = mask_domains(text, use_exclusions=True, language=language)
         text = re.sub(rf'([.!?])([A-Z{UPPER_ACCENTED}a-z{LOWER_ACCENTED}¿¡])', r'\1 \2', text)
-        if mask_before_spacing:
-            text = unmask_domains(text)
-        return fix_spaced_domains(text, use_exclusions=True, language=language)
+        text = fix_spaced_domains(text, use_exclusions=True, language=language)
+        return unmask_domains(text)
 
     with open(output_file, "w") as f:
         prev_speaker = None

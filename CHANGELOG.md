@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-10-12
+
+Website addresses now come through intact in TXT transcripts. Before, any address with `www.` or another prefix was broken by a space in every language (`www.tierragrata.org` became `www. tierragrata.org`), and in Portuguese even plain `.com` addresses were broken (`exemplo.com` became `exemplo. com`). SRT and VTT output were not affected.
+
+### Fixed
+- **`www.` and other subdomain addresses are no longer split** in TXT transcripts (all languages): `www.`, `blog.`, `mail.`, `ftp.`, `api.` and the other common prefixes. Seen in real output: Episodio314's transcript had `www. tierragrata.org` twice.
+- **Portuguese `.com` addresses are no longer split**: `Acesse exemplo.com agora` stays as typed. Other domain endings in Portuguese were already fine.
+
+### Developers
+- **Cause**: `_write_txt()`'s safety net `_space_after_terminals()` (`podscripter.py`) inserts a space after every `.` followed by a letter. For tailored languages it did not mask domains first and relied on `fix_spaced_domains()` to rejoin `label. tld` afterwards, which never repairs a `www. ` prefix, and for `pt` deliberately does not rejoin `.com` ("acabou. Com ele"). Only generic languages masked first.
+- **Fix**: `_space_after_terminals()` now masks domains for every language (`mask_domains()` already knows the subdomain prefixes), and runs `fix_spaced_domains()` while the domains are still masked. The order matters: run on unmasked text, the rejoin reads a domain's TLD as a new label and glues on the next sentence (`exemple.fr. De plus` → `exemple.fr.de plus`).
+- **Trade-off**: an unspaced sentence join whose next word is a TLD or subdomain word (`acabou.Com ele`, `help.Google.com`) is now kept as a domain instead of being spaced. Whisper does not produce these: zero unspaced joins in six full local episodes, while domains appear in five of them.
+- **Verified**: TXT output before vs. after over 9,196 inputs (test-suite strings in en/es/fr/de/pt, plus six full local Spanish episodes). 125 outputs changed: 123 are pure repairs (a space removed inside a domain); 2 are artificial Portuguese inputs (`github.de.Es`) that are wrong both before and after. Of the episodes, only Episodio314 changed, in exactly its two `www.tierragrata.org` lines.
+- **Tests**: `tests/test_subdomain_sentence_splitting.py` checked `restore_punctuation()[0]`, a string the TXT writer never uses, so it passed while the transcript was broken (#22). Its splitting test now runs `_assemble_sentences()` → `_write_txt()` over 16 cases in all five tailored languages, including the Episodio314 sentence and the Portuguese `.com` case; 15 of them fail against the pre-fix code. Suite: **782 passed / 34 xfailed** (was 767 / 34).
+
+### Notes
+- **Patch bump (0.16.1)**: fixes a user-visible bug. Only TXT output changes, and only around domains.
+
 ## [0.16.0] - 2026-10-11
 
 WebVTT output: `--output_format vtt` writes a `.vtt` file with the same cues and timing as SRT. Browsers play only WebVTT in an HTML5 `<track>` element, so a podcast page's `<audio>`/`<video>` player can show captions without conversion, and podcast platforms that ask for a `.vtt` transcript can take the file directly.
