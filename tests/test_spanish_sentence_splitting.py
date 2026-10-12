@@ -14,25 +14,25 @@ pytestmark = pytest.mark.core
         "yo soy andrea de santander colombia",
         "Yo soy Andrea, de Santander, Colombia.",
         id="introduction",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#13): lowercase input gets no proper-noun capitalization"),
     ),
     pytest.param(
         "recuerdas todos esos momentos en los que no supiste qué decir",
         "¿Recuerdas todos esos momentos en los que no supiste qué decir?",
         id="question_remembering",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#12, #13): no '?' in the input; implicit questions are not detected from text alone"),
     ),
     pytest.param(
         "hola cómo estás hoy",
         "¿Hola, cómo estás hoy?",
         id="greeting_question",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#12, #13): no '?' in the input; implicit questions are not detected from text alone"),
     ),
     pytest.param(
         "me llamo carlos y vivo en madrid",
         "Me llamo Carlos y vivo en Madrid.",
         id="introduction_conjunction",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#13): lowercase input gets no proper-noun capitalization"),
     ),
     pytest.param(
         "qué hora es la reunión mañana",
@@ -48,13 +48,13 @@ pytestmark = pytest.mark.core
         "buenas tardes mi nombre es maría y trabajo en bogotá",
         "Buenas tardes, mi nombre es María y trabajo en Bogotá.",
         id="greeting_with_intro",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#13): lowercase input gets no proper-noun capitalization"),
     ),
     pytest.param(
         "puedes decirme dónde queda la estación de metro",
         "¿Puedes decirme dónde queda la estación de metro?",
         id="embedded_wh_question",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#12, #13): no '?' in the input; implicit questions are not detected from text alone"),
     ),
     pytest.param(
         "ayer fuimos al museo y después comimos en un restaurante muy bonito",
@@ -65,7 +65,7 @@ pytestmark = pytest.mark.core
         "quieren ir al cine esta noche o prefieren quedarse en casa",
         "¿Quieren ir al cine esta noche o prefieren quedarse en casa?",
         id="yesno_coordination",
-        marks=pytest.mark.xfail(reason="NLP output drift"),
+        marks=pytest.mark.xfail(reason="Accepted limitation (#12, #13): no '?' in the input; implicit questions are not detected from text alone"),
     ),
 ])
 def test_spanish_sentence_splitting(input_text, expected):
