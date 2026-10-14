@@ -133,6 +133,13 @@ PROMPT_TAIL_CHARS = 200
 DEFAULT_VAD_FILTER = True
 DEFAULT_VAD_SPEECH_PAD_MS = 200
 
+# A speaker segment shorter than _convert_speaker_segments_to_char_ranges()'s
+# 1.3 s minimum is kept when it holds at least this share of one Whisper segment's
+# duration: Whisper segmented the reply on its own ("Sí.", "Noviembre.") (#7).
+# Chosen precision-first from 106 hand-labeled short segments (six Spanish
+# episodes): 0.40 kept 38 genuine replies and 1 artifact; 0.30 kept 45 and 6.
+SHORT_SEGMENT_MIN_WHISPER_COVERAGE = 0.40
+
 # Common valid Whisper model names for validation
 ALLOWED_MODEL_NAMES = [
     "tiny",
@@ -897,6 +904,46 @@ def _convert_speaker_timestamps_to_char_positions(
     return unique_positions
 
 
+def _is_whisper_continuation(previous_text: str, text: str) -> bool:
+    """True if Whisper text continues the previous segment's sentence.
+
+    "...una familia necesita 365" -> "dólares al mes." starts lowercase after a
+    segment with no terminal punctuation: one speaker's sentence that Whisper cut
+    in two, not a reply.
+    """
+    return (
+        bool(previous_text)
+        and not re.search(r'[.?!…]["»”)]*$', previous_text.rstrip())
+        and text[:1].islower()
+    )
+
+
+def _corroborating_whisper_segment(spk_seg: dict, whisper_char_positions: list[dict]) -> tuple[int, float] | None:
+    """(index, coverage) of the Whisper segment that corroborates a short speaker segment, or None.
+
+    Corroborated means the speaker segment covers at least
+    SHORT_SEGMENT_MIN_WHISPER_COVERAGE of that Whisper segment's duration (the
+    best-covered one), and that Whisper segment is not a continuation of the
+    previous one. A short genuine reply usually is its own Whisper segment; a
+    misattributed sliver inside someone's sentence covers a small share of it.
+    """
+    best_idx, best_coverage = None, 0.0
+    for idx, whisp in enumerate(whisper_char_positions):
+        whisp_duration = whisp['end'] - whisp['start']
+        if whisp_duration <= 0:
+            continue
+        overlap = min(spk_seg.get('end', 0), whisp['end']) - max(spk_seg.get('start', 0), whisp['start'])
+        coverage = overlap / whisp_duration
+        if coverage > best_coverage:
+            best_idx, best_coverage = idx, coverage
+    if best_idx is None or best_coverage < SHORT_SEGMENT_MIN_WHISPER_COVERAGE:
+        return None
+    previous_text = whisper_char_positions[best_idx - 1]['text'] if best_idx > 0 else ''
+    if _is_whisper_continuation(previous_text, whisper_char_positions[best_idx]['text']):
+        return None
+    return best_idx, best_coverage
+
+
 def _convert_speaker_segments_to_char_ranges(
     speaker_segments: list[dict],
     whisper_segments: list[dict],
@@ -968,24 +1015,51 @@ def _convert_speaker_segments_to_char_ranges(
     # losing boundaries that fell in the middle of segments.
     # New approach: detect multi-speaker segments and split them proportionally.
     
-    # FIX (v0.6.0): Filter out very short speaker segments (likely diarization errors)
-    # Very short segments are often artifacts and create spurious speaker changes
-    # v0.6.0.1: Increased from 0.5s to 1.3s to filter out rapid speaker flipping (e.g., 0.56s, 0.93s, 1.10s, 1.28s artifacts)
+    # Filter out short speaker segments unless Whisper corroborates them.
+    # v0.6.0 dropped segments < 0.5s; v0.6.0.1 raised that to 1.3s after a 1.28s
+    # segment in the middle of one person's sentence split it across speakers
+    # ("Errores en español. / Entonces, yo siempre les digo,"). The flat 1.3s also
+    # dropped every genuine short reply ("Sí.", "Noviembre."), merging it into the
+    # other speaker's paragraph (#7). v0.17.0: a short segment is kept when it
+    # covers most of its own Whisper segment (_corroborating_whisper_segment()),
+    # and then it claims that Whisper segment wholly and nothing else; a
+    # proportional split of a one-word reply would cut mid-word. A mid-sentence
+    # misattribution covers a small share of a long Whisper segment, so it is
+    # still dropped.
     MIN_SEGMENT_DURATION = 1.3
     filtered_speaker_segments = []
+    claimed_whisper_segments = {}  # whisper_char_positions index -> (coverage, speaker)
     for spk_seg in speaker_segments:
         duration = spk_seg.get('end', 0) - spk_seg.get('start', 0)
         if duration >= MIN_SEGMENT_DURATION:
             filtered_speaker_segments.append(spk_seg)
-        else:
+            continue
+        corroboration = _corroborating_whisper_segment(spk_seg, whisper_char_positions)
+        if corroboration is None:
             logger.debug(f"Filtered out short speaker segment: {duration:.2f}s < {MIN_SEGMENT_DURATION}s")
-    
-    logger.debug(f"Filtered speaker segments: {len(speaker_segments)} -> {len(filtered_speaker_segments)}")
+            continue
+        whisp_pos, coverage = corroboration
+        # Two short segments of different speakers can claim one Whisper segment; the better cover wins
+        if whisp_pos not in claimed_whisper_segments or coverage > claimed_whisper_segments[whisp_pos][0]:
+            claimed_whisper_segments[whisp_pos] = (coverage, spk_seg.get('speaker', 'UNKNOWN'))
+        logger.debug(f"Kept short speaker segment {duration:.2f}s ({spk_seg.get('speaker')}): "
+                     f"covers {coverage:.0%} of Whisper segment {whisper_char_positions[whisp_pos]['whisper_idx']}")
+
+    logger.debug(f"Filtered speaker segments: {len(speaker_segments)} -> {len(filtered_speaker_segments)} "
+                 f"(+{len(claimed_whisper_segments)} Whisper segments claimed by short segments)")
     speaker_segments = filtered_speaker_segments
-    
+
     speaker_char_ranges = []
-    
-    for whisp_info in whisper_char_positions:
+
+    for whisp_pos, whisp_info in enumerate(whisper_char_positions):
+        if whisp_pos in claimed_whisper_segments:
+            speaker_char_ranges.append({
+                'start_char': whisp_info['char_start'],
+                'end_char': whisp_info['char_end'],
+                'speaker': claimed_whisper_segments[whisp_pos][1]
+            })
+            continue
+
         whisp_idx = whisp_info['whisper_idx']
         whisp_start = whisp_info['start']
         whisp_end = whisp_info['end']

@@ -339,6 +339,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
        - **v0.5.2.1**: Filters on overlap duration (not total duration) to preserve short utterances
        - **v0.5.2.2**: Applies dominant speaker threshold (>80%) to filter edge misattributions
        - **v0.5.2.3**: Refined threshold to only apply at segment edges (first/last 10%), preserving middle utterances
+       - **v0.17.0**: Speaker segments < 1.3s are dropped unless Whisper-corroborated (cover >= 40% of a Whisper segment that is not a continuation); a corroborated one claims that Whisper segment wholly (#7)
      - **Preserves boundaries**: All speaker boundaries preserved (84 → 84 instead of 84 → 48 in v0.4.2)
   2. `_convert_char_ranges_to_word_ranges()`: Character positions → word indices
   3. `_get_speaker_at_word()`: Query speaker label at any word position

@@ -20,20 +20,29 @@ def restore_punctuation(text, language='en', **kwargs):
     return result
 
 
-def transcript(text, language, tmp_path):
+def transcript(text, language, tmp_path, *, segments=None, speaker_segments=None, paragraphs=False):
     """Run text through the real TXT path and return the transcript, whitespace-collapsed.
 
     Unlike the restore_punctuation wrapper above, this is what users get:
     _assemble_sentences() -> _write_txt(). Prefer it for output assertions (#22).
+
+    segments: Whisper segments ('start', 'end', 'text'); default one 0-5 s segment
+    holding all of text. speaker_segments: diarization segments ('start', 'end',
+    'speaker'). paragraphs=True returns the list of paragraphs instead.
     """
     from podscripter import _assemble_sentences, _write_txt
 
+    if segments is None:
+        segments = [{'start': 0.0, 'end': 5.0, 'text': text}]
     sentences, _ = _assemble_sentences(
-        text, [{'start': 0.0, 'end': 5.0, 'text': text}], language, True
+        text, segments, language, True, speaker_segments=speaker_segments
     )
     out = tmp_path / 'transcript.txt'
     _write_txt(sentences, str(out), language=language)
-    return ' '.join(out.read_text(encoding='utf-8').split())
+    content = out.read_text(encoding='utf-8')
+    if paragraphs:
+        return [' '.join(p.split()) for p in content.split('\n\n') if p.strip()]
+    return ' '.join(content.split())
 
 
 class MockConfig:

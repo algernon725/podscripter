@@ -55,7 +55,7 @@ Tests are categorized using pytest markers (defined in `pyproject.toml`):
 
 ### Shared test infrastructure
 
-- `tests/conftest.py` — shared fixtures (`MockConfig`, language-specific `SentenceSplitter` instances, `restore_punctuation` wrapper)
+- `tests/conftest.py` — shared fixtures (`MockConfig`, language-specific `SentenceSplitter` instances, `restore_punctuation` wrapper, `transcript()` real-TXT-path helper with optional Whisper and speaker segments)
 - `pyproject.toml` — pytest configuration, marker definitions, and default run options
 
 **The `restore_punctuation` wrapper does not test the transcript.** It returns

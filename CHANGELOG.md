@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-10-14
+
+With speaker diarization on (`--enable-diarization`), short replies from the other speaker now start their own paragraph instead of being merged into the previous speaker's: "Sí.", "Correcto.", "Noviembre.", "No mucho.", "Chao, chao.". When someone starts their turn with a short phrase ("Claro que sí.", "¿Y para mí?"), the paragraph break now falls before it, not one phrase late. Transcripts without diarization are unchanged.
+
+### Fixed
+- **Short replies are no longer absorbed into the other speaker's paragraph** (#7). Any speaker turn under 1.3 seconds used to be discarded, so a quick answer to a question read as if the asker had said it.
+- **Paragraph breaks no longer land one phrase late** when a turn starts with a short phrase.
+
+### Developers
+- **Cause**: `_convert_speaker_segments_to_char_ranges()` (`podscripter.py`) dropped every pyannote segment shorter than `MIN_SEGMENT_DURATION = 1.3` s before mapping speakers onto the text. Those ranges are the only speaker signal that drives sentence and paragraph splits.
+- **History**: v0.6.0.1 raised the minimum from 0.5 s to 1.3 s for two bugs. "Métodos.pero" (missing space) was really fixed in v0.6.0.2/v0.6.0.3, and its 0.56–1.10 s segments turn out to be a genuine pronunciation drill ("Métodos, métodos." / "Métodos." / "Eso."). The other, a 1.28 s segment inside one person's sentence splitting "Errores en español. / Entonces, yo siempre les digo," across speakers, is a real artifact class and stays fixed.
+- **Fix**: a short segment is kept when it is *Whisper-corroborated*: it covers at least `SHORT_SEGMENT_MIN_WHISPER_COVERAGE = 0.40` of one Whisper segment's duration, and that Whisper segment is not a continuation of the previous one (starts lowercase after a segment with no terminal punctuation; `_is_whisper_continuation()`). New helper `_corroborating_whisper_segment()`. A kept short segment takes its Whisper segment wholly and affects nothing else, so a one-word reply is never cut by the proportional character split. When two short segments of different speakers claim one Whisper segment, the higher coverage wins. A mid-sentence misattribution covers a small share of a long Whisper segment, so it is still dropped. `speaker_diarization.py` is unchanged (its 0.5 s boundary minimum only feeds the debug dump).
+- **Why not #7's proposal** (keep shorts flanked by two *different* speakers): a reply between two stretches of the other speaker is A-B-A, so it would not have fixed #7's own examples. In six local episodes (Episodio310–315), 174 short segments were A-B-A and only 33 A-B-C.
+- **Choosing 0.40**: 106 short A-B-A/A-B-C segments covering ≥ 10% of a Whisper segment, labeled by the maintainer by listening. 0.40 plus the continuation rule kept 38 genuine replies and 1 artifact (97% precision, 61% recall); 0.30 kept 45 and 6. Most rejected "artifacts" were real interjections Whisper never transcribed, or a speaker's own tag question ("¿Ves?").
+- **Same-speaker-neighbor shorts matter too**: a short segment whose *next* neighbor has its speaker (A-B-B) is often the first piece of B's turn; dropping it handed that Whisper segment to A. These follow the same rule.
+- **Verified**: offline harness over the six episodes' `--dump-raw`/`--dump-diarization` files (it reproduces the shipped transcripts; the only differences are later fixes and 2-decimal rounding in the dumps). 74 paragraph breaks added, 19 removed or moved, at 49 places, each at a corroborated Whisper segment; Episodio314 unchanged. Maintainer review of all 49: 44 better, 1 no difference, 2 worse, 2 unclear.
+- **Trade-offs**: the 2 worse cases are a second voice heard over the main speaker during overlapping speech ("Sí, serían esos años." split from its own continuation). Once a reply stands alone, the punctuation restorer re-decides its ending; usually a fix ("Sí y" → "Sí. Y", a wrong "Oh, ok?" → "Oh, ok."), occasionally not ("Listo." → "¿Listo?").
+- **Tests**: new `tests/test_short_speaker_segments.py` (4 cases, real TXT path): a corroborated reply gets its own paragraph (fails on the old code); a 1.28 s mid-utterance segment, a 0.08 s sliver and a corroborated continuation each change nothing compared to the same input without them (each fails if its rule is disabled). `conftest.transcript()` takes optional `segments=`, `speaker_segments=` and `paragraphs=`. Suite: **795 passed / 33 xfailed** (was 791 / 33).
+
+### Notes
+- **Minor bump (0.17.0)**: a user-visible fix, but it changes paragraphing in every diarized transcript, which earlier releases versioned as minor.
+- `tests/test_audio_fixtures.py` computes DER from pyannote's raw segments, so it does not see this change.
+
 ## [0.16.2] - 2026-10-12
 
 English abbreviations keep their usual form in TXT transcripts: `a.m.`, `e.g.`, `Ph.D.`, `U.S.-Mexico` and `C.S. Lewis` no longer come out as `a. m.`, `e. g.`, `Ph. D.`, `U. S.-Mexico` and `C. S. Lewis`. Spanish, German, French and Portuguese are unchanged: their spaced forms (`EE. UU.`, `a. m.`, `z. B.`) are the standard style. Also, a sentence that begins with a website address no longer has it capitalized (`www.tierragrata.org hay una parte…`, not `Www.tierragrata.org…`), in any language.
