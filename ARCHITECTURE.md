@@ -340,7 +340,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
        - **v0.5.2.2**: Applies dominant speaker threshold (>80%) to filter edge misattributions
        - **v0.5.2.3**: Refined threshold to only apply at segment edges (first/last 10%), preserving middle utterances
        - **v0.17.0**: Speaker segments < 1.3s are dropped unless Whisper-corroborated (cover >= 40% of a Whisper segment that is not a continuation); a corroborated one claims that Whisper segment wholly (#7)
-     - **Preserves boundaries**: All speaker boundaries preserved (84 → 84 instead of 84 → 48 in v0.4.2)
+     - **v0.17.1**: No more splits inside a Whisper segment: each goes wholly to the speaker with the most total overlap (the v0.4.2 rule, now after the 1.3s filter). In 47 hand-labeled mid-segment splits (six Spanish episodes), the turn change was always at a Whisper segment edge or absent, and the proportional split cut phrases and words into fragments (#6). Supersedes the v0.5.2 split and its v0.5.2.2/v0.5.2.3 edge thresholds
   2. `_convert_char_ranges_to_word_ranges()`: Character positions → word indices
   3. `_get_speaker_at_word()`: Query speaker label at any word position
 - **Connector word handling**: When a sentence would start with a connector word ("Y", "O", "and", "et", "und"), check if the same speaker is continuing. If yes, merge into previous sentence. If no (different speaker), allow the break.
