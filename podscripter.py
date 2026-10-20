@@ -1010,11 +1010,15 @@ def _convert_speaker_segments_to_char_ranges(
     if abs(len(text) - position) > 10:
         logger.warning(f"Text length mismatch! Provided: {len(text)}, calculated: {position}, diff: {len(text) - position}")
     
-    # FIX (v0.5.2): Split Whisper segments when they contain multiple speakers
-    # Previous approach assigned each Whisper segment to ONE speaker (most overlap),
-    # losing boundaries that fell in the middle of segments.
-    # New approach: detect multi-speaker segments and split them proportionally.
-    
+    # Each Whisper segment goes wholly to the speaker with the most overlap.
+    # v0.5.2 split a segment that overlapped several speakers at a time-proportional
+    # character position, to keep turns that fell inside a segment. Whisper starts a
+    # new segment at a turn change, so those splits cut one person's phrase or word
+    # into fragments ("las tareas de la. / Escuela rápido", "S. / í."). v0.17.1: of
+    # 47 such splits in six hand-labeled Spanish episodes, none was a turn inside
+    # the segment; the change was at a segment edge, or there was none, and the most
+    # overlap named the segment's speaker every time it was known (#6).
+
     # Filter out short speaker segments unless Whisper corroborates them.
     # v0.6.0 dropped segments < 0.5s; v0.6.0.1 raised that to 1.3s after a 1.28s
     # segment in the middle of one person's sentence split it across speakers
@@ -1022,10 +1026,9 @@ def _convert_speaker_segments_to_char_ranges(
     # dropped every genuine short reply ("Sí.", "Noviembre."), merging it into the
     # other speaker's paragraph (#7). v0.17.0: a short segment is kept when it
     # covers most of its own Whisper segment (_corroborating_whisper_segment()),
-    # and then it claims that Whisper segment wholly and nothing else; a
-    # proportional split of a one-word reply would cut mid-word. A mid-sentence
-    # misattribution covers a small share of a long Whisper segment, so it is
-    # still dropped.
+    # and then it claims that Whisper segment wholly, whatever the overlaps say,
+    # and nothing else. A mid-sentence misattribution covers a small share of a
+    # long Whisper segment, so it is still dropped.
     MIN_SEGMENT_DURATION = 1.3
     filtered_speaker_segments = []
     claimed_whisper_segments = {}  # whisper_char_positions index -> (coverage, speaker)
@@ -1060,146 +1063,31 @@ def _convert_speaker_segments_to_char_ranges(
             })
             continue
 
-        whisp_idx = whisp_info['whisper_idx']
         whisp_start = whisp_info['start']
         whisp_end = whisp_info['end']
-        whisp_duration = whisp_end - whisp_start
-        whisp_text = whisp_info['text']
-        whisp_char_start = whisp_info['char_start']
-        whisp_char_end = whisp_info['char_end']
-        whisp_char_len = whisp_char_end - whisp_char_start
-        
-        # Find ALL speaker segments that overlap this Whisper segment
-        overlapping_speakers = []
+
+        # Total overlap per speaker; an overlap under 0.3s is noise, and a
+        # Whisper segment with no real overlap gets no speaker
+        overlap_by_speaker = {}
         for spk_seg in speaker_segments:
-            spk_start = spk_seg.get('start', 0)
-            spk_end = spk_seg.get('end', 0)
-            spk_label = spk_seg.get('speaker', 'UNKNOWN')
-            
-            # Calculate overlap
-            overlap_start = max(whisp_start, spk_start)
-            overlap_end = min(whisp_end, spk_end)
-            overlap_duration = max(0, overlap_end - overlap_start)
-            
-            # Skip if no overlap or overlap is too short (likely noise/gap)
-            # FIX (v0.5.2.1): Check OVERLAP duration, not total segment duration
-            # A 0.46s segment is valid if it overlaps 0.4s with this Whisper segment
-            if overlap_duration < 0.3:
+            overlap = min(whisp_end, spk_seg.get('end', 0)) - max(whisp_start, spk_seg.get('start', 0))
+            if overlap < 0.3:
                 continue
-            
-            overlapping_speakers.append({
-                'speaker': spk_label,
-                'spk_start': spk_start,
-                'spk_end': spk_end,
-                'overlap_start': overlap_start,
-                'overlap_end': overlap_end,
-                'overlap_duration': overlap_duration
-            })
-        
-        if not overlapping_speakers:
-            # No speaker assigned - skip this segment
+            spk_label = spk_seg.get('speaker', 'UNKNOWN')
+            overlap_by_speaker[spk_label] = overlap_by_speaker.get(spk_label, 0) + overlap
+
+        if not overlap_by_speaker:
             continue
-        
-        # Sort by overlap start time to process in chronological order
-        overlapping_speakers.sort(key=lambda s: s['overlap_start'])
-        
-        if len(overlapping_speakers) == 1:
-            # Simple case: entire Whisper segment belongs to one speaker
-            speaker_char_ranges.append({
-                'start_char': whisp_char_start,
-                'end_char': whisp_char_end,
-                'speaker': overlapping_speakers[0]['speaker']
-            })
-            logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: single speaker {overlapping_speakers[0]['speaker']}")
-        else:
-            # Complex case: Whisper segment contains MULTIPLE speakers
-            # Check if one speaker dominates (>80%) AND the minor speaker is at the EDGE
-            # This handles cases where pyannote misattributes a few words at segment boundaries
-            # But we preserve short utterances in the MIDDLE (e.g., "Ok." between two longer segments)
-            dominant_speaker = None
-            max_duration = 0
-            total_duration = sum(s['overlap_duration'] for s in overlapping_speakers)
-            
-            for spk_info in overlapping_speakers:
-                if spk_info['overlap_duration'] > max_duration:
-                    max_duration = spk_info['overlap_duration']
-                    dominant_speaker = spk_info['speaker']
-            
-            # Check if dominant speaker threshold applies
-            # Only filter if one speaker dominates AND minor speaker is at the edge (not middle)
-            dominant_ratio = max_duration / total_duration
-            is_edge_only = False
-            
-            if dominant_ratio > 0.8 and len(overlapping_speakers) == 2:
-                # Find the minor speaker
-                minor_speakers = [s for s in overlapping_speakers if s['speaker'] != dominant_speaker]
-                if len(minor_speakers) > 0:
-                    minor_speaker = minor_speakers[0]
-                    
-                    # Check if minor speaker is only at the edge (beginning or end, not middle)
-                    # Minor at beginning: overlap_start ≈ whisp_start
-                    # Minor at end: overlap_end ≈ whisp_end
-                    edge_threshold = 0.1 * whisp_duration  # Within first/last 10% of segment
-                    
-                    at_beginning = abs(minor_speaker['overlap_start'] - whisp_start) < edge_threshold
-                    at_end = abs(minor_speaker['overlap_end'] - whisp_end) < edge_threshold
-                    
-                    is_edge_only = at_beginning or at_end
-            
-            if dominant_ratio > 0.8 and is_edge_only:
-                # One speaker dominates and minor is at edge - likely diarization error
-                speaker_char_ranges.append({
-                    'start_char': whisp_char_start,
-                    'end_char': whisp_char_end,
-                    'speaker': dominant_speaker
-                })
-                logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: dominant speaker {dominant_speaker} ({dominant_ratio*100:.1f}%), ignoring edge overlap")
-            else:
-                # Multiple significant speakers OR minor speaker in middle - split the text proportionally
-                logger.debug(f"Whisper seg {whisp_idx} [{whisp_start:.2f}s-{whisp_end:.2f}s]: SPLIT across {len(overlapping_speakers)} speakers")
-                
-                # Calculate character split points based on time ratios
-                char_position = whisp_char_start
-                for i, spk_info in enumerate(overlapping_speakers):
-                    # Calculate what fraction of the Whisper segment this speaker occupies
-                    time_ratio = spk_info['overlap_duration'] / whisp_duration
-                    
-                    # Calculate character range for this speaker
-                    if i == len(overlapping_speakers) - 1:
-                        # Last speaker gets remaining characters to avoid rounding errors
-                        char_end = whisp_char_end
-                    else:
-                        # Proportional split based on time
-                        char_end = whisp_char_start + int(whisp_char_len * 
-                                                          (spk_info['overlap_end'] - whisp_start) / whisp_duration)
-                        
-                        # Try to split at word boundary for cleaner splits
-                        # Look for space near the calculated split point (within ±20% of segment)
-                        search_window = max(5, int(whisp_char_len * 0.2))
-                        search_start = max(whisp_char_start, char_end - search_window)
-                        search_end = min(whisp_char_end, char_end + search_window)
-                        
-                        # Find nearest word boundary (space) within the window
-                        best_split = char_end
-                        min_distance = float('inf')
-                        for pos in range(search_start, search_end):
-                            if pos < len(text) and text[pos] == ' ':
-                                distance = abs(pos - char_end)
-                                if distance < min_distance:
-                                    min_distance = distance
-                                    best_split = pos
-                        
-                        char_end = best_split
-                    
-                    # Only create range if it has content
-                    if char_end > char_position:
-                        speaker_char_ranges.append({
-                            'start_char': char_position,
-                            'end_char': char_end,
-                            'speaker': spk_info['speaker']
-                        })
-                        logger.debug(f"  → {spk_info['speaker']}: chars {char_position}-{char_end} (time ratio: {time_ratio:.2f})")
-                        char_position = char_end
+
+        speaker = max(overlap_by_speaker, key=overlap_by_speaker.get)
+        speaker_char_ranges.append({
+            'start_char': whisp_info['char_start'],
+            'end_char': whisp_info['char_end'],
+            'speaker': speaker
+        })
+        if len(overlap_by_speaker) > 1:
+            logger.debug(f"Whisper seg {whisp_info['whisper_idx']} [{whisp_start:.2f}s-{whisp_end:.2f}s]: "
+                         f"{speaker} has the most overlap of {len(overlap_by_speaker)} speakers")
     
     # Sort by character position
     speaker_char_ranges.sort(key=lambda r: r['start_char'])

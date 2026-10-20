@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-10-20
+
+With speaker diarization on (`--enable-diarization`), paragraphs are no longer cut in the middle of a phrase or a word when the speaker changes. Fragments like "Su hijo tenía que hacer las tareas de la." / "Escuela rápido antes de.", "S." / "í." and "Terr" / "ible, sí." are gone. When someone answers, the paragraph break now falls before their whole reply ("Listo, número 13.", "Sí, me imagino."), not after its first word. Transcripts without diarization are unchanged.
+
+### Fixed
+- **No more sentence fragments at speaker changes** (#6). A speaker change could land inside a phrase or even a word, ending one paragraph with a stray period ("las tareas de la.") and starting the next mid-sentence.
+- **Replies start their own paragraph in one piece.** "Claro, lo más fácil que hay." used to come out as "Claro." at the end of the previous speaker's paragraph, then "Lo más fácil que hay." on its own.
+
+### Developers
+- **Cause**: `_convert_speaker_segments_to_char_ranges()` (`podscripter.py`, since v0.5.2) split a Whisper segment that overlapped two speakers at a time-proportional character position, snapped to the nearest space within ±20% of the segment (none in a short segment, so "S ‖ í."). Whisper starts a new segment at nearly every pause, so a real turn change sits at a segment edge; the proportional point inside the segment was wrong.
+- **Evidence**: 47 speaker changes fell inside a Whisper segment in six local episodes (Episodio310–315), labeled by the maintainer by listening. None was a turn change inside the segment: 18 were at a segment edge (mostly the start: diarization placed the change late), 26 had one speaker throughout, 3 were unclear. That included 12 of the 14 splits at punctuation ("Bueno, ‖ Nate, pues…"; 2 unclear), so splitting only at punctuation was rejected as well.
+- **Fix**: each Whisper segment goes wholly to the speaker with the most total overlap. This picked the right speaker for all 19 labeled rows where the label names one (the incoming speaker would have got 16). The v0.5.2.2/v0.5.2.3 dominant-at-the-edge threshold and the word-boundary search are gone. Corroborated short segments (v0.17.0) still claim their Whisper segment first.
+- **Why v0.5.2's reason no longer holds**: v0.5.2 split segments because whole-segment assignment lost 36 of 84 turns in Episodio213, e.g. "Aquí." (0.5 s) inside "Aquí. Listo, eso es todo…". Since v0.6.0.1 a speaker segment under 1.3 s is dropped before this step (v0.17.0 keeps one only when it covers ≥ 40% of its own Whisper segment), so that case was already decided before the split ran. What remained were overlaps of two longer segments at a segment edge, the cases above. Over the six episodes, speaker changes go from 460 to 452; the 8 removed were in rows labeled one speaker throughout.
+- **Verified**: offline harness over the six episodes' dump files: 24 paragraph breaks added, 43 removed or moved, same words. Paragraphs of ≤ 4 words that aren't a whole Whisper segment: 28 → 6 (the 6 left are whole sentences such as "Spanishlandschool.com slash member."). None of the 47 rows breaks inside its Whisper segment any more, and each of the 18 edge changes breaks at its edge.
+- **Not addressed here** (already in v0.17.0, now visible in more places because a reply starts its own paragraph): a capital after a leading number ("29 Dólares al mes.", "60 Años y…") and a period added after "…" ("primos o….").
+- **Tests**: new `tests/test_mid_segment_speaker_changes.py` (2 cases, real TXT path): a 1.6 s misattributed segment inside one person's phrase changes nothing (fails on v0.17.0 with "las tareas de la." / "Escuela rápido antes de."); a turn the diarizer ends late moves to the Whisper segment's start (fails on v0.17.0 with "español. Listo." / "Número 13."). Suite: **797 passed / 33 xfailed** (was 795 / 33).
+
+### Notes
+- **Patch bump (0.17.1)**: a user-visible bug fix.
+- #6's own proposals (keep the period when a boundary is within N words; merge short fragments afterwards) would have treated the symptom; the split itself was the cause.
+
 ## [0.17.0] - 2026-10-14
 
 With speaker diarization on (`--enable-diarization`), short replies from the other speaker now start their own paragraph instead of being merged into the previous speaker's: "Sí.", "Correcto.", "Noviembre.", "No mucho.", "Chao, chao.". When someone starts their turn with a short phrase ("Claro que sí.", "¿Y para mí?"), the paragraph break now falls before it, not one phrase late. Transcripts without diarization are unchanged.
