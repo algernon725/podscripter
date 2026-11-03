@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-11-03
+
+Sentences are no longer cut in the middle of a phrase where Whisper happened to pause. Breaks like "…y lo que hacían mucho en ese." / "Tiempo era, se iban a caminar…" now read as one sentence. This applies to every language, with or without speaker diarization, and the words in the transcript don't change. Some paragraphs get a little longer as a result.
+
+### Fixed
+- **No more stray periods and capitals mid-phrase** (#29). When Whisper ended a segment with no punctuation and the next one continued in lowercase, the transcript ended the sentence there anyway.
+
+### Developers
+- **Cause**: PRIORITY 4 in `SentenceSplitter._should_end_sentence_here()` honored every Whisper boundary once the chunk reached `min_words_whisper_break` (10 words), without checking whether the segment ended in punctuation or the next one started lowercase. The splitter returned the chunk with no period; the punctuation pass added the period and the capital.
+- **Evidence**: of 455 such edges in Episodio310–315, v0.17.1 split 195 (194 at PRIORITY 4, 1 a speaker change). Reading those splits turned up one plausible real sentence end (Episodio313 at 29:52, `…la transcripción / va a espanolistos.com`).
+- **Not language-specific**: en, fr, de, pt, it and es all split at such an edge. The en, fr and pt cases that didn't split in the first check were protected by the edge word (a grammar guard) or by the minimum word count, not by a different rule.
+- **Fix**: `SentenceSplitter._drop_continuation_boundaries()` removes these edges from the Whisper boundaries in `split()`, so PRIORITY 3, PRIORITY 4 and `semantic_whisper_lookahead` no longer see them. Speaker boundaries are unaffected. A segment ending in a comma keeps its boundary, so this test is stricter than `podscripter._is_whisper_continuation()`.
+- **Verified**: offline harness over the six episodes: same words; continuation edges split 195 → 4 (3 semantic, 1 speaker); sentence breaks 203 removed, 24 added; paragraphs 1462 → 1333. Longest sentence stays at 51 words; 99th-percentile sentence 37 → 43 words.
+- **Reviewed**: the maintainer labeled a random 20 of the removed breaks and all 24 added ones. Removed: 18 better, 1 worse, 1 unclear; the 2 that weren't better were comma edges, which #29 doesn't target. Added: 16 better, 3 worse, 5 unclear. All 3 worse came from the semantic splitter, where only 2 of its 8 new breaks were better. A possible follow-up, untested: when a long sentence must be split, prefer one of the dropped Whisper edges.
+- **Known effects**: with fewer Whisper breaks, long chunks reach the semantic splitter more often, and mid-phrase semantic splits go from 9 to 17 ("…porque el problema." style). Adding `porque` and `si` to `SEMANTIC_BREAK_HINGE_WORDS` only moved those splits a word or two, so it was left out; blocking all such semantic splits raised the longest sentence to 84 words and to 1,979 on unpunctuated input. On Whisper output with no punctuation at all (not seen in production) every edge is a continuation, so the median sentence goes from 14 to 42 words and the longest from 49 to 71.
+- **Not addressed here**: about 190 edges where the segment ends in a comma and the next starts lowercase still become a period and a capital. Some are wrong and some read fine, so they need their own review.
+- **Tests**: new `tests/test_whisper_continuation_splits.py` (8 cases, real TXT path): the #29 repro and five other languages (fail on v0.17.1), plus guards that a punctuated edge and a speaker change at a continuation edge still split.
+
+### Notes
+- **Patch bump (0.17.2)**: a user-visible bug fix.
+
 ## [0.17.1] - 2026-10-20
 
 With speaker diarization on (`--enable-diarization`), paragraphs are no longer cut in the middle of a phrase or a word when the speaker changes. Fragments like "Su hijo tenía que hacer las tareas de la." / "Escuela rápido antes de.", "S." / "í." and "Terr" / "ible, sí." are gone. When someone answers, the paragraph break now falls before their whole reply ("Listo, número 13.", "Sí, me imagino."), not after its first word. Transcripts without diarization are unchanged.

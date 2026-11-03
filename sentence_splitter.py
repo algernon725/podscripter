@@ -54,6 +54,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("podscripter.splitter")
 
+# Terminal or clause punctuation closing a Whisper segment, before any closing quote
+WHISPER_EDGE_PUNCTUATION_RE = re.compile(r'[.?!…,;:]["»”)]*$')
+
 
 @dataclass
 class Utterance:
@@ -438,7 +441,9 @@ class SentenceSplitter:
         whisper_periods = self._extract_whisper_punctuation(text, whisper_segments)
         
         # 2. Convert boundaries to word indices
-        whisper_word_boundaries = self._convert_segments_to_word_boundaries(whisper_segments, text)
+        whisper_word_boundaries = self._drop_continuation_boundaries(
+            self._convert_segments_to_word_boundaries(whisper_segments, text), text
+        )
         speaker_word_boundaries = self._convert_segments_to_word_boundaries(speaker_segments, text, is_speaker=True)
         speaker_word_segments = self._create_speaker_word_ranges(speaker_segments, text)
         
@@ -598,7 +603,41 @@ class SentenceSplitter:
                 char_pos += len(seg_text) + 1
         
         return boundaries if boundaries else None
-    
+
+    def _drop_continuation_boundaries(
+        self,
+        boundaries: Optional[Set[int]],
+        text: str
+    ) -> Optional[Set[int]]:
+        """
+        Remove Whisper boundaries where the segment stops mid-sentence (#29).
+
+        A boundary is a continuation when its word has no terminal or clause
+        punctuation and the next word starts lowercase ("...mucho en ese" |
+        "tiempo era..."): one sentence Whisper cut in two, so neither the split
+        decision nor the semantic lookahead should treat it as a sentence end.
+        Stricter than podscripter._is_whisper_continuation(), which also accepts
+        a segment ending in a comma.
+
+        Args:
+            boundaries: Whisper boundary word indices, or None
+            text: The full text
+
+        Returns:
+            The boundaries that remain, or None
+        """
+        if not boundaries:
+            return boundaries
+
+        words = text.split()
+        kept = {
+            i for i in boundaries
+            if i + 1 >= len(words)
+            or WHISPER_EDGE_PUNCTUATION_RE.search(words[i])
+            or not words[i + 1][:1].islower()
+        }
+        return kept or None
+
     def _build_char_to_word_map(self, text: str) -> Dict[int, int]:
         """Build a mapping from character positions to word indices."""
         char_to_word = {}
