@@ -140,7 +140,7 @@ Language-agnostic across EN/ES/FR/PT/DE:
 1. Grammatical guards — avoid ending sentences on coordinating conjunctions, prepositions, and continuative/auxiliary verbs.
 2. Semantic coherence — Sentence-Transformers similarity confirms low-coherence boundaries.
 3. Configurable thresholds — minimum chunk length, overall length, capital/semantic break limits.
-4. Whisper segment boundaries — `all_segments` boundaries are prioritized hints, still gated by grammatical guards and minimum chunk size; ignored at grammatically invalid positions; backward compatible when absent.
+4. Whisper segment boundaries — `all_segments` boundaries are prioritized hints, still gated by grammatical guards and minimum chunk size; ignored at grammatically invalid positions; dropped where the segment ends with no punctuation and the next starts lowercase (v0.17.2, #29); backward compatible when absent.
 
 Whisper boundary threading (production path):
 - Orchestrator passes `all_segments` to `_assemble_sentences(...)` (in `podscripter.py`).

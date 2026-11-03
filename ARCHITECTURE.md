@@ -371,6 +371,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
    - **v0.4.2**: Periods at skipped boundaries are now automatically removed
    - **v0.4.3**: Reduced lookahead window from 15 words to 3 words, added continuation checks to prevent over-aggressive skipping
    - **v0.6.2**: Spanish inverted question/exclamation protection - before allowing splits at Whisper boundaries, check if inside unclosed `¿...?` or `¡...!` via `_is_inside_unclosed_question()` helper
+   - **v0.17.2**: `_drop_continuation_boundaries()` removes a Whisper boundary when its word has no terminal or clause punctuation and the next word starts lowercase (#29), so neither this check nor the semantic lookahead treats it as a sentence end
 4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
 5. Semantic coherence (fallback)
    - **v0.7.1**: Whisper boundary lookahead — before running the semantic model, scan the next `semantic_whisper_lookahead` words (default 8) for a Whisper boundary; if found, defer the split so the higher-priority Whisper boundary (PRIORITY 3) is evaluated at its natural position. Prevents false-positive semantic splits when the model's 10-word window crosses a real sentence boundary a few words ahead.
