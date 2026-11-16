@@ -12,9 +12,11 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies in fewer layers for better caching
 # pyannote.audio 4.x requires torch>=2.8, torchaudio>=2.8, torchcodec>=0.7
 # torchcodec 0.8 is incompatible with torch 2.8 (ABI mismatch), pin to 0.7.0
+# av 19 removed av.open(metadata_errors=...), which faster-whisper <=1.2.1 still passes
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     faster-whisper \
+    "av<19" \
     pydub \
     torch==2.8.0 \
     torchaudio==2.8.0 \

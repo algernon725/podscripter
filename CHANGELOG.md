@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-11-16
+
+Transcription works again in a freshly built Docker image. An image built from scratch stopped right after diarization with `Error during transcription: open() got an unexpected keyword argument 'metadata_errors'`, so no transcript was written. It hit any image rebuilt after PyAV 19 came out, including the 0.18.0 rebuild (the Dockerfile change in 0.18.0 made Docker reinstall all Python packages).
+
+### Fixed
+- **Transcription no longer fails with `unexpected keyword argument 'metadata_errors'`.** The Dockerfile now installs a PyAV version that works with faster-whisper.
+
+### Upgrading
+- Rebuild the image (`docker build -t podscripter .`). To fix an existing container without rebuilding, run `pip install "av<19"` inside it. If pip says `Requirement already satisfied`, the container already has a working version and nothing needs to change.
+
+### Developers
+- **Cause**: faster-whisper's `decode_audio()` calls `av.open(input_file, mode="r", metadata_errors="ignore")`, and faster-whisper 1.2.1 (the latest release) still does. PyAV 19.0.0 removed the `metadata_errors` argument. faster-whisper only requires `av>=11`, and neither package was pinned, so a clean `pip install` got av 19. Checked by calling `av.open(..., metadata_errors="ignore")` directly: 16.1.0, 17.1.0 and 18.1.0 accept it; 19.0.0 raises `TypeError`.
+- **Fix**: `"av<19"` added next to `faster-whisper` in the Dockerfile. Remove the pin once a faster-whisper release stops passing `metadata_errors`.
+
 ## [0.18.0] - 2026-11-16
 
 Statements no longer end with a question mark or an exclamation mark that the speaker didn't use. A sentence that opened with a short question got a `?` at the end too ("¿Listo? Andrea tiene algo que quiere decir?"), and plain statements could turn into questions or exclamations ("Listo." → "¿Listo?", "Bueno." → "Bueno!"). Transcripts now keep the punctuation Whisper wrote. Text processing is much faster (a 30-minute episode: about 7.5 s → 0.2 s), the Docker image no longer installs `sentence-transformers` or `transformers`, and the first run no longer downloads a ~460 MB model.
