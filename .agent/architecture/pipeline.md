@@ -123,7 +123,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 ### Formatting internals (centralized constants and helpers)
 
-- Centralized thresholds/configs: `LanguageConfig` via `_get_language_config(language)` and `_get_language_thresholds(language)` (a base dict plus per-language overrides; `es` and `pt` share the Romance split profile) control Spanish semantic thresholds (`semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`) and splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`). Also provides per-language greetings and question-starter lists for en/fr/de/es/pt.
+- Centralized thresholds/configs: `LanguageConfig` via `_get_language_config(language)` and `_get_language_thresholds(language)` (a base dict plus per-language overrides; `es` and `pt` share the Romance split profile) control Spanish semantic thresholds (`semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`) and splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`, `semantic_lookback_min_words`). Also provides per-language greetings and question-starter lists for en/fr/de/es/pt.
 - Per-language constants in `punctuation_restorer.py`:
   - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`.
   - French/German: `FR_GREETINGS`, `DE_GREETINGS`, `FR_QUESTION_STARTERS`, `DE_QUESTION_STARTERS`.
@@ -138,7 +138,7 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 Language-agnostic across EN/ES/FR/PT/DE:
 1. Grammatical guards — avoid ending sentences on coordinating conjunctions, prepositions, and continuative/auxiliary verbs.
-2. Semantic coherence — Sentence-Transformers similarity confirms low-coherence boundaries.
+2. Semantic coherence — Sentence-Transformers similarity confirms low-coherence boundaries; once a long chunk splits, the break moves back to the latest Whisper sentence end in it, if any (v0.17.3, #32).
 3. Configurable thresholds — minimum chunk length, overall length, capital/semantic break limits.
 4. Whisper segment boundaries — `all_segments` boundaries are prioritized hints, still gated by grammatical guards and minimum chunk size; ignored at grammatically invalid positions; dropped where the segment ends with no punctuation and the next starts lowercase (v0.17.2, #29); backward compatible when absent.
 

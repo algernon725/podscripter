@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.3] - 2026-11-12
+
+Long sentences are no longer cut in the middle of a phrase when they need to be broken up. Breaks like "…a Tierra Grata porque." / "El problema era mucho más grande…" and "…las comunidades alrededor pero al principio." / "No era fácil…" now fall where the speaker actually finished a sentence: "…las comunidades alrededor." / "Pero al principio no era fácil…". This applies to every language, with or without speaker diarization, and the words in the transcript don't change.
+
+### Fixed
+- **Long sentences break where a sentence ended, not mid-phrase** (#32). When a stretch of speech ran long, the transcript ended it at whichever word it had reached, adding a stray period and capital.
+
+### Developers
+- **Cause**: the PRIORITY 5 semantic split in `SentenceSplitter._should_end_sentence_here()` fires once the chunk reaches `min_chunk_semantic_break` (42 words es/pt, 25 others) and `_check_semantic_break()` reports similarity under 0.75. That check can't tell a sentence end from a mid-phrase position, so the split landed on the first word that passed the guards. The chunk counts across sentence ends Whisper wrote: periods inside a segment (never split points) and periods removed before a same-speaker connector (`bajo cero. Y muchas` → `bajo cero y muchas`), so it is often a run of several sentences.
+- **Evidence**: across Episodio310–315 the check was asked 17 times and said yes 17 times. Scored at 1,914 real sentence ends and 3,000 mid-phrase positions, the two distributions overlap (median 0.37 vs 0.40, AUC 0.53, with 94% and 96% under 0.75); no threshold or window size (5, 10, 20 words) separates them. Synthetic en/fr/de text behaves the same. 15 of the 17 chunks held a Whisper sentence end.
+- **Fix**: when a semantic split fires, `_evaluate_boundaries()` ends the sentence at the latest Whisper sentence end in the chunk (`. ? ! …` followed by a capital, at least `semantic_lookback_min_words` = 10 words in; `_semantic_lookback_index()`), and the words after it start the next chunk. A period removed before a same-speaker connector is restored with the connector's capital, and `_process_whisper_punctuation()` doesn't merge that break back. With no such sentence end the split stays where it was. Commas were tried as a fallback and read worse, so they aren't candidates.
+- **Verified**: offline harness over the six episodes: same words; 15 of 18 semantic splits move to a Whisper sentence end, 3 stay where they were; paragraph breaks 15 removed, 17 added; paragraphs 1,333 → 1,335. Longest sentence stays at 51 words. Continuation edges split stay at 4 and short fragments at 7. Output for Whisper text with no punctuation is byte-identical, so its sentence length stays bounded.
+- **Reviewed**: the maintainer labeled every changed spot (14, each a moved break plus any knock-on change nearby): all 14 better than v0.17.2. That includes the three issue examples, which the #29 review had labeled worse.
+- **Not addressed here**: `_check_semantic_break()` still says yes almost everywhere, so when a split fires is still decided by word count. Replacing the check is a separate issue.
+- **Tests**: new `tests/test_semantic_split_lookback.py` (3 cases, mock model forcing low similarity, real `split()` path): the break moves back to a Whisper period before a same-speaker connector, with and without diarization (fail on v0.17.2), and with no sentence end in the chunk the split still fires.
+
+### Notes
+- **Patch bump (0.17.3)**: a user-visible bug fix.
+
 ## [0.17.2] - 2026-11-03
 
 Sentences are no longer cut in the middle of a phrase where Whisper happened to pause. Breaks like "…y lo que hacían mucho en ese." / "Tiempo era, se iban a caminar…" now read as one sentence. This applies to every language, with or without speaker diarization, and the words in the transcript don't change. Some paragraphs get a little longer as a result.
