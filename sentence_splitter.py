@@ -408,7 +408,13 @@ class SentenceSplitter:
         self.added_periods: List[Dict] = []
         self.skipped_whisper_boundaries: Set[int] = set()  # Track skipped Whisper word boundaries
         self.speaker_word_segments: Optional[List[Dict]] = None  # Speaker segments in word ranges
-    
+        # Set by _should_end_sentence_here() when the PRIORITY 5 semantic check made the split,
+        # so _evaluate_boundaries() can move the break back to a Whisper sentence end (#32).
+        self._semantic_split: bool = False
+        # Word indices where a moved semantic break ended a sentence; exempt from the
+        # same-speaker connector merge in _process_whisper_punctuation().
+        self._semantic_lookback_ends: Set[int] = set()
+
     def split(
         self,
         text: str,
@@ -436,7 +442,8 @@ class SentenceSplitter:
         self.removed_periods = []
         self.added_periods = []
         self.skipped_whisper_boundaries = set()
-        
+        self._semantic_lookback_ends = set()
+
         # 1. Parse and track Whisper punctuation
         whisper_periods = self._extract_whisper_punctuation(text, whisper_segments)
         
@@ -826,6 +833,11 @@ class SentenceSplitter:
         text_masked = mask_domains(text, use_exclusions=True, language=self.language)
         
         words = text_masked.split()
+        # The loop edits `words` and the chunk in place (period removed before a
+        # same-speaker connector, connector lowercased); a moved semantic break
+        # restores both from this copy.
+        original_words = list(words)
+        inline_removed: Set[int] = set()
         if len(words) < 3:
             # Too short to split
             unmasked = unmask_domains(text_masked)
@@ -890,6 +902,7 @@ class SentenceSplitter:
                         # Also lowercase the connector in the next iteration
                         # We need to modify the words list directly
                         words[i + 1] = next_word_clean
+                        inline_removed.add(i)
                         self.logger.debug(
                             f"REMOVED Whisper period before same-speaker connector: "
                             f"word={i} ('{word}'), connector='{next_word_clean}' (lowercased), "
@@ -909,13 +922,37 @@ class SentenceSplitter:
                         )
             
             if should_end:
+                # A semantic split ends the sentence at the latest Whisper sentence
+                # end in the chunk instead, if there is one (#32); the words after it
+                # start the next chunk.
+                carry: List[str] = []
+                if self._semantic_split:
+                    end_idx = self._semantic_lookback_index(original_words, sentence_start_word, i)
+                    if end_idx < i:
+                        keep = end_idx - sentence_start_word + 1
+                        current_chunk, carry = current_chunk[:keep], current_chunk[keep:]
+                        if end_idx in inline_removed:
+                            # Undo the same-speaker connector merge at the new break:
+                            # restore Whisper's period and the connector as written.
+                            current_chunk[-1] = original_words[end_idx]
+                            carry[0] = original_words[end_idx + 1]
+                            self.removed_periods = [
+                                p for p in self.removed_periods
+                                if not (p.get('reason') == 'same_speaker_connector_inline'
+                                        and p.get('position') == end_idx)
+                            ]
+                        self._semantic_lookback_ends.add(end_idx)
+                        self.logger.debug(
+                            f"MOVED semantic split from word {i} back to Whisper sentence end "
+                            f"at word {end_idx} ('{original_words[end_idx]}'), carrying {len(carry)} words"
+                        )
                 sentence_text = ' '.join(current_chunk).strip()
                 if sentence_text:
                     # Unmask domains before adding to sentences
                     sentence_text = unmask_domains(sentence_text)
-                    
+
                     # Calculate sentence word range
-                    sentence_end_word = i + 1  # End is exclusive
+                    sentence_end_word = i + 1 - len(carry)  # End is exclusive
                     
                     # Detect speaker changes within this sentence and create utterances
                     utterances = self._detect_speaker_changes_in_sentence(
@@ -936,8 +973,8 @@ class SentenceSplitter:
                     sentences.append(sentence_obj)
                     
                     # Update start word for next sentence
-                    sentence_start_word = i + 1
-                current_chunk = []
+                    sentence_start_word = sentence_end_word
+                current_chunk = carry
         
         # Add remaining chunk
         if current_chunk:
@@ -1002,10 +1039,11 @@ class SentenceSplitter:
         """
         # Get thresholds from config
         thresholds = self.config.thresholds
-        
+        self._semantic_split = False
+
         current_word = words[current_index]
         next_word = words[current_index + 1] if current_index + 1 < len(words) else ""
-        
+
         # PRIORITY 1: Speaker boundaries (HIGHEST PRIORITY - check first!)
         # Speaker changes ALWAYS indicate sentence breaks, even if next word is a connector
         # Different speakers should NEVER have their sentences merged, even with connectors
@@ -1199,8 +1237,11 @@ class SentenceSplitter:
                                 f"{future_idx - current_index} words ahead"
                             )
                             return False
-                return self._check_semantic_break(words, current_index)
-        
+                # The caller may move this break back to a Whisper sentence end
+                # in the chunk (_semantic_lookback_index).
+                self._semantic_split = self._check_semantic_break(words, current_index)
+                return self._semantic_split
+
         return False
     
     def _violates_grammatical_rules(self, current_word: str, next_word: str) -> bool:
@@ -1736,6 +1777,41 @@ class SentenceSplitter:
         
         return False
     
+    # A word Whisper ended with sentence punctuation (optionally followed by
+    # closing quotes/brackets), and the opening marks a next sentence may start with.
+    _SENTENCE_END_RE = re.compile(r'[.?!…]["»”’)\]]*$')
+    _SENTENCE_START_STRIP = '¿¡"«“‘(['
+
+    def _semantic_lookback_index(self, words: List[str], start: int, current_index: int) -> int:
+        """
+        Where a semantic split at ``current_index`` should end the sentence (#32).
+
+        The semantic check can't tell a sentence end from a mid-phrase position, so
+        it fires wherever the chunk reaches ``min_chunk_semantic_break``. The chunk
+        often already holds a sentence end Whisper wrote: one inside a segment
+        (never a split point) or one removed before a same-speaker connector. Return
+        the latest such word (``. ? ! …`` followed by a capital) that leaves at least
+        ``semantic_lookback_min_words`` words before it, or ``current_index`` if none.
+        Commas are not candidates: breaking at them read worse than the current split.
+
+        Args:
+            words: All words, as Whisper wrote them (before in-place edits)
+            start: Index of the chunk's first word
+            current_index: Index where the semantic split fired
+
+        Returns:
+            Index of the last word of the sentence
+        """
+        # At least 1, so the search never reaches back into the previous sentence.
+        min_first = max(1, self.config.thresholds.get('semantic_lookback_min_words', 10))
+        for j in range(current_index - 1, start + min_first - 2, -1):
+            word, nxt = words[j], words[j + 1].lstrip(self._SENTENCE_START_STRIP)
+            if (self._SENTENCE_END_RE.search(word) and nxt[:1].isupper()
+                    # Dotted abbreviation ("EE.UU.", "a.m."), not a sentence end.
+                    and not re.search(r'\w\.\w', word)):
+                return j
+        return current_index
+
     def _check_semantic_break(self, words: List[str], current_index: int) -> bool:
         """
         Check if there's a semantic break at the current position.
@@ -1885,7 +1961,11 @@ class SentenceSplitter:
                     
                     # Only merge if sentence ends with period (.)
                     # Questions (?) and exclamations (!) are complete thoughts - don't merge
-                    if speaker_at_end == speaker_at_next and speaker_at_end is not None and sentence.rstrip().endswith('.'):
+                    # A semantic split moved back to this Whisper sentence end (#32)
+                    # ended a run-on here on purpose; merging would undo it.
+                    moved_break = sentence_end_word_idx in self._semantic_lookback_ends
+                    if (speaker_at_end == speaker_at_next and speaker_at_end is not None
+                            and sentence.rstrip().endswith('.') and not moved_break):
                         # Same speaker continues with period - remove period and merge with lowercased connector
                         sentence = sentence.rstrip('.')
                         

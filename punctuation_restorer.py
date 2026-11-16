@@ -48,6 +48,7 @@ This module now focuses on punctuation restoration and language-specific formatt
 #       - min_chunk_capital_break
 #       - min_chunk_semantic_break
 #       - semantic_whisper_lookahead
+#       - semantic_lookback_min_words
 #
 # - Spanish keyword/constants:
 #   * ES_QUESTION_WORDS_CORE, ES_QUESTION_STARTERS_EXTRA
@@ -168,6 +169,9 @@ _BASE_THRESHOLDS = {
     'min_words_whisper_break': 10,  # Minimum words before honoring Whisper boundary
     'max_words_force_split': 100,   # Force split on very long segments even without boundary
     'semantic_whisper_lookahead': 8,  # Defer semantic split if Whisper boundary is within N words
+    # When a semantic split fires, end the sentence at the latest Whisper sentence end
+    # (. ? ! …, then a capital) in the chunk instead, if at least N words precede it.
+    'semantic_lookback_min_words': 10,
 }
 
 # Romance languages run longer clauses with heavier subordination than the
