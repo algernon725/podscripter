@@ -10,7 +10,6 @@ can never end on one. The fix adds them to the Spanish branch of
 ``_violates_grammatical_rules`` (PRIORITY 2, "never break here").
 """
 
-import numpy as np
 import pytest
 
 from sentence_splitter import SentenceSplitter
@@ -19,17 +18,8 @@ from punctuation_restorer import _get_language_config
 pytestmark = pytest.mark.core
 
 
-class LowSimilarityModel:
-    """Mock model whose encodings are orthogonal -> cosine ~0, so the semantic
-    path would split at every eligible position unless a guard prevents it."""
-
-    def encode(self, texts):
-        n = len(texts)
-        return np.eye(n, max(n, 2), dtype=float)
-
-
 def _make_splitter(language: str) -> SentenceSplitter:
-    return SentenceSplitter(language, LowSimilarityModel(), _get_language_config(language))
+    return SentenceSplitter(language, _get_language_config(language))
 
 
 @pytest.mark.parametrize("pronoun", ['me', 'te', 'se', 'nos', 'os', 'le', 'les', 'lo'])

@@ -4,7 +4,6 @@ Test script for improved punctuation restoration functionality
 
 import pytest
 
-from sentence_transformers import SentenceTransformer
 from conftest import restore_punctuation
 
 pytestmark = pytest.mark.core

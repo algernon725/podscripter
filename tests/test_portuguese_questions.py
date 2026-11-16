@@ -47,15 +47,9 @@ def test_portuguese_questions(text):
     assert result.endswith(('?', '.', '!')), f"Missing terminal punctuation: {result!r}"
 
 
-@pytest.mark.parametrize("text", [
-    "Você pode me ajudar com isso",
-    "Onde você mora agora",
-    "O que é isso",
-])
-def test_portuguese_questions_get_question_mark(text):
-    """High-confidence question forms should resolve to '?', not '.'."""
-    result = restore_punctuation(text, 'pt')
-    assert result.endswith('?'), f"Expected a question mark: {result!r}"
+# NOTE: test_portuguese_questions_get_question_mark (unpunctuated questions → '?')
+# was retired in v0.18.0 with the sentence-similarity model (#34). Text-only
+# question detection is an accepted limitation (#12).
 
 
 def test_portuguese_has_no_inverted_marks():

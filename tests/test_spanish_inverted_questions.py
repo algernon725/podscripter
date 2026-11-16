@@ -11,22 +11,22 @@ from conftest import restore_punctuation
 pytestmark = pytest.mark.core
 
 
-# NOTE: Verb-first / implicit question cases were retired in v0.8.2 (accepted
-# limitation — see AGENTS.md "Question detection — verb-first / implicit questions
-# (CLOSED)"). Only cases the model handles reliably from text alone remain.
+# NOTE: Text-only question detection is an accepted limitation (#12; the
+# similarity model that attempted it was removed in v0.18.0, #34). Production keeps
+# Whisper's '?'. When Whisper writes the '?' but not the opening '¿', the Spanish
+# formatter adds it; that is what these cases cover.
 @pytest.mark.parametrize("text", [
-    "Cómo están",
-    "No sé qué es eso",
-    "Sabes dónde está",
-    "Va a llover hoy",
-    "Hay algo más",
-    "Te parece bien",
-    "Pueden ayudarme",
+    "Cómo están?",
+    "Sabes dónde está?",
+    "Va a llover hoy?",
+    "Hay algo más?",
+    "Te parece bien?",
+    "Pueden ayudarme?",
 ])
 def test_spanish_inverted_questions(text):
-    """Spanish questions should have inverted question marks."""
+    """A Spanish question Whisper ended with '?' gets the opening '¿'."""
     result = restore_punctuation(text, 'es')
-    assert '?' in result, f"Expected question mark in {result!r}"
+    assert result.startswith('¿') and result.endswith('?'), f"Expected ¿…? in {result!r}"
 
 
 def test_transcription_pipeline_punctuation():

@@ -81,30 +81,24 @@ class TestTrailingCommaBug(unittest.TestCase):
                         "Should not have double periods")
 
 
-class TestApplySemanticPunctuationTrailingComma(unittest.TestCase):
+class TestSentenceEndTrailingComma(unittest.TestCase):
     """
-    Test that _apply_semantic_punctuation strips trailing commas before
-    appending terminal punctuation.
+    Test that the per-sentence terminal punctuation step strips trailing commas
+    before appending terminal punctuation.
 
     Bug: When a Whisper segment was split mid-clause at a speaker boundary
     (e.g. "Bueno, más o menos." → "Bueno," + "Más o menos."), the leading
-    fragment "Bueno," was classified as an exclamation by semantic similarity
-    to "¡Qué bueno!" and the code appended '!' without stripping the trailing
-    comma, producing "Bueno,!".
+    fragment "Bueno," got a terminal mark appended without stripping the
+    trailing comma, producing "Bueno,!".
 
     Found in Episodio270.txt (line 103) when running with --enable-diarization.
+    The '!' came from the sentence-similarity model (removed in v0.18.0, #34);
+    the sentence step is now _should_add_terminal_punctuation(SENTENCE_END).
     """
 
-    @classmethod
-    def setUpClass(cls):
-        from punctuation_restorer import _load_sentence_transformer
-        cls.model = _load_sentence_transformer(
-            'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
-        )
-
     def _apply(self, text, language='es'):
-        from punctuation_restorer import _apply_semantic_punctuation
-        return _apply_semantic_punctuation(text, self.model, language, 0, 1)
+        from punctuation_restorer import _should_add_terminal_punctuation, PunctuationContext
+        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END)
 
     def test_spanish_bueno_with_trailing_comma(self):
         """The exact regression case: "Bueno," must not become "Bueno,!"."""
@@ -116,8 +110,7 @@ class TestApplySemanticPunctuationTrailingComma(unittest.TestCase):
             out.endswith(('.', '!', '?')),
             f"Should end with terminal punctuation: {out!r}",
         )
-        # Stripped comma + terminal punctuation: "Bueno!" / "Bueno." / "Bueno?"
-        self.assertEqual(out.rstrip('.!?'), 'Bueno', f"Unexpected body: {out!r}")
+        self.assertEqual(out, 'Bueno.', f"Unexpected result: {out!r}")
 
     def test_no_dangling_punct_before_terminal_es(self):
         """Multiple Spanish fragments with trailing commas/semicolons/colons."""

@@ -32,11 +32,10 @@ Core files:
 - Prefer offline use when cache exists: set `HF_HUB_OFFLINE=1` for tests/runs to avoid 429 rate limits.
 - Cache locations:
   - Faster-Whisper models: Hugging Face Hub under `/root/.cache/huggingface` (mounted from `models/huggingface`).
-  - Sentence-Transformers: `/root/.cache/torch/sentence_transformers`.
   - Hugging Face models generally: `/root/.cache/huggingface`.
   - Pyannote speaker diarization models: under `HF_HOME` (`/root/.cache/huggingface`). pyannote.audio 4.x uses `HF_HOME`; `PYANNOTE_CACHE` is no longer used.
 - Use a singleton model loader to avoid repeated model instantiation within a process.
-- Sentence-Transformers loader rule: only load from a direct cache path if `modules.json` or `config_sentence_transformers.json` exists in that folder; otherwise load by name with `cache_folder` (avoids the "Creating a new one with mean pooling" message while still using caches). Also sets `HF_HOME` and may set `HF_HUB_OFFLINE=1` when a local model directory is used.
+- No model is used for punctuation or sentence splitting (the sentence-transformers model was removed in v0.18.0, #34; an old `models/sentence-transformers` mount is harmless and unused).
 
 ## Volume mounts
 
@@ -44,7 +43,6 @@ Always mount caches and media when running containers:
 
 ```
 -v $(pwd)/models/huggingface:/root/.cache/huggingface
--v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers
 -v $(pwd)/audio-files:/app/audio-files
 ```
 
@@ -123,14 +121,14 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 ### Formatting internals (centralized constants and helpers)
 
-- Centralized thresholds/configs: `LanguageConfig` via `_get_language_config(language)` and `_get_language_thresholds(language)` (a base dict plus per-language overrides; `es` and `pt` share the Romance split profile) control Spanish semantic thresholds (`semantic_question_threshold_with_indicator`, `semantic_question_threshold_default`) and splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`, `semantic_lookback_min_words`). Also provides per-language greetings and question-starter lists for en/fr/de/es/pt.
+- Centralized thresholds/configs: `LanguageConfig` via `_get_language_config(language)` and `_get_language_thresholds(language)` (a base dict plus per-language overrides; `es` and `pt` share the Romance split profile) control the splitting thresholds (`min_total_words_no_split`, `min_chunk_before_split`, `min_chunk_inside_question`, `min_chunk_capital_break`, `min_chunk_semantic_break`, `semantic_whisper_lookahead`, `semantic_lookback_min_words`). Also provides per-language greetings and question-starter lists for en/fr/de/es/pt.
 - Per-language constants in `punctuation_restorer.py`:
   - Spanish: `ES_QUESTION_WORDS_CORE`, `ES_QUESTION_STARTERS_EXTRA`, `ES_GREETINGS`.
   - French/German: `FR_GREETINGS`, `DE_GREETINGS`, `FR_QUESTION_STARTERS`, `DE_QUESTION_STARTERS`.
   - English: `EN_QUESTION_STARTERS`.
-- Spanish formatting is inline in the `if language == 'es':` branch of `_transformer_based_restoration()`: per-sentence capitalization (domain-guarded), terminal punctuation via `_should_add_terminal_punctuation(..., SPANISH_SPECIFIC)`, opening-`¿` insertion, then `_fix_location_appositive_punctuation()` and `_finalize_text_common()`. The standalone `_es_*` helpers and `_spanish_cleanup_postprocess()` were deleted in v0.12.1 — they had been unreachable since v0.6.0.
+- Spanish formatting is inline in the `if language == 'es':` branch of `_split_and_punctuate()`: per-sentence capitalization (domain-guarded), terminal punctuation via `_should_add_terminal_punctuation(..., SPANISH_SPECIFIC)`, opening-`¿` insertion, then `_fix_location_appositive_punctuation()` and `_finalize_text_common()`. The standalone `_es_*` helpers and `_spanish_cleanup_postprocess()` were deleted in v0.12.1 — they had been unreachable since v0.6.0.
 - Shared utilities: `_split_sentences_preserving_delims(text)`, `_normalize_mixed_terminal_punctuation(text)` (removes `!.`, `?.`, `!?`, compresses repeats), `_finalize_text_common(text)`, `assemble_sentences_from_processed(processed, language)`.
-- Public API hygiene: public functions are type-annotated (`restore_punctuation`, `transformer_based_restoration`, `apply_semantic_punctuation`, `is_question_semantic`, `is_exclamation_semantic`, `format_non_spanish_text`). `punctuation_restorer.py` is import-only (no `__main__`). Legacy `format_spanish_text` was removed.
+- Public API hygiene: public functions are type-annotated (`restore_punctuation`, `split_and_punctuate`, `format_non_spanish_text`). `punctuation_restorer.py` is import-only (no `__main__`). Legacy `format_spanish_text` was removed.
 - No proper-noun capitalization pass: names and places keep Whisper's casing. The spaCy pass was removed in v0.15.0; since v0.4.0 its output had only reached `restore_punctuation()`'s returned string, which the TXT writer does not use.
 - Tuning guidance: prefer editing constants/thresholds over changing logic; avoid one-off hacks; after any change run `pytest` inside Docker with model caches mounted.
 
@@ -138,14 +136,14 @@ Architectural separation: `SentenceSplitter` = boundaries; `SentenceFormatter` =
 
 Language-agnostic across EN/ES/FR/PT/DE:
 1. Grammatical guards — avoid ending sentences on coordinating conjunctions, prepositions, and continuative/auxiliary verbs.
-2. Semantic coherence — Sentence-Transformers similarity confirms low-coherence boundaries; once a long chunk splits, the break moves back to the latest Whisper sentence end in it, if any (v0.17.3, #32).
+2. Length-based fallback ("semantic" split) — a long chunk splits once it reaches `min_chunk_semantic_break`, subject to the guards; the break moves back to the latest Whisper sentence end in it, if any (v0.17.3, #32). A sentence-similarity check used to gate it; it could not tell sentence ends from mid-phrase positions and was removed in v0.18.0 (#34).
 3. Configurable thresholds — minimum chunk length, overall length, capital/semantic break limits.
 4. Whisper segment boundaries — `all_segments` boundaries are prioritized hints, still gated by grammatical guards and minimum chunk size; ignored at grammatically invalid positions; dropped where the segment ends with no punctuation and the next starts lowercase (v0.17.2, #29); backward compatible when absent.
 
 Whisper boundary threading (production path):
 - Orchestrator passes `all_segments` to `_assemble_sentences(...)` (in `podscripter.py`).
 - `_assemble_sentences` extracts character boundary positions and calls `restore_punctuation(text, language, whisper_segments=...)` (in `punctuation_restorer.py`).
-- `restore_punctuation` -> `_transformer_based_restoration` (in `punctuation_restorer.py`) instantiates `SentenceSplitter` and calls `SentenceSplitter.split(...)` (in `sentence_splitter.py`); boundary decisions live in `SentenceSplitter._should_end_sentence_here(...)`.
+- `restore_punctuation` -> `_split_and_punctuate` (in `punctuation_restorer.py`) instantiates `SentenceSplitter` and calls `SentenceSplitter.split(...)` (in `sentence_splitter.py`); boundary decisions live in `SentenceSplitter._should_end_sentence_here(...)`.
 - All splitting lives in `SentenceSplitter` (consolidated in v0.4.0). The legacy module-level `_semantic_split_into_sentences()` / `_should_end_sentence_here()` duplicates in `punctuation_restorer.py` were removed in v0.10.2.
 
 Whisper boundary thresholds (via `_get_language_thresholds(language)`):

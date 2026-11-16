@@ -33,12 +33,7 @@ from language_support import (
     whisper_languages,
 )
 from podscripter import _assemble_sentences, _write_txt, validate_language_code, InvalidInputError
-from punctuation_restorer import (
-    _get_question_patterns,
-    _get_exclamation_patterns,
-    has_question_indicators,
-    restore_punctuation,
-)
+from punctuation_restorer import restore_punctuation
 from domain_utils import fix_spaced_domains
 
 pytestmark = pytest.mark.core
@@ -99,18 +94,20 @@ def test_other_languages_are_generic(language):
     assert not is_tailored(language)
 
 
-def test_spacy_is_not_imported():
-    """spaCy was removed in v0.15.0 (its output never reached the transcript).
+@pytest.mark.parametrize("module", ['spacy', 'sentence_transformers', 'transformers'])
+def test_removed_dependencies_are_not_imported(module):
+    """spaCy was removed in v0.15.0 (its output never reached the transcript);
+    sentence-transformers and the `transformers` it pulled in in v0.18.0 (#34).
 
-    The Docker image no longer installs it, so an import that slips back in would
+    The Docker image no longer installs them, so an import that slips back in would
     only fail at `docker build`. Catch it here, in a fresh interpreter.
     """
     code = ("import sys, podscripter, punctuation_restorer, sentence_splitter, "
             "sentence_formatter, domain_utils, language_support; "
-            "sys.exit('spacy' in sys.modules)")
+            f"sys.exit({module!r} in sys.modules)")
     proc = subprocess.run([sys.executable, '-c', code], cwd=REPO_ROOT,
                           capture_output=True, text=True, timeout=120)
-    assert proc.returncode == 0, f"spaCy was imported\n{proc.stderr[-2000:]}"
+    assert proc.returncode == 0, f"{module} was imported\n{proc.stderr[-2000:]}"
 
 
 def test_whisper_language_codes_still_resolve():
@@ -118,15 +115,6 @@ def test_whisper_language_codes_still_resolve():
     codes = whisper_languages()
     assert codes is not None, "faster_whisper.tokenizer._LANGUAGE_CODES disappeared"
     assert {'en', 'es', 'it', 'ru', 'ja'} <= codes
-
-
-# --------------------------------------------------------- no English stand-ins
-
-@pytest.mark.parametrize("language", ['it', 'ru'])
-def test_generic_language_gets_no_english_question_rules(language):
-    assert _get_question_patterns(language) == []
-    assert _get_exclamation_patterns(language) == []
-    assert has_question_indicators("what is this", language) is False
 
 
 # ------------------------------------------------------ round-trip preservation

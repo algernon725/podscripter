@@ -1,6 +1,6 @@
 # PodScripter Architecture
 
-PodScripter transcribes audio/video into punctuated, readable text and SRT/VTT subtitles. It uses Faster-Whisper for ASR and a hybrid semantic + rule approach for punctuation and formatting. The system is designed to run entirely in Docker with model caches mounted for reproducibility and offline operation.
+PodScripter transcribes audio/video into punctuated, readable text and SRT/VTT subtitles. It uses Faster-Whisper for ASR, keeps Whisper's punctuation, and applies rule-based sentence splitting and formatting. The system is designed to run entirely in Docker with model caches mounted for reproducibility and offline operation.
 
 > This document is the canonical, human-facing architecture overview. For dense, agent-oriented quick references see the `.agent/` files: [pipeline.md](.agent/architecture/pipeline.md) (caching, mounts, orchestration, diarization), [cli-spec.md](.agent/architecture/cli-spec.md) (flags, exit codes, logging), and [history.md](.agent/troubleshooting/history.md) (bug history, edge cases, testing). When the pipeline changes, update both this file and `.agent/architecture/pipeline.md`.
 
@@ -10,7 +10,7 @@ PodScripter transcribes audio/video into punctuated, readable text and SRT/VTT s
 - **Outputs**: Plain text (`.txt`) or subtitles (`.srt`, `.vtt`)
 - **Primary dependencies**:
   - Faster-Whisper (ASR)
-  - Sentence-Transformers (semantic cues for punctuation)
+  - pyannote.audio (optional speaker diarization)
   - pydub (chunking)
 - **Runtime**: Docker container; model caches bound via volumes
 
@@ -93,7 +93,7 @@ flowchart TD
 2. If not `--single`, split media into ~480s chunks with ~3s overlap.
 3. Transcribe (Faster-Whisper) with optional VAD and `initial_prompt` continuity; obtain language (if auto).
 4. Convert per-chunk timestamps to global, dedupe overlap, accumulate raw text.
-5. Restore punctuation and assemble sentences via `restore_punctuation()` → `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which drives `SentenceSplitter` for boundaries; then `SentenceFormatter` for merges (ellipsis/domain-aware).
+5. Restore punctuation and assemble sentences via `restore_punctuation()` → `_split_and_punctuate()`, which drives `SentenceSplitter` for boundaries; then `SentenceFormatter` for merges (ellipsis/domain-aware).
 6. Write TXT, SRT or VTT.
 
 ## Components and responsibilities
@@ -146,10 +146,10 @@ flowchart TD
   - Debug support via `--dump-merge-metadata` flag
 
 - **Punctuation and formatting** (`punctuation_restorer.py`)
-  - `restore_punctuation(...)` → Uses `SentenceSplitter` for boundary decisions (v0.4.0+). This is the only entry point; it delegates to `_advanced_punctuation_restoration()` → `_transformer_based_restoration()`, which forks into a Spanish branch and a light `_format_non_spanish_text()` branch for en/fr/pt/de.
+  - `restore_punctuation(...)` → Uses `SentenceSplitter` for boundary decisions (v0.4.0+). This is the only entry point; it delegates to `_split_and_punctuate()`, which forks into a Spanish branch and a light `_format_non_spanish_text()` branch for en/fr/pt/de.
   - **Centralized punctuation system**: `_should_add_terminal_punctuation()` with context-aware processing
   - **Context types**: `STANDALONE_SEGMENT`, `SENTENCE_END`, `FRAGMENT`, `TRAILING`, `SPANISH_SPECIFIC`
-  - Sentence-Transformers semantic cues + curated regex rules
+  - Curated regex rules; a sentence keeps Whisper's terminal mark, one without a mark gets `.` (no question/exclamation guessing since v0.18.0, #34)
   - Language-specific formatting (ES/EN/FR/PT/DE)
   - Comma spacing normalization is centralized in `_normalize_comma_spacing(text)` and must not be duplicated inline at call sites. This helper removes spaces before commas, deduplicates multiple commas, and ensures a single space after commas. Trade-off: thousands separators like `1,000` will appear as `1, 000` to guarantee correct spacing for common number lists.
   - Comprehensive domain protection: preserves single TLDs (`github.io`, `harvard.edu`) and compound TLDs (`bbc.co.uk`, `amazon.com.br`) across all processing stages
@@ -204,8 +204,7 @@ flowchart TD
   - Chunked: default for long files; overlap + prompt tail for continuity
 - **Caching**
   - Mount volumes to persist models between runs:
-    - Faster-Whisper via Hugging Face Hub: `models/huggingface/` → `/root/.cache/huggingface`
-    - Sentence-Transformers: `models/sentence-transformers/` → `/root/.cache/torch/sentence_transformers`
+    - Faster-Whisper and pyannote via Hugging Face Hub: `models/huggingface/` → `/root/.cache/huggingface`
     - Media: `audio-files/` → `/app/audio-files`
   - Build efficiency:
     - Combine pip installs into a single `RUN` with `--no-cache-dir`
@@ -213,7 +212,6 @@ flowchart TD
     - Use `.dockerignore` to exclude large local media and caches (`audio-files/`, `models/`)
 - **Error handling**
   - Early exits for invalid input or unwritable output
-  - Conservative fallbacks when Sentence-Transformers is unavailable
   - Typed exceptions surfaced from the orchestrator and mapped to exit codes:
     - `InvalidInputError` (2), `ModelLoadError` (3), `TranscriptionError` (4), `OutputWriteError` (5), unexpected (1)
   - Logging via a single `podscripter` logger; three levels:
@@ -239,7 +237,7 @@ flowchart TD
   - `multilingual`: cross-language aggregate tests (run by default)
   - `transcription`: integration tests requiring models/media (opt-in via `pytest -m transcription`)
 - Default run (`pytest`) executes core + multilingual; transcription tests are excluded unless explicitly requested
-- 33 test invocations across 5 files are marked `@pytest.mark.xfail` (per-parameter on parametrized tests). These are all verified NLP model limitations: 31 for sentence splitting/formatting drift and 2 for inverted question-mark fusion cleanup. The 50 implicit/verb-first question-detection xfails were retired in v0.10.1 when that issue was closed as an accepted limitation (production relies on Whisper's native punctuation; text-only detection of verb-first questions is inherently ambiguous). Low-value xfail tests (run-on detection, initials, numbers, whisper boundaries) were removed in v0.8.2. See AGENTS.md for root causes and rationale.
+- 37 test invocations across 6 files are marked `@pytest.mark.xfail` (per-parameter on parametrized tests). These are all verified limitations: 35 for sentence splitting/formatting on unpunctuated input and 2 for inverted question-mark fusion cleanup. The 50 implicit/verb-first question-detection xfails were retired in v0.10.1 when that issue was closed as an accepted limitation (production relies on Whisper's native punctuation; text-only detection of verb-first questions is inherently ambiguous). Low-value xfail tests (run-on detection, initials, numbers, whisper boundaries) were removed in v0.8.2. The remaining text-only question-detection tests were retired or rewritten for Whisper-punctuated input in v0.18.0, when the sentence-similarity model was removed (#34). See AGENTS.md for root causes and rationale.
 
 ### Real-audio EN/ES/FR test corpus (three tiers)
 
@@ -306,12 +304,12 @@ flowchart TD
 ### Whisper segment boundary integration
 
 - The orchestrator now passes `all_segments` into sentence assembly. `_assemble_sentences(all_text, all_segments, ...)` extracts Whisper segment end positions and forwards them to `restore_punctuation(text, language, whisper_segments=...)`.
-- `restore_punctuation` -> `_transformer_based_restoration` (both in `punctuation_restorer.py`) instantiates `SentenceSplitter` (`sentence_splitter.py`), which converts character boundaries to word indices and uses them as prioritized hints inside `SentenceSplitter.split(...)` and `SentenceSplitter._should_end_sentence_here(...)`. (The former module-level `_semantic_split_into_sentences()` / `_should_end_sentence_here()` in `punctuation_restorer.py` were removed once `SentenceSplitter` became the sole splitting path; see CHANGELOG 0.10.2.)
+- `restore_punctuation` -> `_split_and_punctuate` (both in `punctuation_restorer.py`) instantiates `SentenceSplitter` (`sentence_splitter.py`), which converts character boundaries to word indices and uses them as prioritized hints inside `SentenceSplitter.split(...)` and `SentenceSplitter._should_end_sentence_here(...)`. (The former module-level `_semantic_split_into_sentences()` / `_should_end_sentence_here()` in `punctuation_restorer.py` were removed once `SentenceSplitter` became the sole splitting path; see CHANGELOG 0.10.2.)
 - Hints are gated by grammatical rules and minimum chunk size; they are ignored for invalid break positions (e.g., conjunctions/prepositions/continuative verbs).
 - Thresholds (language-agnostic; in `_get_language_thresholds(language)`):
   - `min_words_whisper_break` (default 10)
   - `max_words_force_split` (default 100)
-  - `semantic_whisper_lookahead` (default 8): before running the semantic coherence check, scan the next N words for a Whisper boundary; if one exists, defer the split so the higher-priority boundary is evaluated at its natural position
+  - `semantic_whisper_lookahead` (default 8): before a PRIORITY-5 split fires, scan the next N words for a Whisper boundary; if one exists, defer the split so the higher-priority boundary is evaluated at its natural position
   - `semantic_lookback_min_words` (default 10): when a semantic split fires, end the sentence at the latest Whisper sentence end in the chunk instead, if at least N words precede it
 - Backward compatible: behavior is unchanged when boundaries are not provided.
 
@@ -374,10 +372,10 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
    - **v0.6.2**: Spanish inverted question/exclamation protection - before allowing splits at Whisper boundaries, check if inside unclosed `¿...?` or `¡...!` via `_is_inside_unclosed_question()` helper
    - **v0.17.2**: `_drop_continuation_boundaries()` removes a Whisper boundary when its word has no terminal or clause punctuation and the next word starts lowercase (#29), so neither this check nor the semantic lookahead treats it as a sentence end
 4. General min_chunk_before_split check (20 words for Spanish, 15 for others)
-5. Semantic coherence (fallback)
-   - **v0.7.1**: Whisper boundary lookahead — before running the semantic model, scan the next `semantic_whisper_lookahead` words (default 8) for a Whisper boundary; if found, defer the split so the higher-priority Whisper boundary (PRIORITY 3) is evaluated at its natural position. Prevents false-positive semantic splits when the model's 10-word window crosses a real sentence boundary a few words ahead.
-   - **v0.10.7**: Grammatical guards on the *semantic split point* — before running the semantic model, suppress splits that would sever tightly-bound constructions on a long single-speaker run (where no Whisper/speaker boundary exists). These are scoped to the semantic path (unlike PRIORITY 2, which is language-general never-break) because each construction *can* legitimately sit at a sentence edge in other contexts: comparative particles both edges (`un poco | más | baratos`, es/en/fr/de — `_is_bound_comparative_break()`), the clause-hinge `que` both edges (`imagino | que | puedes` — `SEMANTIC_BREAK_HINGE_WORDS`), modal + governed infinitive (`puedes | encontrar` — `_is_modal_infinitive_break()`), and infinitive + complement (`encontrar | un buen apartamento` — `_is_infinitive_complement_break()`). Conditional guards fire only when the following word is lowercase (a genuinely sentence-final token is followed by a capitalized word). Discovered peeling one long run-on sentence in `Episodio300.mp3`.
-   - **v0.17.3**: Look-back to a Whisper sentence end (#32) — the similarity check says yes almost everywhere, so the split itself only says "this chunk is long". The chunk often spans sentence ends Whisper wrote (periods inside a segment, or removed before a same-speaker connector), so `_evaluate_boundaries()` ends the sentence at the latest one (`. ? ! …` + capital, `semantic_lookback_min_words` in; `_semantic_lookback_index()`) and carries the rest into the next chunk. A removed connector period is restored and exempt from the `_process_whisper_punctuation()` merge. No such sentence end → split where the check fired, which keeps unpunctuated input bounded. Commas are deliberately not candidates.
+5. Length-based fallback ("semantic" split): fires once the chunk reaches `min_chunk_semantic_break` and the guards below allow it. Until v0.18.0 a sentence-similarity check also had to agree; it said yes at real sentence ends and mid-phrase alike (AUC 0.53), so it was removed (#34). The `semantic_*` names stay.
+   - **v0.7.1**: Whisper boundary lookahead — before splitting, scan the next `semantic_whisper_lookahead` words (default 8) for a Whisper boundary; if found, defer the split so the higher-priority Whisper boundary (PRIORITY 3) is evaluated at its natural position. Prevents a split a few words before a real sentence boundary.
+   - **v0.10.7**: Grammatical guards on the *semantic split point* — before splitting, suppress splits that would sever tightly-bound constructions on a long single-speaker run (where no Whisper/speaker boundary exists). These are scoped to the semantic path (unlike PRIORITY 2, which is language-general never-break) because each construction *can* legitimately sit at a sentence edge in other contexts: comparative particles both edges (`un poco | más | baratos`, es/en/fr/de — `_is_bound_comparative_break()`), the clause-hinge `que` both edges (`imagino | que | puedes` — `SEMANTIC_BREAK_HINGE_WORDS`), modal + governed infinitive (`puedes | encontrar` — `_is_modal_infinitive_break()`), and infinitive + complement (`encontrar | un buen apartamento` — `_is_infinitive_complement_break()`). Conditional guards fire only when the following word is lowercase (a genuinely sentence-final token is followed by a capitalized word). Discovered peeling one long run-on sentence in `Episodio300.mp3`.
+   - **v0.17.3**: Look-back to a Whisper sentence end (#32) — the split itself only says "this chunk is long". The chunk often spans sentence ends Whisper wrote (periods inside a segment, or removed before a same-speaker connector), so `_evaluate_boundaries()` ends the sentence at the latest one (`. ? ! …` + capital, `semantic_lookback_min_words` in; `_semantic_lookback_index()`) and carries the rest into the next chunk. A removed connector period is restored and exempt from the `_process_whisper_punctuation()` merge. No such sentence end → split where it fired, which keeps unpunctuated input bounded. Commas are deliberately not candidates.
 
 **Critical implementation details**: 
 - Speaker/Whisper boundary checks happen BEFORE the general `min_chunk_before_split` threshold check to ensure short phrases like "Mateo 712" can break at speaker changes
@@ -393,7 +391,7 @@ Podscripter optionally uses speaker diarization to detect when speakers change, 
 Benefits:
 - More accurate sentence breaks at dialogue transitions
 - Especially useful for interviews, conversations, and multi-speaker content
-- Complements existing grammatical guards and semantic analysis
+- Complements the Whisper boundaries and grammatical guards
 - Natural speaker changes almost always align with sentence boundaries
 
 Caching:
@@ -406,7 +404,7 @@ Threading through pipeline:
 - Speaker boundaries extracted via `_extract_speaker_boundaries(...)` as timestamps (seconds)
 - Timestamps converted to character positions via `_convert_speaker_timestamps_to_char_positions(...)` in `_assemble_sentences(...)`
 - Passed SEPARATELY to `restore_punctuation(..., whisper_boundaries=..., speaker_boundaries=...)`
-- Converted to word indices in `_transformer_based_restoration()`
+- Converted to word indices in `_split_and_punctuate()`
 - Full speaker segments converted to word ranges and passed as `speaker_word_segments` parameter
 - Checked with low threshold (1 word, v0.6.1) in `SentenceSplitter._should_end_sentence_here(..., speaker_word_boundaries=..., speaker_word_segments=...)`
 - Used for connector word continuity checks: "Is the same speaker continuing with 'Y'?"

@@ -2,32 +2,22 @@
 """
 Semantic splits move back to a Whisper sentence end (#32).
 
-The PRIORITY-5 semantic check can't tell a sentence end from a mid-phrase
-position, so it fires wherever a long chunk reaches ``min_chunk_semantic_break``
+The PRIORITY-5 split fires wherever a long chunk reaches ``min_chunk_semantic_break``
 and used to insert a period mid-phrase ("…las comunidades alrededor pero al
 principio." / "No era fácil…"). When the chunk already holds a sentence end that
 Whisper wrote (here one removed before a same-speaker connector), the split now
 lands there. With none, it stays where it was, so unpunctuated input stays bounded.
 
-The mock model forces low similarity, so the semantic check says yes at every
-eligible position, as the real model does almost everywhere.
+(Until v0.18.0 a similarity model also had to agree; it said yes almost
+everywhere and was removed, #34.)
 """
 
-import numpy as np
 import pytest
 
 from sentence_splitter import SentenceSplitter
 from punctuation_restorer import _get_language_config
 
 pytestmark = pytest.mark.core
-
-
-class LowSimilarityModel:
-    """Mock SentenceTransformer with orthogonal encodings: cosine similarity 0."""
-
-    def encode(self, texts):
-        n = len(texts)
-        return np.eye(n, max(n, 2), dtype=float)
 
 
 HEAD = ("hoy tenemos una lista de espera de comunidades que quieren nuestras soluciones "
@@ -40,7 +30,7 @@ TAIL = ("al principio no era fácil generar esa confianza con las personas porqu
 
 def _split(text, with_speakers):
     words = text.split()
-    splitter = SentenceSplitter('es', LowSimilarityModel(), _get_language_config('es'))
+    splitter = SentenceSplitter('es', _get_language_config('es'))
     speakers = [{'start_word': 0, 'end_word': len(words), 'speaker': 'SPEAKER_00'}] if with_speakers else None
     sentences, _ = splitter.split(
         text, whisper_segments=[{'start': 0.0, 'end': 30.0, 'text': text}], speaker_segments=speakers

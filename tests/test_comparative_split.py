@@ -10,7 +10,6 @@ fixed phrases like "un poco | más baratos". These tests cover the guard
 the semantic path, across all supported languages (es/en/fr/de).
 """
 
-import numpy as np
 import pytest
 
 from sentence_splitter import SentenceSplitter
@@ -19,19 +18,8 @@ from punctuation_restorer import _get_language_config
 pytestmark = pytest.mark.core
 
 
-class LowSimilarityModel:
-    """Mock SentenceTransformer whose encodings are mutually orthogonal, so
-    ``_check_semantic_break`` always sees cosine similarity ~0 (< threshold)
-    and would split at every eligible position unless a guard prevents it."""
-
-    def encode(self, texts):
-        # Return distinct one-hot rows -> cosine similarity 0 between them.
-        n = len(texts)
-        return np.eye(n, max(n, 2), dtype=float)
-
-
 def _make_splitter(language: str) -> SentenceSplitter:
-    return SentenceSplitter(language, LowSimilarityModel(), _get_language_config(language))
+    return SentenceSplitter(language, _get_language_config(language))
 
 
 # ---------------------------------------------------------------------------

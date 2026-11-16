@@ -63,7 +63,6 @@ docker run --rm \
   -v $(pwd):/app -w /app \
   -v $(pwd)/.bench-cache:/cache \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   podscripter bash -c "
     python tests/benchmarks/download_subsets.py --langs en,es,fr --cache-dir /cache --mls-max-items 30 &&
     python tests/benchmarks/run_benchmark.py    --langs en,es,fr --cache-dir /cache --max-items-per-dataset 15 --output /cache/run.json &&

@@ -21,13 +21,6 @@ from punctuation_restorer import _get_language_config
 pytestmark = pytest.mark.core
 
 
-class MockModel:
-    """Mock SentenceTransformer model for testing."""
-    def encode(self, texts):
-        import numpy as np
-        return np.random.rand(len(texts), 384)
-
-
 def test_whisper_period_with_connector_removed():
     """
     Test the related case: Whisper period before same-speaker connector.
@@ -46,9 +39,8 @@ def test_whisper_period_with_connector_removed():
 
     language = 'es'
     config = _get_language_config(language)
-    model = MockModel()
 
-    splitter = SentenceSplitter(language, model, config)
+    splitter = SentenceSplitter(language, config)
 
     sentences, metadata = splitter.split(
         text,

@@ -2,7 +2,7 @@
 """
 Tests for the semantic-whisper lookahead fix.
 
-When the semantic coherence check (PRIORITY 5) would fire, but a Whisper
+When the length-based PRIORITY-5 ("semantic") split would fire, but a Whisper
 boundary exists within the next N words, the semantic split should be
 deferred so the higher-priority Whisper boundary can be evaluated at its
 natural position.
@@ -12,8 +12,7 @@ Bug example fixed (Episodio243):
   → should be: "...necesitan saber para de verdad tomar su español al siguiente nivel."
 
 Root cause: at 42 words the chunk hit min_chunk_semantic_break and the
-semantic model's lookahead window crossed a real sentence boundary,
-producing a false-positive split before the Whisper boundary at "nivel."
+semantic split fired before the Whisper boundary at "nivel."
 
 Probe word: these tests exercise the lookahead/semantic path by probing a
 break at "español" (→ "al siguiente nivel."), NOT at the original bug word
@@ -26,7 +25,6 @@ before the "nivel." Whisper boundary, so it isolates the lookahead behaviour.
 """
 
 import unittest
-from unittest.mock import patch
 
 import pytest
 
@@ -34,11 +32,6 @@ from conftest import MockConfig
 from sentence_splitter import SentenceSplitter
 
 pytestmark = pytest.mark.core
-
-
-class _SentinelModel:
-    """Non-None object so the splitter enters the semantic check branch."""
-    pass
 
 
 class TestSemanticWhisperLookahead(unittest.TestCase):
@@ -70,11 +63,10 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
 
     def test_defers_semantic_split_when_whisper_boundary_nearby(self):
         """
-        Even if the semantic model wants to split, the lookahead should
-        prevent the split at 'español' because a Whisper boundary exists
+        The lookahead should prevent the split at 'español' because a Whisper boundary exists
         at 'nivel.' (3 words ahead, within the 8-word window).
         """
-        splitter = SentenceSplitter('es', _SentinelModel(), self.config)
+        splitter = SentenceSplitter('es', self.config)
         text = self._build_long_spanish_text()
         words = text.split()
 
@@ -91,15 +83,12 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
             self.config.thresholds['min_chunk_semantic_break'],
         )
 
-        # _check_semantic_break should never even be called
-        with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
-            result = splitter._should_end_sentence_here(
-                words, split_idx, current_chunk,
-                whisper_word_boundaries=whisper_word_boundaries,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
-            mock_sem.assert_not_called()
+        result = splitter._should_end_sentence_here(
+            words, split_idx, current_chunk,
+            whisper_word_boundaries=whisper_word_boundaries,
+            speaker_word_boundaries=None,
+            speaker_word_segments=None,
+        )
 
         self.assertFalse(
             result,
@@ -109,9 +98,9 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
     def test_allows_semantic_split_when_no_whisper_boundary_nearby(self):
         """
         When no Whisper boundary is within the lookahead window, the
-        semantic model decision should be honoured.
+        semantic split fires.
         """
-        splitter = SentenceSplitter('es', _SentinelModel(), self.config)
+        splitter = SentenceSplitter('es', self.config)
         text = self._build_long_spanish_text()
         words = text.split()
 
@@ -122,13 +111,12 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         whisper_word_boundaries = {split_idx + 20}
         current_chunk = words[:split_idx + 1]
 
-        with patch.object(splitter, '_check_semantic_break', return_value=True):
-            result = splitter._should_end_sentence_here(
-                words, split_idx, current_chunk,
-                whisper_word_boundaries=whisper_word_boundaries,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
+        result = splitter._should_end_sentence_here(
+            words, split_idx, current_chunk,
+            whisper_word_boundaries=whisper_word_boundaries,
+            speaker_word_boundaries=None,
+            speaker_word_segments=None,
+        )
 
         self.assertTrue(
             result,
@@ -139,7 +127,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         """
         When no Whisper boundaries are provided, semantic splitting works normally.
         """
-        splitter = SentenceSplitter('es', _SentinelModel(), self.config)
+        splitter = SentenceSplitter('es', self.config)
         text = self._build_long_spanish_text()
         words = text.split()
 
@@ -147,13 +135,12 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         self.assertIsNotNone(split_idx)
         current_chunk = words[:split_idx + 1]
 
-        with patch.object(splitter, '_check_semantic_break', return_value=True):
-            result = splitter._should_end_sentence_here(
-                words, split_idx, current_chunk,
-                whisper_word_boundaries=None,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
+        result = splitter._should_end_sentence_here(
+            words, split_idx, current_chunk,
+            whisper_word_boundaries=None,
+            speaker_word_boundaries=None,
+            speaker_word_segments=None,
+        )
 
         self.assertTrue(
             result,
@@ -165,7 +152,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         When the Whisper boundary is exactly at the edge of the lookahead
         window (8 words ahead), it should still defer.
         """
-        splitter = SentenceSplitter('es', _SentinelModel(), self.config)
+        splitter = SentenceSplitter('es', self.config)
         text = self._build_long_spanish_text()
         words = text.split()
 
@@ -175,14 +162,12 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         whisper_word_boundaries = {split_idx + 8}
         current_chunk = words[:split_idx + 1]
 
-        with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
-            result = splitter._should_end_sentence_here(
-                words, split_idx, current_chunk,
-                whisper_word_boundaries=whisper_word_boundaries,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
-            mock_sem.assert_not_called()
+        result = splitter._should_end_sentence_here(
+            words, split_idx, current_chunk,
+            whisper_word_boundaries=whisper_word_boundaries,
+            speaker_word_boundaries=None,
+            speaker_word_segments=None,
+        )
 
         self.assertFalse(
             result,
@@ -194,7 +179,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         When the Whisper boundary is 9 words ahead (beyond the 8-word window),
         the semantic split should proceed.
         """
-        splitter = SentenceSplitter('es', _SentinelModel(), self.config)
+        splitter = SentenceSplitter('es', self.config)
         text = self._build_long_spanish_text()
         words = text.split()
 
@@ -204,14 +189,12 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         whisper_word_boundaries = {split_idx + 9}
         current_chunk = words[:split_idx + 1]
 
-        with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
-            result = splitter._should_end_sentence_here(
-                words, split_idx, current_chunk,
-                whisper_word_boundaries=whisper_word_boundaries,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
-            mock_sem.assert_called_once()
+        result = splitter._should_end_sentence_here(
+            words, split_idx, current_chunk,
+            whisper_word_boundaries=whisper_word_boundaries,
+            speaker_word_boundaries=None,
+            speaker_word_segments=None,
+        )
 
         self.assertTrue(
             result,
@@ -222,7 +205,7 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         """Cross-language: the lookahead should work for English too."""
         config = MockConfig()
         config.thresholds['min_chunk_semantic_break'] = 25
-        splitter = SentenceSplitter('en', _SentinelModel(), config)
+        splitter = SentenceSplitter('en', config)
 
         words = (
             "They are two of the professors of Spanish 55 and we have invited "
@@ -239,45 +222,14 @@ class TestSemanticWhisperLookahead(unittest.TestCase):
         whisper_word_boundaries = {level_idx}
         current_chunk = words[:take_idx + 1]
 
-        with patch.object(splitter, '_check_semantic_break', return_value=True) as mock_sem:
-            result = splitter._should_end_sentence_here(
-                words, take_idx, current_chunk,
-                whisper_word_boundaries=whisper_word_boundaries,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
-            mock_sem.assert_not_called()
+        result = splitter._should_end_sentence_here(
+            words, take_idx, current_chunk,
+            whisper_word_boundaries=whisper_word_boundaries,
+            speaker_word_boundaries=None,
+            speaker_word_segments=None,
+        )
 
         self.assertFalse(
             result,
             "English: should defer semantic split when Whisper boundary is nearby"
-        )
-
-    def test_semantic_model_says_no_split_still_no_split(self):
-        """
-        When the semantic model decides NOT to split (even with no lookahead
-        deferral), the result should still be False.
-        """
-        splitter = SentenceSplitter('es', _SentinelModel(), self.config)
-        text = self._build_long_spanish_text()
-        words = text.split()
-
-        split_idx = self._find_word_index(words, 'español')
-        self.assertIsNotNone(split_idx)
-
-        # Boundary far away
-        whisper_word_boundaries = {split_idx + 20}
-        current_chunk = words[:split_idx + 1]
-
-        with patch.object(splitter, '_check_semantic_break', return_value=False):
-            result = splitter._should_end_sentence_here(
-                words, split_idx, current_chunk,
-                whisper_word_boundaries=whisper_word_boundaries,
-                speaker_word_boundaries=None,
-                speaker_word_segments=None,
-            )
-
-        self.assertFalse(
-            result,
-            "Should not split when semantic model says no"
         )

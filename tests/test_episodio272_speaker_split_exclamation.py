@@ -33,24 +33,15 @@ from punctuation_restorer import _get_language_config
 pytestmark = pytest.mark.core
 
 
-class MockModel:
-    """Mock SentenceTransformer model; we never reach semantic scoring in these tests."""
-
-    def encode(self, texts):
-        import numpy as np
-        return np.random.rand(len(texts), 384)
-
-
 class TestSpeakerBoundaryInsideSpanishExclamation(unittest.TestCase):
     """Speaker boundaries inside Spanish ``¡...!`` / ``¿...?`` must not split mid-construct."""
 
     def setUp(self):
-        self.model = MockModel()
         self.es_config = _get_language_config('es')
 
     def test_episodio272_empecemos_nate_stays_together(self):
         """The exact Episodio272 case: speaker change between "¡empecemos," and "Nate!"."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
 
         # Reproduces Whisper segments 19 + 20 from Episodio272_raw.txt
         text = (
@@ -104,7 +95,7 @@ class TestSpeakerBoundaryInsideSpanishExclamation(unittest.TestCase):
 
     def test_speaker_boundary_inside_inverted_question_shifts_to_close(self):
         """Same protection applies to ``¿...?``: speaker change inside the question is deferred."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
 
         # Two-word question "¿qué pasa?" with the diarizer placing a (likely
         # spurious) speaker change between "¿qué" and "pasa?". The opening
@@ -136,7 +127,7 @@ class TestSpeakerBoundaryInsideSpanishExclamation(unittest.TestCase):
 
     def test_normal_speaker_boundary_outside_marks_still_splits(self):
         """Sanity check: when no unclosed inverted mark is open, the speaker boundary still splits."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
 
         text = "Hola soy Andrea de Colombia. Y yo soy Nate de Texas."
         # Speaker change after "Colombia."
@@ -158,8 +149,8 @@ class TestShiftBoundaryHelper(unittest.TestCase):
     """Unit-level tests for ``_shift_boundary_past_unclosed_mark``."""
 
     def setUp(self):
-        self.es_splitter = SentenceSplitter('es', None, _get_language_config('es'))
-        self.en_splitter = SentenceSplitter('en', None, _get_language_config('en'))
+        self.es_splitter = SentenceSplitter('es', _get_language_config('es'))
+        self.en_splitter = SentenceSplitter('en', _get_language_config('en'))
 
     def test_shift_past_exclamation_close(self):
         words = "Así que, ¡empecemos, Nate! Bueno, Andrea,".split()

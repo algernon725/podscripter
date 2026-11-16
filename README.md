@@ -18,7 +18,7 @@
 - **Multiple Output Formats**: Choose between TXT (sentence-separated), SRT or VTT (subtitles).
 - **Automatic Language Detection**: Automatically detects the language of your audio content by default.
 - **Language Support**: tailored processing for English (en), Spanish (es), French (fr), Portuguese (pt) and experimental German (de). Every other Whisper language is transcribed in generic mode, which keeps Whisper's own punctuation and capitalization.
-- **Advanced Punctuation Restoration**: Uses Sentence-Transformers for intelligent punctuation restoration. Names and places keep the casing Whisper gives them.
+- **Sentence Formatting**: Keeps Whisper's own punctuation and splits the text into sentences at speaker changes and Whisper's segment boundaries. Names and places keep the casing Whisper gives them.
 - **Optional Speaker Diarization**: Detect speaker changes for improved sentence boundaries in multi-speaker content (interviews, conversations, podcasts).
 - **Batch Processing**: Transcribe multiple files using simple shell loops.
 - **Powered by Whisper**: Uses OpenAI's Whisper model for accurate speech recognition.
@@ -35,12 +35,11 @@ Minimal setup and a single run:
 docker build -t podscripter .
 
 # Create cache folders (first time only)
-mkdir -p audio-files models/sentence-transformers models/huggingface
+mkdir -p audio-files models/huggingface
 
 # Transcribe one file (TXT output). Replace example.mp3 with your file.
 docker run --rm \
   -v $(pwd):/app \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter python3 /app/podscripter.py \
@@ -83,12 +82,11 @@ Open a terminal and run:
 Create folders to store audio files and model data:
   ```bash
   mkdir -p audio-files
-  mkdir -p models/sentence-transformers models/huggingface
+  mkdir -p models/huggingface
   ```
 
-This creates the necessary directory structure for caching models:
+This creates the folder used to cache models:
 - `models/huggingface/` - Hugging Face cache (includes Faster-Whisper model repos and pyannote diarization models)
-- `models/sentence-transformers/` - Caches sentence embedding models for punctuation restoration
 
 ### 4. Build the Docker Image
 
@@ -102,7 +100,6 @@ Build the container image that will run the transcription tool:
 Run the container and mount the folders you just created:
   ```bash
   docker run -it \
-    -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
     -v $(pwd)/models/huggingface:/root/.cache/huggingface \
     -v $(pwd)/audio-files:/app/audio-files \
     podscripter
@@ -281,14 +278,13 @@ When learning a new language, especially through podcasts, having accurate, alig
 Podscripter caches models locally to avoid repeated downloads. Cache locations are created during Installation → "Set Up Required Folders" and are mounted into the container in the run commands above. In short:
 
 - Faster-Whisper (Whisper) models are cached via the Hugging Face Hub under `models/huggingface/` (look for `hub/` entries like `Systran/faster-whisper-*`)
-- Sentence-Transformers under `models/sentence-transformers/`
 - Pyannote (speaker diarization) under `models/huggingface/` (pyannote.audio 4.x uses `HF_HOME`)
 
-Note: The Sentence-Transformers loader first attempts to load from the local cache and prefers offline use when the cache is present (avoids network calls). When caches are warm you may set `HF_HOME` and/or `HF_HUB_OFFLINE=1` to run fully offline.
+Note: When the caches are warm you may set `HF_HOME` and/or `HF_HUB_OFFLINE=1` to run fully offline.
 
 **To clear cache and re-download models:**
 ```bash
-rm -rf models/sentence-transformers/* models/huggingface/*
+rm -rf models/huggingface/*
 ```
 
 ## Output

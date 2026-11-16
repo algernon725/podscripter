@@ -38,6 +38,7 @@ pytestmark = pytest.mark.core
         "qué hora es la reunión mañana",
         "¿Qué hora es la reunión mañana?",
         id="question_time",
+        marks=pytest.mark.xfail(reason="Accepted limitation (#12, #13): no '?' in the input; implicit questions are not detected from text alone"),
     ),
     pytest.param(
         "es importante que todos estén presentes",
