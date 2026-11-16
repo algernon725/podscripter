@@ -28,7 +28,6 @@ Test script for sentence transformer punctuation restoration functionality
 
 import pytest
 
-from sentence_transformers import SentenceTransformer
 from conftest import restore_punctuation
 
 pytestmark = pytest.mark.core

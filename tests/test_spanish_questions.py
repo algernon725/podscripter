@@ -14,24 +14,11 @@ pytestmark = pytest.mark.core
 # (CLOSED)"). Production relies on Whisper's native punctuation; text-only
 # detection of verb-first questions is inherently ambiguous. Only explicit
 # question-word cases (which work reliably) remain here.
-@pytest.mark.parametrize("text,description", [
-    ("qué hora es la reunión mañana", "Basic question word (qué)"),
-    ("cuándo es la cita", "Basic question word (cuándo)"),
-    ("cómo estás hoy", "Basic question word (cómo)"),
-    ("quién puede ayudarme", "Basic question word (quién)"),
-    ("cuál es tu nombre", "Basic question word (cuál)"),
-    ("sabes dónde queda", "Question pattern (sabes)"),
-    ("qué hora es la reunión", "Question word combination (qué hora)"),
-    ("dónde está la reunión", "Question word combination (dónde está)"),
-    ("cuándo es la cita", "Question word combination (cuándo es)"),
-    ("cómo está todo", "Question word combination (cómo está)"),
-    ("quién puede ayudarme", "Question word combination (quién puede)"),
-    ("cuál es tu preferencia", "Question word combination (cuál es)"),
-])
-def test_spanish_question_detected(text, description):
-    """Text expected to be a question should contain '?' in result."""
-    result = restore_punctuation(text, 'es')
-    assert '?' in result, f"{description}: expected question, got {result!r}"
+# NOTE: test_spanish_question_detected (12 unpunctuated wh-word cases) was retired
+# in v0.18.0 with the sentence-similarity model (#34): text-only question detection
+# joins the accepted limitation for verb-first questions (#12). Production keeps
+# Whisper's own '?'. Most cases were copies of the model's seed sentences.
+# The negative cases below guard against reintroducing a guess.
 
 
 @pytest.mark.parametrize("text,description", [

@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-11-16
+
+Statements no longer end with a question mark or an exclamation mark that the speaker didn't use. A sentence that opened with a short question got a `?` at the end too ("¿Listo? Andrea tiene algo que quiere decir?"), and plain statements could turn into questions or exclamations ("Listo." → "¿Listo?", "Bueno." → "Bueno!"). Transcripts now keep the punctuation Whisper wrote. Text processing is much faster (a 30-minute episode: about 7.5 s → 0.2 s), the Docker image no longer installs `sentence-transformers` or `transformers`, and the first run no longer downloads a ~460 MB model.
+
+### Fixed
+- **No more `?` or `!` on statements** (#34). Across six Spanish episodes, 43 paragraph endings change, all from a wrong `?` (36) or `!` (7) back to the period Whisper wrote. The words and paragraph breaks don't change.
+- **Transcripts no longer collapse into one paragraph if the model fails to load.** Without the model, the whole transcript came out as a single paragraph with no speaker breaks. There's no model left to fail.
+
+### Removed
+- **The sentence-similarity model** (`paraphrase-multilingual-MiniLM-L12-v2`) and everything that used it (`punctuation_restorer.py`, `sentence_splitter.py`): the loader and cache-path helpers, `is_question_semantic()`, `is_exclamation_semantic()`, `has_question_indicators()`, the question/exclamation seed sentences and their embedding caches, `_apply_semantic_punctuation()`, `SentenceSplitter._check_semantic_break()`, and the `semantic_question_threshold*` keys. About 880 lines.
+- **Dockerfile**: `sentence-transformers==5.2.2`. `transformers` goes with it; nothing else needs it. `scikit-learn`, `scipy` and `numpy` stay (pyannote).
+- **The `models/sentence-transformers` cache mount** from the README (both copies), `CACHING_SETUP.md`, `docs/docker-installation.md`, `tests/README.md`, `tests/benchmarks/README.md` and `docker-run-with-cache.sh`.
+
+### Upgrading
+- An old `-v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers` line in your `docker run` command still works: nothing reads it any more. You can drop it, and delete the `models/sentence-transformers/` folder (~460 MB). Rebuild the image (`docker build -t podscripter .`) to get the smaller one.
+
+### Developers
+- **Cause**: `_transformer_based_restoration()` ran `_apply_semantic_punctuation()` on every sentence the splitter returned. That function replaced Whisper's final mark with `?` when `is_question_semantic()` said yes and with `!` when `is_exclamation_semantic()` did. Of the 43 changes, 33 came from an early accept for sentences that *start* with `¿` (no model involved), 3 from embedding similarity to the seed questions, and 7 from the exclamation check. All 43 are present in v0.17.3 output.
+- **Evidence**: 1,334 calls over Episodio310–315. On the same episodes with Whisper's punctuation and case stripped (the input the model was added for, in 2025-08), it found 0 questions in 537 sentences. On short synthetic unpunctuated sentences it found 3 of 12 Spanish and 3 of 10 English questions, and called 1 of 12 Spanish statements a question. The suite's text-only question tests passed mainly because their inputs were the seed sentences: 21 of the 52 yes calls they triggered were word-for-word copies of a seed. The split check said yes 18 of 18 times (AUC 0.53, see 0.17.3).
+- **Fix**: a sentence keeps Whisper's terminal mark; one without a mark gets `_should_add_terminal_punctuation()`'s rules (strip `,;:`, add `.`, continuation words and Spanish short phrases as before). The Spanish opening `¿` is still added when a sentence already ends in `?`. PRIORITY 5 in `SentenceSplitter._should_end_sentence_here()` now fires once the chunk reaches `min_chunk_semantic_break` and the grammatical guards and Whisper lookahead allow it; the v0.17.3 look-back still moves it to a Whisper sentence end. The `semantic_*` names are kept for the config keys and logs.
+- **Trap avoided**: the no-model branches of `_should_add_terminal_punctuation()` and the Spanish formatter matched question words as substrings (`vivo en Bogotá desde hace dos años` → `?`, because `desde` contains `es`). Both are removed, not used as the fallback.
+- **API**: `SentenceSplitter(language, config)` (no `model` argument). `_transformer_based_restoration()` is renamed `_split_and_punctuate()` and loses its unused `use_custom_patterns` / `whisper_boundaries` / `speaker_boundaries` parameters; `_advanced_punctuation_restoration()` is folded into `restore_punctuation()`. `_should_add_terminal_punctuation()` loses `model`.
+- **Verified**: offline harness over the six episodes. The punctuated output is byte-identical to v0.17.3 with both model checks forced off, and differs from v0.17.3 in exactly the 43 endings (one, `¿Listo?` → `Listo.`, also loses the `¿` that followed from the `?`). Words and paragraphs are unchanged (1,335), continuation edges split stay at 4, short fragments at 7, semantic splits at 18. Unpunctuated input: 536 → 538 paragraphs, longest 71 words unchanged, byte-identical to v0.17.3 with the split check forced on. Episodio314 with `sentence_transformers`, `transformers` and `sklearn` blocked from importing: 244 paragraphs, same output.
+
+### Tests
+- New `test_whisper_terminal_marks_kept.py`: five synthetic Spanish sentences modeled on the issue's cases keep Whisper's period through `_assemble_sentences()`. All five fail on v0.17.3.
+- `test_unsupported_languages.py`: `test_spacy_is_not_imported` becomes `test_removed_dependencies_are_not_imported`, parametrized over `spacy`, `sentence_transformers` and `transformers`. `test_generic_language_gets_no_english_question_rules` is gone (its functions are gone).
+- Text-only question detection joins the accepted limitation (#12) that v0.10.1 closed for verb-first questions. Retired: `test_spanish_questions.py::test_spanish_question_detected` (12 cases), `test_spanish_bug_fixes.py::test_additional_question_detection` (7), `test_portuguese_questions.py::test_portuguese_questions_get_question_mark` (3), `test_multilingual_runon_sentences.py::test_spanish_inverted_question_marks`. The negative cases (`test_spanish_non_question_not_detected`) stay.
+- Rewritten for Whisper-punctuated input (the input ends in `?`): `test_spanish_inverted_questions.py` now checks that the opening `¿` is added (6 cases; `No sé qué es eso`, a statement, dropped), and `test_multilingual_questions.py` checks that the `?` survives capitalization, `¿` and French hyphenation.
+- Four splitting-table cases are now xfail under the existing #12/#13 reasons: `test_german_sentence_splitting.py` `greeting-with-question` and `exclamation-form`, `test_portuguese_sentence_splitting.py` `greeting-with-question`, `test_spanish_sentence_splitting.py` `question_time`. Each expected a mark that only the model added to unpunctuated input.
+- Mock models removed (`MockModel`, `LowSimilarityModel`, `_SentinelModel`); every `SentenceSplitter(...)` call drops the model argument. The random-embedding mocks had put PRIORITY 5 at a coin flip near the 0.75 threshold. `test_semantic_whisper_lookahead.py` asserts on the split decision instead of patching `_check_semantic_break()`; its "model says no" case is gone. `test_trailing_comma_bug.py` tests `_should_add_terminal_punctuation()` directly (`Bueno,` → `Bueno.`).
+- Deleted `test_no_deprecation_warning.py`: it only imported `transformers`, which is no longer installed.
+- Suite: **783 passed / 37 xfailed** (was 808 / 33), in about 2 s instead of 24 s.
+
+### Documentation
+- README (both copies), `CACHING_SETUP.md`, `docs/docker-installation.md`, `tests/README.md`, `tests/benchmarks/README.md`: no `models/sentence-transformers` folder or mount. The feature bullet now says what happens: Whisper's punctuation is kept and sentences are split at speaker changes and Whisper boundaries.
+- `AGENTS.md`, `ARCHITECTURE.md`, `.agent/architecture/pipeline.md`: no model; PRIORITY 5 described as a length-based split; xfail counts updated.
+- `history.md`: ledger entry, and the question-detection limitation extended to all text-only detection.
+
+### Notes
+- **Minor bump (0.18.0)**: a dependency and a documented Docker mount are removed and the image changes, as with spaCy in 0.15.0, even though the change also fixes a visible bug.
+- **Why the model was added**: in 2025-08 Whisper output reached the pipeline as long unpunctuated blocks, so questions needed a `?` from somewhere. That input hasn't been seen in over six months, and on it the model found nothing.
+
 ## [0.17.3] - 2026-11-12
 
 Long sentences are no longer cut in the middle of a phrase when they need to be broken up. Breaks like "…a Tierra Grata porque." / "El problema era mucho más grande…" and "…las comunidades alrededor pero al principio." / "No era fácil…" now fall where the speaker actually finished a sentence: "…las comunidades alrededor." / "Pero al principio no era fácil…". This applies to every language, with or without speaker diarization, and the words in the transcript don't change.

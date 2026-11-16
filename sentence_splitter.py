@@ -43,7 +43,6 @@ Benefits:
 
 import re
 import logging
-import numpy as np
 from typing import List, Optional, Set, Dict, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
@@ -371,17 +370,15 @@ class SentenceSplitter:
         'pt': _PT_INFINITIVE_RE,
     }
 
-    def __init__(self, language: str, model, config: "LanguageConfig"):
+    def __init__(self, language: str, config: "LanguageConfig"):
         """
         Initialize sentence splitter.
 
         Args:
             language: Language code (en, es, fr, de, pt)
-            model: SentenceTransformer model for semantic analysis
             config: LanguageConfig with thresholds and language-specific settings
         """
         self.language = language
-        self.model = model
         self.config = config
         self.logger = logging.getLogger("podscripter.splitter")
 
@@ -1024,7 +1021,7 @@ class SentenceSplitter:
         2. Speaker continuity at connectors (don't break if same speaker continues)
         3. Speaker boundaries (highest priority, min 1 word - v0.6.1)
         4. Whisper boundaries (medium priority, min 10 words, skip if speaker nearby)
-        5. General semantic splitting (fallback, min 20 words Spanish, 15 others)
+        5. Length-based fallback split ("semantic", min_chunk_semantic_break words)
         
         Args:
             words: List of all words
@@ -1180,67 +1177,70 @@ class SentenceSplitter:
         if not self._passes_language_specific_checks(words, current_index, current_chunk, next_word):
             return False
         
-        # PRIORITY 5: Semantic coherence check (if we have the model)
-        if self.model is not None:
-            if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):
-                # Grammatical guard: never let the low-confidence semantic heuristic
-                # split either edge of a comparative particle ("más"/"menos",
-                # "more"/"less", "plus"/"moins", "mehr"/"weniger"), which binds to a
-                # preceding degree word AND the adjective it modifies (e.g.
-                # "un poco | más | baratos"). Scoped to the semantic path only.
-                if self._is_bound_comparative_break(current_word, next_word):
-                    self.logger.debug(
-                        f"✗ SUPPRESS semantic split at word {current_index} "
-                        f"('{current_word}'): binds to comparative '{next_word}'"
-                    )
-                    return False
-                # Grammatical guard: don't let the semantic heuristic place a
-                # break on either edge of a clause-hinge word like subordinating
-                # "que" ("me imagino | que" or "que | puedes…").
-                hinge = self.SEMANTIC_BREAK_HINGE_WORDS.get(self.language)
-                if hinge and (
-                    current_word.lower().strip('.,;:!?¿¡') in hinge
-                    or next_word.lower().strip('.,;:!?¿¡') in hinge
-                ):
-                    self.logger.debug(
-                        f"✗ SUPPRESS semantic split at word {current_index} "
-                        f"('{current_word}'): clause-hinge boundary with '{next_word}'"
-                    )
-                    return False
-                # Grammatical guard: don't separate a finite modal/auxiliary verb
-                # from the infinitive it governs ("puedes | encontrar").
-                if self._is_modal_infinitive_break(current_word, next_word):
-                    self.logger.debug(
-                        f"✗ SUPPRESS semantic split at word {current_index} "
-                        f"('{current_word}'): governs infinitive '{next_word}'"
-                    )
-                    return False
-                # Grammatical guard: don't leave an infinitive dangling from its
-                # complement ("encontrar | un buen apartamento").
-                if self._is_infinitive_complement_break(current_word, next_word):
-                    self.logger.debug(
-                        f"✗ SUPPRESS semantic split at word {current_index} "
-                        f"('{current_word}'): infinitive complement '{next_word}' follows"
-                    )
-                    return False
-                # Defer to nearby Whisper boundary if one exists within lookahead window.
-                # Whisper boundaries are higher-priority signals (PRIORITY 4) and should
-                # be evaluated at their natural position rather than preempted here.
-                if whisper_word_boundaries:
-                    lookahead = thresholds.get('semantic_whisper_lookahead', 8)
-                    for future_idx in range(current_index + 1,
-                                            min(current_index + lookahead + 1, len(words))):
-                        if future_idx in whisper_word_boundaries:
-                            self.logger.debug(
-                                f"DEFERRED semantic split at word {current_index} ('{current_word}'): "
-                                f"Whisper boundary at word {future_idx} is "
-                                f"{future_idx - current_index} words ahead"
-                            )
-                            return False
-                # The caller may move this break back to a Whisper sentence end
-                # in the chunk (_semantic_lookback_index).
-                self._semantic_split = self._check_semantic_break(words, current_index)
-                return self._semantic_split
+        # PRIORITY 5: Length-based fallback split. Fires once the chunk reaches
+        # min_chunk_semantic_break and the guards below allow it. (Until v0.18.0 a
+        # sentence-similarity check also had to agree; it said yes at real sentence
+        # ends and mid-phrase alike, AUC 0.53, so it was removed, #34. The
+        # "semantic" names are kept for the config keys and logs.)
+        if len(current_chunk) >= thresholds.get('min_chunk_semantic_break', 30):
+            # Grammatical guard: never let the low-confidence semantic heuristic
+            # split either edge of a comparative particle ("más"/"menos",
+            # "more"/"less", "plus"/"moins", "mehr"/"weniger"), which binds to a
+            # preceding degree word AND the adjective it modifies (e.g.
+            # "un poco | más | baratos"). Scoped to the semantic path only.
+            if self._is_bound_comparative_break(current_word, next_word):
+                self.logger.debug(
+                    f"✗ SUPPRESS semantic split at word {current_index} "
+                    f"('{current_word}'): binds to comparative '{next_word}'"
+                )
+                return False
+            # Grammatical guard: don't let the semantic heuristic place a
+            # break on either edge of a clause-hinge word like subordinating
+            # "que" ("me imagino | que" or "que | puedes…").
+            hinge = self.SEMANTIC_BREAK_HINGE_WORDS.get(self.language)
+            if hinge and (
+                current_word.lower().strip('.,;:!?¿¡') in hinge
+                or next_word.lower().strip('.,;:!?¿¡') in hinge
+            ):
+                self.logger.debug(
+                    f"✗ SUPPRESS semantic split at word {current_index} "
+                    f"('{current_word}'): clause-hinge boundary with '{next_word}'"
+                )
+                return False
+            # Grammatical guard: don't separate a finite modal/auxiliary verb
+            # from the infinitive it governs ("puedes | encontrar").
+            if self._is_modal_infinitive_break(current_word, next_word):
+                self.logger.debug(
+                    f"✗ SUPPRESS semantic split at word {current_index} "
+                    f"('{current_word}'): governs infinitive '{next_word}'"
+                )
+                return False
+            # Grammatical guard: don't leave an infinitive dangling from its
+            # complement ("encontrar | un buen apartamento").
+            if self._is_infinitive_complement_break(current_word, next_word):
+                self.logger.debug(
+                    f"✗ SUPPRESS semantic split at word {current_index} "
+                    f"('{current_word}'): infinitive complement '{next_word}' follows"
+                )
+                return False
+            # Defer to nearby Whisper boundary if one exists within lookahead window.
+            # Whisper boundaries are higher-priority signals (PRIORITY 4) and should
+            # be evaluated at their natural position rather than preempted here.
+            if whisper_word_boundaries:
+                lookahead = thresholds.get('semantic_whisper_lookahead', 8)
+                for future_idx in range(current_index + 1,
+                                        min(current_index + lookahead + 1, len(words))):
+                    if future_idx in whisper_word_boundaries:
+                        self.logger.debug(
+                            f"DEFERRED semantic split at word {current_index} ('{current_word}'): "
+                            f"Whisper boundary at word {future_idx} is "
+                            f"{future_idx - current_index} words ahead"
+                        )
+                        return False
+            # The caller may move this break back to a Whisper sentence end
+            # in the chunk (_semantic_lookback_index).
+            self._semantic_split = True
+            return True
 
         return False
     
@@ -1812,46 +1812,6 @@ class SentenceSplitter:
                 return j
         return current_index
 
-    def _check_semantic_break(self, words: List[str], current_index: int) -> bool:
-        """
-        Check if there's a semantic break at the current position.
-        
-        Uses SentenceTransformer model to compute similarity between
-        sentences before and after the potential break.
-        
-        Args:
-            words: All words
-            current_index: Current word index
-        
-        Returns:
-            True if semantic break detected
-        """
-        if self.model is None:
-            return False
-        
-        try:
-            # Get text before and after
-            before = ' '.join(words[max(0, current_index - 10):current_index + 1])
-            after = ' '.join(words[current_index + 1:min(len(words), current_index + 11)])
-            
-            if not before or not after:
-                return False
-            
-            # Compute embeddings
-            embeddings = self.model.encode([before, after])
-            
-            # Compute cosine similarity
-            from sklearn.metrics.pairwise import cosine_similarity
-            similarity = cosine_similarity(np.asarray([embeddings[0]]), np.asarray([embeddings[1]]))[0][0]
-            
-            # Lower similarity = more likely to be a break
-            # Threshold can be tuned
-            threshold = 0.75
-            return similarity < threshold
-        except Exception as e:
-            self.logger.debug(f"Semantic check failed: {e}")
-            return False
-    
     def _get_speaker_at_word(
         self,
         word_index: int,

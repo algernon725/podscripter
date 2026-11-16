@@ -13,7 +13,6 @@ docker build -t podscripter .
 ```bash
 docker run --rm \
   -v $(pwd):/app \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter pytest
@@ -26,7 +25,6 @@ Runs tests marked `core` and `multilingual` by default (configured in `pyproject
 ```bash
 docker run --rm \
   -v $(pwd):/app \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter pytest -m ''
@@ -69,7 +67,7 @@ assert on `podscripter._assemble_sentences()` + `_write_txt()`.
 ### Caching and rate limiting
 
 - Always mount model cache volumes to avoid repeated downloads and HTTP 429 errors
-- The suite is designed to operate offline when caches are present (HuggingFace / Whisper / Sentence-Transformers)
+- The suite is designed to operate offline when caches are present (Hugging Face: Whisper, pyannote, test fixtures)
 - To run fully offline with warm caches: pass `-e HF_HUB_OFFLINE=1` to `docker run`
 
 ## EN/ES/FR audio fixtures (Tier 1 regression)
@@ -97,7 +95,6 @@ manual podscripter run:
 ```bash
 docker run --rm \
   -v $(pwd):/app \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -e HF_TOKEN \
   podscripter pytest -m transcription tests/test_audio_fixtures.py

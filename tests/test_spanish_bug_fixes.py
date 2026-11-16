@@ -54,22 +54,9 @@ def test_bug4_question_mark_after_period():
     assert result[-1] in '.?!', f"Missing end punctuation: {result!r}"
 
 
-# NOTE: Verb-first / implicit question cases were retired in v0.8.2 (accepted
-# limitation — see AGENTS.md "Question detection — verb-first / implicit questions
-# (CLOSED)"). Only explicit question-word cases remain.
-@pytest.mark.parametrize("text", [
-    "Qué hora es",
-    "Dónde está la reunión",
-    "Cuándo es la cita",
-    "Cómo te llamas",
-    "Quién puede ayudarme",
-    "Cuál es tu nombre",
-    "Sabes dónde queda",
-])
-def test_additional_question_detection(text):
-    """Spanish questions should be detected and end with '?'."""
-    result = restore_punctuation(text, 'es')
-    assert '?' in result, f"Question not detected: {result!r}"
+# NOTE: test_additional_question_detection (unpunctuated wh-word questions) was
+# retired in v0.18.0 with the sentence-similarity model (#34); verb-first cases
+# went in v0.8.2. Text-only question detection is an accepted limitation (#12).
 
 
 def test_complex_spanish_text():

@@ -13,12 +13,11 @@ This file is a lean hub. Detailed technical content lives in modular `.agent/` f
 
 ## Project Overview
 
-**podscripter** is a multilingual audio transcription tool that generates accurate, punctuated transcriptions for language-learning platforms like LingQ. It uses Docker containerization and state-of-the-art NLP models for punctuation restoration.
+**podscripter** is a multilingual audio transcription tool that generates accurate, punctuated transcriptions for language-learning platforms like LingQ. It uses Docker containerization; punctuation comes from Whisper, and rule-based code splits and formats sentences.
 
 ### Core technologies
 - **Whisper** (faster-whisper): OpenAI speech-to-text for transcription.
-- **Sentence-Transformers**: semantic understanding and punctuation restoration.
-- **Hugging Face Hub (caches)**: used by `sentence-transformers`; managed via `HF_HOME` and optional offline mode.
+- **Hugging Face Hub (caches)**: used by faster-whisper and pyannote; managed via `HF_HOME` and optional offline mode.
 - **pyannote.audio 4.0.4**: optional speaker diarization.
 - **Docker**: reproducible environments.
 - **Python 3.12+**: primary language.

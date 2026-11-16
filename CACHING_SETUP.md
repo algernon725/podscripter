@@ -6,7 +6,7 @@ This guide explains how to set up Docker volume caching to avoid re-downloading 
 
 When running the podscripter container, large model files are downloaded every time:
 - **Whisper models**: `model.bin`, `model.safetensors` (for speech recognition)
-- **Sentence-transformers models**: `paraphrase-multilingual-MiniLM-L12-v2` (for punctuation restoration)
+- **Pyannote models**: speaker diarization (with `--enable-diarization`)
 
 ## Solution
 
@@ -17,7 +17,6 @@ Create the following directory structure in your project:
 ```
 podscripter/
 ├── models/
-│   ├── sentence-transformers/ # Sentence-transformers cache
 │   ├── huggingface/          # HuggingFace cache (transformers, datasets, Faster-Whisper)
 │   └── pyannote/             # Pyannote speaker diarization models (if using --enable-diarization)
 ├── audio-files/              # Your audio files
@@ -27,7 +26,7 @@ podscripter/
 ### 2. Create Directories
 
 ```bash
-mkdir -p models/sentence-transformers models/huggingface
+mkdir -p models/huggingface
 ```
 
 ### 3. Docker Run Command
@@ -36,7 +35,6 @@ Use this command instead of your current one:
 
 ```bash
 docker run -it \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface \
   -v $(pwd)/audio-files:/app/audio-files \
   podscripter
@@ -54,14 +52,9 @@ docker run -it \
 - Speech recognition models under Hugging Face cache
 - Downloaded by `faster-whisper` from repositories like `Systran/faster-whisper-*`
 
-### Sentence-Transformers (`/root/.cache/torch/sentence_transformers`)
-- Embedding models for punctuation restoration
-- Model: `paraphrase-multilingual-MiniLM-L12-v2`
-- Downloaded by `sentence-transformers` library
-
 ### HuggingFace Cache (`/root/.cache/huggingface`)
-- Transformer models, datasets, and all HuggingFace resources
-- Used by sentence-transformers and other HuggingFace libraries
+- Model repos, datasets, and all Hugging Face resources
+- Used by Faster-Whisper, pyannote.audio and the test-fixture datasets
 - Includes tokenizers, configs, model weights, and datasets
 - Note: Uses `HF_HOME` environment variable (deprecated `TRANSFORMERS_CACHE` removed)
 
@@ -69,16 +62,13 @@ docker run -it \
 - Speaker diarization models for pyannote.audio
 - Models: `pyannote/speaker-diarization-community-1` and embedding models
 - Downloaded by `pyannote.audio` library (version 4.x)
-- Note: pyannote.audio 4.x uses `HF_HOME` for caching (same as Whisper/sentence-transformers)
+- Note: pyannote.audio 4.x uses `HF_HOME` for caching (same as Whisper)
 
 ## Verification
 
 After the first run, check that files are being cached:
 
 ```bash
-# Check sentence-transformers cache
-ls -la models/sentence-transformers/
-
 # Check HuggingFace cache
 ls -la models/huggingface/
 ```
@@ -104,13 +94,12 @@ ls -la models/huggingface/
 
 ```bash
 # Remove cached models
-rm -rf models/sentence-transformers/* models/huggingface/*
+rm -rf models/huggingface/*
 ```
 
 ## Expected File Sizes
 
 - **Whisper models**: ~1-2 GB (depending on model size)
-- **Sentence-transformers**: ~100-200 MB
 - **HuggingFace cache**: ~50-100 MB
 - **Pyannote models**: ~50-100 MB (speaker diarization pipeline and components)
 

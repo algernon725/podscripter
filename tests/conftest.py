@@ -67,28 +67,28 @@ def mock_config():
 @pytest.fixture
 def es_splitter(mock_config):
     """Spanish SentenceSplitter with mock config."""
-    return SentenceSplitter('es', None, mock_config)
+    return SentenceSplitter('es', mock_config)
 
 
 @pytest.fixture
 def en_splitter(mock_config):
     """English SentenceSplitter with mock config."""
-    return SentenceSplitter('en', None, mock_config)
+    return SentenceSplitter('en', mock_config)
 
 
 @pytest.fixture
 def de_splitter(mock_config):
     """German SentenceSplitter with mock config."""
-    return SentenceSplitter('de', None, mock_config)
+    return SentenceSplitter('de', mock_config)
 
 
 @pytest.fixture
 def fr_splitter(mock_config):
     """French SentenceSplitter with mock config."""
-    return SentenceSplitter('fr', None, mock_config)
+    return SentenceSplitter('fr', mock_config)
 
 
 @pytest.fixture
 def pt_splitter(mock_config):
     """Portuguese SentenceSplitter with mock config."""
-    return SentenceSplitter('pt', None, mock_config)
+    return SentenceSplitter('pt', mock_config)

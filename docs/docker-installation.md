@@ -114,7 +114,6 @@ podman build -t podscripter .
 
 ```bash
 podman run -it \
-  -v $(pwd)/models/sentence-transformers:/root/.cache/torch/sentence_transformers:z \
   -v $(pwd)/models/huggingface:/root/.cache/huggingface:z \
   -v $(pwd)/audio-files:/app/audio-files:z \
   podscripter

@@ -16,26 +16,17 @@ from punctuation_restorer import _get_language_config
 pytestmark = pytest.mark.core
 
 
-class MockModel:
-    """Mock SentenceTransformer model for testing."""
-    def encode(self, texts):
-        # Return dummy embeddings
-        import numpy as np
-        return np.random.rand(len(texts), 384)
-
-
 class TestSentenceSplitterBasic(unittest.TestCase):
     """Test basic SentenceSplitter functionality."""
     
     def setUp(self):
         """Set up test fixtures."""
-        self.model = MockModel()
         self.es_config = _get_language_config('es')
         self.en_config = _get_language_config('en')
     
     def test_simple_split(self):
         """Test basic sentence splitting without boundaries."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         text = "Hola a todos. Este es un test."
         sentences, metadata = splitter.split(text)
         
@@ -45,7 +36,7 @@ class TestSentenceSplitterBasic(unittest.TestCase):
     
     def test_short_text_no_split(self):
         """Test that very short text is not split."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         text = "Hola"
         sentences, metadata = splitter.split(text)
         
@@ -58,7 +49,6 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.model = MockModel()
         self.es_config = _get_language_config('es')
         self.en_config = _get_language_config('en')
         self.fr_config = _get_language_config('fr')
@@ -66,7 +56,7 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def test_spanish_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (Spanish)."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "es importante tener una estructura como un trabajo y este meta es tu trabajo cada día"
         
@@ -88,7 +78,7 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def test_english_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (English)."""
-        splitter = SentenceSplitter('en', self.model, self.en_config)
+        splitter = SentenceSplitter('en', self.en_config)
         
         text = "I work from home and I enjoy it very much"
         
@@ -110,7 +100,7 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def test_french_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (French)."""
-        splitter = SentenceSplitter('fr', self.model, self.fr_config)
+        splitter = SentenceSplitter('fr', self.fr_config)
         
         text = "je travaille à la maison et j'aime beaucoup"
         
@@ -132,7 +122,7 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def test_german_same_speaker_connector_merge(self):
         """Test that periods are removed before connectors when same speaker continues (German)."""
-        splitter = SentenceSplitter('de', self.model, self.de_config)
+        splitter = SentenceSplitter('de', self.de_config)
         
         text = "ich arbeite von zu Hause und genieße es sehr"
         
@@ -154,7 +144,7 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def test_different_speaker_connector_preserved(self):
         """Test that periods ARE kept when different speakers start with connector."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "yo soy Andrea de Santander Colombia y yo soy Nate de Texas Estados Unidos"
         
@@ -175,7 +165,7 @@ class TestWhisperPeriodRemoval(unittest.TestCase):
     
     def test_metadata_tracks_removed_periods(self):
         """Test that metadata correctly tracks removed periods."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "trabajo duro y me gusta mucho"
         
@@ -198,12 +188,11 @@ class TestGrammaticalGuards(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.model = MockModel()
         self.es_config = _get_language_config('es')
     
     def test_no_break_on_conjunction(self):
         """Test that sentences don't end on coordinating conjunctions."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "tenemos muchos errores y eco es importante"
         sentences, _ = splitter.split(text)
@@ -217,7 +206,7 @@ class TestGrammaticalGuards(unittest.TestCase):
     
     def test_no_break_on_preposition(self):
         """Test that sentences don't end on prepositions."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "entonces yo conocí a un amigo que trabajaba con cámaras"
         sentences, _ = splitter.split(text)
@@ -231,7 +220,7 @@ class TestGrammaticalGuards(unittest.TestCase):
     
     def test_no_break_on_auxiliary_verb(self):
         """Test that sentences don't end on auxiliary/continuative verbs."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "yo estaba en Colombia y estaba continuando con la universidad"
         sentences, _ = splitter.split(text)
@@ -249,12 +238,11 @@ class TestSpeakerBoundaryPriority(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.model = MockModel()
         self.es_config = _get_language_config('es')
     
     def test_speaker_change_creates_break(self):
         """Test that speaker changes create sentence breaks."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "Hola soy Andrea Bueno soy Nate"
         
@@ -274,7 +262,7 @@ class TestSpeakerBoundaryPriority(unittest.TestCase):
     
     def test_speaker_boundary_short_phrase(self):
         """Test that speaker boundaries work even for very short phrases."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         text = "Mateo 712 Bueno Andrea creo que es importante"
         
@@ -298,12 +286,11 @@ class TestWhisperBoundarySkipping(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.model = MockModel()
         self.es_config = _get_language_config('es')
     
     def test_whisper_boundary_skipped_near_speaker_change(self):
         """Test that Whisper boundaries are skipped if speaker change is within 15 words."""
-        splitter = SentenceSplitter('es', self.model, self.es_config)
+        splitter = SentenceSplitter('es', self.es_config)
         
         # Simulate Whisper segment ending but speaker continuing
         text = "ustedes pueden ver el episodio Mateo 712 Bueno Andrea"

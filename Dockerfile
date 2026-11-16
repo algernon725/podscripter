@@ -20,7 +20,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
     torchaudio==2.8.0 \
     torchcodec==0.7.0 \
     soundfile \
-    sentence-transformers==5.2.2 \
     pyannote.audio==4.0.4 \
     pytest \
     jiwer \

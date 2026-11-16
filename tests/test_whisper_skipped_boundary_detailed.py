@@ -11,19 +11,12 @@ AGENTS.md lines 442-470 describes:
 This test investigates whether we can detect and remove these periods.
 """
 
-import numpy as np
 import pytest
 
 from sentence_splitter import SentenceSplitter
 from punctuation_restorer import _get_language_config
 
 pytestmark = pytest.mark.core
-
-
-class MockModel:
-    """Mock SentenceTransformer model for testing."""
-    def encode(self, texts):
-        return np.random.rand(len(texts), 384)
 
 
 def test_same_speaker_no_boundary():
@@ -44,9 +37,8 @@ def test_same_speaker_no_boundary():
 
     language = 'es'
     config = _get_language_config(language)
-    model = MockModel()
 
-    splitter = SentenceSplitter(language, model, config)
+    splitter = SentenceSplitter(language, config)
 
     sentences, metadata = splitter.split(
         text,

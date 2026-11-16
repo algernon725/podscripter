@@ -28,7 +28,7 @@ class TestNumberTimeUnitGuard(unittest.TestCase):
     
     def setUp(self):
         self.config = MockConfig()
-        self.splitter = SentenceSplitter('es', None, self.config)
+        self.splitter = SentenceSplitter('es', self.config)
     
     def test_number_followed_by_anos(self):
         """Numbers followed by 'años' should not be split."""
@@ -57,7 +57,7 @@ class TestNumberTimeUnitGuard(unittest.TestCase):
     
     def test_number_followed_by_years_english(self):
         """Numbers followed by 'years' should not be split."""
-        splitter = SentenceSplitter('en', None, self.config)
+        splitter = SentenceSplitter('en', self.config)
         words = "for 18 years he managed the company".split()
         current_index = 1  # "18"
         current_chunk = words[:current_index + 1]
@@ -87,7 +87,7 @@ class TestInfinitiveVerbGuard(unittest.TestCase):
     
     def setUp(self):
         self.config = MockConfig()
-        self.splitter = SentenceSplitter('es', None, self.config)
+        self.splitter = SentenceSplitter('es', self.config)
     
     def test_ser_in_continuative_verbs(self):
         """'ser' should be in the Spanish CONTINUATIVE_AUXILIARY_VERBS pool."""
@@ -115,7 +115,7 @@ class TestPastTenseAuxiliaryGuard(unittest.TestCase):
     
     def setUp(self):
         self.config = MockConfig()
-        self.splitter = SentenceSplitter('es', None, self.config)
+        self.splitter = SentenceSplitter('es', self.config)
     
     def test_fueron_in_continuative_verbs(self):
         """'fueron' should be in the Spanish CONTINUATIVE_AUXILIARY_VERBS pool."""
@@ -138,7 +138,7 @@ class TestPastTenseAuxiliaryGuard(unittest.TestCase):
     
     def test_past_participle_detection_english(self):
         """English past participles should be detected."""
-        splitter = SentenceSplitter('en', None, self.config)
+        splitter = SentenceSplitter('en', self.config)
         self.assertTrue(splitter._is_past_participle('directed'))
         self.assertTrue(splitter._is_past_participle('spoken'))
         self.assertTrue(splitter._is_past_participle('written'))
@@ -179,7 +179,7 @@ class TestGermanAuxiliaryGuard(unittest.TestCase):
     
     def setUp(self):
         self.config = MockConfig()
-        self.splitter = SentenceSplitter('de', None, self.config)
+        self.splitter = SentenceSplitter('de', self.config)
     
     def test_german_auxiliaries_in_set(self):
         """German auxiliary verbs should be in the German pool."""
@@ -201,7 +201,7 @@ class TestFrenchAuxiliaryGuard(unittest.TestCase):
     
     def setUp(self):
         self.config = MockConfig()
-        self.splitter = SentenceSplitter('fr', None, self.config)
+        self.splitter = SentenceSplitter('fr', self.config)
     
     def test_french_auxiliaries_in_set(self):
         """French auxiliary verbs should be in the French pool."""
@@ -259,7 +259,7 @@ class TestWordPoolLanguageIsolation(unittest.TestCase):
                 | splitter.CONTINUATIVE_AUXILIARY_VERBS)
 
     def _splitter(self, language):
-        return SentenceSplitter(language, None, MockConfig())
+        return SentenceSplitter(language, MockConfig())
 
     def test_portuguese_instance_has_the_words(self):
         pt_pool = self._all_pools(self._splitter('pt'))
@@ -350,7 +350,7 @@ class TestQuotedTeachingLanguageGuard(unittest.TestCase):
     """
 
     def _splitter(self, language):
-        return SentenceSplitter(language, None, MockConfig())
+        return SentenceSplitter(language, MockConfig())
 
     def test_spanish_does_not_end_on_quoted_english_conjunctions(self):
         es = self._splitter('es')

@@ -2,7 +2,7 @@
 """
 Guard against the class of defect found in v0.12.0 and fixed in v0.12.1.
 
-`_transformer_based_restoration()` had an early `return` inside its
+`_transformer_based_restoration()` (now `_split_and_punctuate()`) had an early `return` inside its
 `if language == 'es':` block, leaving the following 242 lines permanently
 unreachable. The suite stayed green the whole time, because the dead region's
 helpers were unit-tested directly while never running in production.

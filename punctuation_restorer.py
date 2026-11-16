@@ -25,7 +25,8 @@ SOFTWARE.
 
 """
 Punctuation restoration module for multilingual text processing.
-Supports English, Spanish, French, and German with advanced NLP techniques.
+Supports English, Spanish, French, German and Portuguese with rule-based formatting;
+other languages keep Whisper's punctuation.
 
 NOTE: Sentence splitting logic has been consolidated into sentence_splitter.py (v0.4.0).
 This module now focuses on punctuation restoration and language-specific formatting.
@@ -35,13 +36,11 @@ This module now focuses on punctuation restoration and language-specific formatt
 # -----------------------------------------------------
 # Where to adjust behavior without touching core logic:
 #
-# - Thresholds (splitting and semantic gating):
+# - Thresholds (splitting):
 #   * Function: _get_language_thresholds(language)
 #   * Wrapper: LanguageConfig (get_language_config)
-#   * Used by: should_end_sentence_here, is_question_semantic
+#   * Used by: SentenceSplitter._should_end_sentence_here
 #   * Keys (es):
-#       - semantic_question_threshold_with_indicator
-#       - semantic_question_threshold_default
 #       - min_total_words_no_split
 #       - min_chunk_before_split
 #       - min_chunk_inside_question
@@ -73,8 +72,6 @@ import re
 import logging
 from typing import Optional, List, Dict, Tuple
 from dataclasses import dataclass
-import os
-import numpy as np
 import warnings
 from domain_utils import (
     mask_domains,
@@ -88,7 +85,7 @@ from domain_utils import (
 from sentence_splitter import SentenceSplitter, Sentence
 from language_support import is_tailored
 
-# Suppress PyTorch FutureWarnings
+# Suppress PyTorch FutureWarnings (process-wide; torch is loaded for diarization)
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
 
 # Module logger for library-friendly messaging
@@ -98,20 +95,6 @@ __all__ = [
     "restore_punctuation",
     "assemble_sentences_from_processed",
 ]
-
-# Try to import sentence transformers for better punctuation restoration
-try:
-    from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SentenceTransformer = None
-    cosine_similarity = None
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    logger.warning("SentenceTransformers not available. Advanced punctuation restoration may be limited.")
-
-
-_SENTENCE_TRANSFORMER_SINGLETON = None
 
 """
 Lightweight utilities and caches
@@ -159,7 +142,6 @@ PT_GREETINGS = ['olá', 'oi', 'bom dia', 'boa tarde', 'boa noite']
 
 # Baseline used by every language; per-language deltas live in _THRESHOLD_OVERRIDES.
 _BASE_THRESHOLDS = {
-    'semantic_question_threshold_default_any': 0.60,
     'min_total_words_no_split': 25,
     'min_chunk_before_split': 15,
     'min_chunk_inside_question': 20,
@@ -188,21 +170,13 @@ _ROMANCE_SPLIT_THRESHOLDS = {
 _THRESHOLD_OVERRIDES = {
     'es': {
         **_ROMANCE_SPLIT_THRESHOLDS,
-        # Spanish selects between two question thresholds depending on whether the
-        # sentence opens with a question indicator (see is_question_semantic).
-        # Slightly lower than the generic threshold to improve recall of genuine questions.
-        'semantic_question_threshold_with_indicator': 0.64,
-        'semantic_question_threshold_default': 0.74,
     },
-    # Portuguese shares the Romance split profile but keeps the generic single
-    # question threshold: it has no inverted '¿', so the indicator-sensitive
-    # two-threshold path that is gated on language == 'es' never runs for 'pt'.
     'pt': dict(_ROMANCE_SPLIT_THRESHOLDS),
 }
 
 
 def _get_language_thresholds(language: str) -> dict:
-    """Return thresholds controlling semantic gating and splitting heuristics."""
+    """Return thresholds controlling the sentence-splitting heuristics."""
     return {**_BASE_THRESHOLDS, **_THRESHOLD_OVERRIDES.get(language, {})}
 
 
@@ -696,135 +670,6 @@ def _es_merge_appositive_location_breaks(sentences: list[str]) -> list[str]:
         i += 1
     return merged
 
-# Embeddings caches for static pattern sets per language
-_QUESTION_PATTERN_EMBEDDINGS = {}
-_EXCL_PATTERN_EMBEDDINGS = {}
-
-def _get_question_pattern_embeddings(language: str, model):
-    if language in _QUESTION_PATTERN_EMBEDDINGS:
-        return _QUESTION_PATTERN_EMBEDDINGS[language]
-    patterns = _get_question_patterns(language)
-    if not patterns:
-        _QUESTION_PATTERN_EMBEDDINGS[language] = None
-        return None
-    try:
-        embs = model.encode(patterns)
-        _QUESTION_PATTERN_EMBEDDINGS[language] = embs
-        return embs
-    except Exception:
-        _QUESTION_PATTERN_EMBEDDINGS[language] = None
-        return None
-
-
-def _get_exclamation_pattern_embeddings(language: str, model):
-    if language in _EXCL_PATTERN_EMBEDDINGS:
-        return _EXCL_PATTERN_EMBEDDINGS[language]
-    patterns = _get_exclamation_patterns(language)
-    if not patterns:
-        _EXCL_PATTERN_EMBEDDINGS[language] = None
-        return None
-    try:
-        embs = model.encode(patterns)
-        _EXCL_PATTERN_EMBEDDINGS[language] = embs
-        return embs
-    except Exception:
-        _EXCL_PATTERN_EMBEDDINGS[language] = None
-        return None
-
-def _get_cache_paths():
-    """Return preferred cache paths inside the repo (mounted at /app) or fallbacks.
-
-    We prefer using the repo-mounted caches so tests can reuse downloads across runs:
-    - /app/models/sentence-transformers
-    - /app/models/huggingface
-    Fallbacks to environment defaults used in Docker image.
-    """
-    # Preferred in-repo caches (persist via -v $(pwd):/app)
-    repo_root = "/app"
-    models_dir = os.path.join(repo_root, "models")
-    st_repo_cache = os.path.join(models_dir, "sentence-transformers")
-    hf_repo_cache = os.path.join(models_dir, "huggingface")
-
-    # Docker defaults (already set in Dockerfile/run script)
-    st_default_cache = os.getenv("SENTENCE_TRANSFORMERS_HOME", "/root/.cache/torch/sentence_transformers")
-    hf_default_cache = os.getenv("HF_HOME", "/root/.cache/huggingface")
-
-    st_cache = st_repo_cache if os.path.isdir(st_repo_cache) else st_default_cache
-    hf_cache = hf_repo_cache if os.path.isdir(hf_repo_cache) else hf_default_cache
-    return st_cache, hf_cache
-
-
-def _find_local_model_path(preferred_st_cache: str, model_name: str) -> str | None:
-    """Try to find a locally cached folder for the given model under the sentence-transformers cache.
-
-    Returns a directory path if found, else None.
-    """
-    if not os.path.isdir(preferred_st_cache):
-        return None
-    try:
-        for entry in os.listdir(preferred_st_cache):
-            entry_path = os.path.join(preferred_st_cache, entry)
-            if os.path.isdir(entry_path) and model_name.replace('/', '-') in entry:
-                # Heuristic match on directory name
-                return entry_path
-    except Exception:
-        pass
-    return None
-
-
-def _load_sentence_transformer(model_name: str = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'):
-    """Load SentenceTransformer once, preferring local cache and enabling offline when possible."""
-    global _SENTENCE_TRANSFORMER_SINGLETON
-    if _SENTENCE_TRANSFORMER_SINGLETON is not None:
-        return _SENTENCE_TRANSFORMER_SINGLETON
-
-    if SentenceTransformer is None:
-        return None
-
-    st_cache, hf_cache = _get_cache_paths()
-
-    # Ensure HF_HOME points to our preferred cache to consolidate downloads
-    os.environ.setdefault("HF_HOME", hf_cache)
-
-    short_name = 'paraphrase-multilingual-MiniLM-L12-v2'
-
-    logger.info(f"Loading punctuation model ({short_name})...")
-
-    # If a local model directory already exists, the cache is warm and we can
-    # load fully offline. NOTE: setting os.environ["HF_HUB_OFFLINE"] here is a
-    # no-op — huggingface_hub freezes that value into a module constant at import
-    # time, and faster_whisper (imported at startup) pulls in huggingface_hub
-    # before we get here, so the constant is already locked to False. The per-call
-    # `local_files_only=True` argument below is honored regardless and is what
-    # actually prevents the network HEAD request (and its "unauthenticated
-    # requests to the HF Hub" warning) on every warm-cache run.
-    cache_is_warm = bool(local_model_dir := _find_local_model_path(st_cache, model_name.split('/')[-1])) and os.path.isdir(local_model_dir)
-
-    # First try: fully offline load from the warm cache (no network requests).
-    # Load by name with cache_folder so Sentence-Transformers resolves the proper
-    # snapshot layout (avoids the "Creating a new one with mean pooling" warning).
-    if cache_is_warm:
-        for name in (model_name, short_name):
-            try:
-                _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(
-                    name, cache_folder=st_cache, local_files_only=True
-                )
-                return _SENTENCE_TRANSFORMER_SINGLETON
-            except Exception:
-                # Cache may be incomplete for this name; try the next, then fall
-                # back to an online load below.
-                continue
-
-    # Fallback: online load (first run / cold cache) — allowed to download.
-    try:
-        _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(model_name, cache_folder=st_cache)
-        return _SENTENCE_TRANSFORMER_SINGLETON
-    except Exception:
-        # Last resort: try short name without org (older sbert versions)
-        _SENTENCE_TRANSFORMER_SINGLETON = SentenceTransformer(short_name, cache_folder=st_cache)
-        return _SENTENCE_TRANSFORMER_SINGLETON
-
-
 def _extract_segment_boundaries(text: str, segments: list[dict]) -> list[int]:
     """
     Convert Whisper segments to character positions in the concatenated text.
@@ -1043,7 +888,7 @@ def _violates_grammatical_rules(current_word: str, next_word: str, language: str
 
 def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[Sentence] | None]:
     """
-    Restore punctuation to transcribed text using advanced NLP techniques.
+    Split transcribed text into sentences and give each one terminal punctuation.
 
     Args:
         text (str): The transcribed text without proper punctuation
@@ -1071,72 +916,39 @@ def restore_punctuation(text: str, language: str = 'en', whisper_segments: list[
     # as it would invalidate the word indices in speaker_segments.
     # The text passed here should already be normalized.
     
-    # Use advanced punctuation restoration
     try:
-        return _advanced_punctuation_restoration(text, language, True, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
+        return _split_and_punctuate(text, language, whisper_segments, speaker_segments)
     except Exception as e:
         import traceback
-        logger.warning(f"Advanced punctuation restoration failed: {e}")
+        logger.warning(f"Punctuation restoration failed: {e}")
         logger.warning(f"Traceback: {traceback.format_exc()}")
         logger.info("Returning original text without punctuation restoration.")
         return text, [Sentence(text=text, utterances=[], speaker=None)]
 
 
-def _advanced_punctuation_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[Sentence] | None]:
+def _split_and_punctuate(text: str, language: str = 'en', whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None) -> tuple[str, list[Sentence] | None]:
     """
-    Advanced punctuation restoration using sentence transformers and NLP techniques.
+    Split text into sentences with SentenceSplitter, then give each one terminal
+    punctuation and the language's formatting.
+
+    A sentence keeps the terminal mark Whisper gave it; one without a mark gets
+    _should_add_terminal_punctuation()'s rules. No question or exclamation
+    detection (the sentence-similarity model that did it was removed in v0.18.0, #34).
 
     Args:
-        text (str): The transcribed text without proper punctuation
-        language (str): Language code ('en', 'es', 'de', 'fr')
-        use_custom_patterns (bool): Whether to use custom sentence endings and question word patterns
-        whisper_segments (list[dict] | None): Optional Whisper segments for boundary hints
-        speaker_segments (list[dict] | None): Optional speaker segments with word ranges and labels
-        whisper_boundaries (list[int] | None): DEPRECATED - Optional character positions
-        speaker_boundaries (list[int] | None): DEPRECATED - Optional character positions
-
-    Returns:
-        tuple[str, list[Sentence] | None]: (processed_text, sentences_list)
-    """
-
-    # Use SentenceTransformers for better sentence boundary detection
-    if SENTENCE_TRANSFORMERS_AVAILABLE:
-        return _transformer_based_restoration(text, language, use_custom_patterns, whisper_segments, speaker_segments, whisper_boundaries, speaker_boundaries)
-    else:
-        # Simple fallback: text is already normalized in podscripter.py (v0.4.3)
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [Sentence(text=text, utterances=[], speaker=None)]
-
-
-def _transformer_based_restoration(text: str, language: str = 'en', use_custom_patterns: bool = True, whisper_segments: list[dict] | None = None, speaker_segments: list[dict] | None = None, whisper_boundaries: list[int] | None = None, speaker_boundaries: list[int] | None = None) -> tuple[str, list[Sentence] | None]:
-    """
-    Improved punctuation restoration using SentenceTransformers for semantic understanding.
-    
-    Now uses unified SentenceSplitter class (v0.4.0+).
-    
-    Args:
-        text (str): The transcribed text without proper punctuation
-        language (str): Language code ('en', 'es', 'de', 'fr')
-        use_custom_patterns (bool): Whether to use custom patterns
+        text (str): The transcribed text
+        language (str): Language code ('en', 'es', 'de', 'fr', 'pt', or a generic one)
         whisper_segments (list[dict] | None): Optional Whisper segments with metadata
         speaker_segments (list[dict] | None): Optional speaker segments with word ranges and labels
-        whisper_boundaries (list[int] | None): DEPRECATED - Optional character positions
-        speaker_boundaries (list[int] | None): DEPRECATED - Optional character positions
-    
+
     Returns:
         tuple[str, list[Sentence]]: (processed_text, sentences_list)
     """
-    # Initialize the model once (use multilingual model for better language support)
-    model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
-    if model is None:
-        # Fallback path if sentence-transformers is unavailable
-        # Text is already normalized in podscripter.py (v0.4.3)
-        return _should_add_terminal_punctuation(text, language, PunctuationContext.SENTENCE_END), [Sentence(text=text, utterances=[], speaker=None)]
-
     # Get language config for thresholds
     lang_config = _get_language_config(language)
 
     # 1) Use unified SentenceSplitter for all sentence boundary decisions
-    splitter = SentenceSplitter(language, model, lang_config)
+    splitter = SentenceSplitter(language, lang_config)
     sentences, metadata = splitter.split(
         text,
         whisper_segments=whisper_segments,
@@ -1166,7 +978,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             logger.debug(f"Sentence {i} is a string: '{sent_text[:50] if isinstance(sent_text, str) else type(sent_text)}...'")
         
         if sent_text.strip():
-            punctuated = _apply_semantic_punctuation(sent_text, model, language, i, len(sentences))
+            punctuated = _should_add_terminal_punctuation(sent_text, language, PunctuationContext.SENTENCE_END)
             logger.debug(f"Punctuated sentence {i} type: {type(punctuated)}, value: '{punctuated[:50] if isinstance(punctuated, str) else punctuated}...'")
             punctuated_sentences.append(punctuated)
         else:
@@ -1211,14 +1023,9 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
             if not sentence.endswith(('.', '!', '?')):
                 # Strip trailing commas before adding terminal punctuation
                 sentence = sentence.rstrip(',;: ')
-                
-                question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
-                sentence_lower = sentence.lower()
-                if any(word in sentence_lower for word in question_words):
-                    sentence += '?'
-                else:
-                    # Use centralized punctuation logic for Spanish
-                    sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SPANISH_SPECIFIC)
+                # Use centralized punctuation logic for Spanish (no question-word
+                # guess: a substring match put '?' on statements, #34)
+                sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SPANISH_SPECIFIC)
             else:
                 sentence = sentence.rstrip('.!?') + sentence[-1]
 
@@ -1270,7 +1077,7 @@ def _transformer_based_restoration(text: str, language: str = 'en', use_custom_p
         return result, formatted_sentence_objects
     elif not is_tailored(language):
         # Generic language: keep the splitter's sentences as Whisper wrote them.
-        # _apply_semantic_punctuation() above already reduced to "add '.' only if
+        # _should_add_terminal_punctuation() above already reduced to "add '.' only if
         # no terminal of any script is present" for these languages. No greeting
         # commas or location-appositive commas: each is a per-language rule, and
         # English stand-ins corrupt the text.
@@ -1485,7 +1292,7 @@ def _ensure_generic_terminal(text: str) -> str:
     return text.rstrip(_GENERIC_TRAILING_CLAUSE) + '.'
 
 
-def _should_add_terminal_punctuation(text: str, language: str, context: str | None = None, model=None) -> str:
+def _should_add_terminal_punctuation(text: str, language: str, context: str | None = None) -> str:
     """
     Centralized logic for determining what terminal punctuation to add.
     
@@ -1496,7 +1303,6 @@ def _should_add_terminal_punctuation(text: str, language: str, context: str | No
         text: The text segment to analyze
         language: Language code ('es', 'en', 'fr', 'de')
         context: Context type from PunctuationContext class
-        model: Optional sentence transformer model for semantic analysis
     
     Returns:
         The text with appropriate terminal punctuation added
@@ -1527,29 +1333,10 @@ def _should_add_terminal_punctuation(text: str, language: str, context: str | No
             return text
         # For other contexts, continue with normal punctuation logic
     
-    # Check for questions using semantic analysis if model is available
-    if model and context != PunctuationContext.FRAGMENT:
-        if is_question_semantic(text, model, language):
-            # Strip trailing commas/semicolons before adding question mark
-            text = text.rstrip(',;: ')
-            return text + '?'
-        if is_exclamation_semantic(text, model, language):
-            # Strip trailing commas/semicolons before adding exclamation mark
-            text = text.rstrip(',;: ')
-            return text + '!'
-        # If semantic analysis is available, trust it and skip word-based fallback
-        # Semantic analysis correctly identified this as NOT a question/exclamation
-        # Don't override with simplistic word matching
-    elif language == 'es':
-        # Language-specific question detection fallback (only when semantic analysis unavailable)
-        # This is less accurate and prone to false positives
-        question_words = ES_QUESTION_WORDS_CORE + ES_QUESTION_STARTERS_EXTRA
-        text_lower = text.lower()
-        if any(word in text_lower for word in question_words):
-            # Strip trailing commas/semicolons before adding question mark
-            text = text.rstrip(',;: ')
-            return text + '?'
-    
+    # No question/exclamation guessing: Whisper's own '?'/'!' are kept above, and
+    # neither the similarity model nor a question-word substring match (removed
+    # in v0.18.0, #34) could tell a question from a statement.
+
     # Special handling for short Spanish phrases
     if language == 'es' and text.lower() in ['también sí', 'sí', 'no', 'claro', 'exacto', 'perfecto', 'vale', 'bien', 'pues tranquilo']:
         return text + '.'
@@ -1559,430 +1346,6 @@ def _should_add_terminal_punctuation(text: str, language: str, context: str | No
     text = text.rstrip(',;: ')
     return text + '.'
 
-
-def _apply_semantic_punctuation(sentence: str, model, language: str, sentence_index: int, total_sentences: int) -> str:
-    """
-    Apply appropriate punctuation to a sentence using semantic analysis.
-    
-    Args:
-        sentence (str): The sentence to punctuate
-        model: SentenceTransformer model
-        language (str): Language code
-        sentence_index (int): Index of current sentence
-        total_sentences (int): Total number of sentences
-    
-    Returns:
-        str: Sentence with appropriate punctuation
-    """
-    # Defensive: ensure sentence is a string
-    if isinstance(sentence, Sentence):
-        logger.warning(f"_apply_semantic_punctuation received Sentence object, extracting text")
-        sentence = sentence.text
-    elif not isinstance(sentence, str):
-        logger.warning(f"_apply_semantic_punctuation received non-string type: {type(sentence)}")
-        sentence = str(sentence)
-    
-    # Check if it's a question using semantic similarity
-    if is_question_semantic(sentence, model, language):
-        if not sentence.endswith('?'):
-            # Strip trailing punctuation (including , ; :) before appending
-            # to avoid artifacts like "Bueno,?" when the segment was split mid-clause
-            # at a speaker/Whisper boundary leaving a dangling comma.
-            sentence = sentence.rstrip('.!,;: ') + '?'
-        return sentence
-    
-    # Check for exclamation patterns
-    if is_exclamation_semantic(sentence, model, language):
-        if not sentence.endswith('!'):
-            # Strip trailing punctuation (including , ; :) before appending
-            # to avoid artifacts like "Bueno,!" when the segment was split mid-clause
-            # at a speaker/Whisper boundary leaving a dangling comma.
-            sentence = sentence.rstrip('.?,;: ') + '!'
-        return sentence
-    
-    # Use centralized punctuation logic
-    return _should_add_terminal_punctuation(sentence, language, PunctuationContext.SENTENCE_END, model)
-
-
-def is_question_semantic(sentence: str, model, language: str) -> bool:
-    """
-    Determine if a sentence is a question using semantic similarity.
-    
-    Args:
-        sentence (str): The sentence to analyze
-        model: SentenceTransformer model
-        language (str): Language code
-    
-    Returns:
-        bool: True if sentence is a question
-    """
-    if cosine_similarity is None:
-        return False
-    # Defensive: ensure sentence is a string
-    if isinstance(sentence, Sentence):
-        logger.warning(f"is_question_semantic received Sentence object, extracting text")
-        sentence = sentence.text
-    elif not isinstance(sentence, str):
-        logger.warning(f"is_question_semantic received non-string type: {type(sentence)}")
-        sentence = str(sentence)
-    
-    # Early-accept only for explicit full-sentence cues
-    # Accept if sentence starts with '¿' (proper inverted question), otherwise do not
-    # blanket-accept just because '?' appears (may be embedded)
-    s_trim = sentence.lstrip()
-    if s_trim.startswith('¿'):
-        return True
-
-    # First check for obvious question indicators (do not auto-accept)
-    starts_with_indicator = False
-    if language == 'es':
-        s = sentence.strip().lower()
-        starts_with_indicator = (
-            bool(re.match(r"^(qué|dónde|cuándo|cómo|quién|cuál|cuáles|por qué)\b", s)) or
-            bool(re.match(r"^(puedes|puede|podrías|podría|quieres|quiere|tienes|tiene|hay|es|está|están|vas|va)\b", s))
-        )
-        # Broaden indicator signal using generic indicator detector
-        try:
-            if has_question_indicators(sentence, language):
-                starts_with_indicator = True
-        except Exception:
-            pass
-    
-    # For Spanish, be extra careful with introductions and statements
-    if language == 'es':
-        sentence_lower = sentence.lower()
-        
-        # Check for strong question indicators first
-        strong_question_words = ['qué', 'dónde', 'cuándo', 'cómo', 'como', 'quién', 'cuál', 'por qué']
-        has_strong_question = any(word in sentence_lower for word in strong_question_words)
-        starts_with_question = any(sentence_lower.startswith(word + ' ') for word in strong_question_words)
-        
-        # If it doesn't have strong question indicators, check for introduction patterns
-        if not has_strong_question and not starts_with_question:
-            # If it's clearly an introduction or statement, don't use semantic similarity
-            introduction_patterns = [
-                'soy', 'es', 'estoy', 'está', 'están', 'somos', 'son',
-                'mi nombre', 'me llamo', 'vivo en', 'trabajo en', 'estudio en',
-                'soy de', 'es de', 'estoy de', 'está de', 'están de',
-                'de acuerdo', 'de colombia', 'de españa', 'de méxico', 'de argentina'
-            ]
-            
-            # If it contains introduction patterns, it's likely a statement
-            if any(pattern in sentence_lower for pattern in introduction_patterns):
-                return False
-    
-    question_patterns = _get_question_patterns(language)
-    if not question_patterns:
-        return False
-    
-    try:
-        # Encode sentence and re-use cached pattern embeddings
-        sentence_embedding = model.encode([sentence])[0]
-        cached = _get_question_pattern_embeddings(language, model)
-        if cached is None:
-            return False
-        question_embeddings = cached
-        
-        similarities = []
-        for q_emb in question_embeddings:
-            similarity = cosine_similarity(np.asarray([sentence_embedding]), np.asarray([q_emb]))[0][0]
-            similarities.append(similarity)
-        
-        # Lower threshold for better question detection, but be more conservative for Spanish
-        max_similarity = max(similarities)
-        cfg = _get_language_config(language)
-        if language == 'es':
-            thr = cfg.thresholds
-            return max_similarity > (thr['semantic_question_threshold_with_indicator'] if starts_with_indicator else thr['semantic_question_threshold_default'])
-        else:
-            thr = cfg.thresholds
-            return max_similarity > thr.get('semantic_question_threshold_default_any', 0.6)
-        
-    except Exception:
-        return False
-
-
-def has_question_indicators(sentence, language):
-    """
-    Check for obvious question indicators in the sentence.
-    
-    Args:
-        sentence (str): The sentence to check
-        language (str): Language code
-    
-    Returns:
-        bool: True if sentence has question indicators
-    """
-    # A generic language has no question words; English ones would be guesses.
-    if not is_tailored(language):
-        return False
-
-    sentence_lower = sentence.lower()
-    
-    # Question words (Spanish excludes standalone 'por' and 'de'; handled as phrases like 'por qué', 'de quién')
-    question_words = {
-        'en': ['what', 'where', 'when', 'why', 'how', 'who', 'which', 'whose', 'whom'],
-        'es': ['qué', 'dónde', 'cuándo', 'cómo', 'quién', 'cuál', 'cuáles'],
-        'de': ['was', 'wo', 'wann', 'warum', 'wie', 'wer', 'welche', 'welches', 'wessen'],
-        'fr': ['quoi', 'où', 'quand', 'pourquoi', 'comment', 'qui', 'quel', 'quelle', 'quels', 'quelles'],
-        'pt': ['que', 'o que', 'quê', 'onde', 'quando', 'como', 'quem', 'qual', 'quais', 'por que', 'porquê']
-    }
-
-    words = question_words.get(language, question_words['en'])
-    
-    # Check if sentence starts with question words
-    for word in words:
-        if sentence_lower.startswith(word + ' '):
-            return True
-    
-    # Special case for Spanish: check for question words at the beginning even without ¿
-    if language == 'es':
-        spanish_question_starters = ES_QUESTION_WORDS_CORE + ['como', 'cuáles']
-        for starter in spanish_question_starters:
-            if sentence_lower.startswith(starter + ' '):
-                return True
-        
-        # Check for verb-based question starters (present and past tense)
-        spanish_verb_starters = [
-            'puedes', 'puede', 'pudiste', 'pudo', 'pudieron', 'pudimos',
-            'sabes', 'sabe', 'supiste', 'supo', 'supieron',
-            'quieres', 'quiere', 'quisiste', 'quiso', 'quisieron',
-            'necesitas', 'necesita', 'necesitaste', 'necesitó', 'necesitaron',
-            'tienes', 'tiene', 'tuviste', 'tuvo', 'tuvieron',
-            'vas', 'va', 'fuiste', 'fue', 'fueron',
-            'estás', 'están', 'estuviste', 'estuvo', 'estuvieron'
-        ]
-        for starter in spanish_verb_starters:
-            if sentence_lower.startswith(starter + ' '):
-                return True
-    
-    # Check for question words anywhere in the sentence (for embedded questions)
-    # But be more conservative to avoid false positives
-    for word in words:
-        if ' ' + word + ' ' in sentence_lower:
-            # Only consider it a question if it's not a common greeting or statement
-            if language == 'es':
-                # Avoid false positives for common greetings and statements
-                if any(greeting in sentence_lower for greeting in _get_language_config('es').greetings):
-                    continue
-                if any(statement in sentence_lower for statement in ['gracias', 'por favor', 'de nada', 'no hay problema']):
-                    continue
-                
-                # Avoid false positives for "ser" and "estar" verbs in introductions
-                if word in ['soy', 'es', 'estoy', 'está', 'están', 'somos', 'son']:
-                    # Check if it's likely an introduction or statement
-                    if any(intro_pattern in sentence_lower for intro_pattern in [
-                        'yo soy', 'mi nombre es', 'me llamo', 'vivo en', 'trabajo en',
-                        'soy de', 'es de', 'estoy de', 'está de', 'están de'
-                    ]):
-                        continue
-                
-                # Avoid false positives for "de" when used in locations/descriptions
-                if word == 'de':
-                    # Check if "de" is used in location patterns (not questions)
-                    if any(location_pattern in sentence_lower for location_pattern in [
-                        'de colombia', 'de españa', 'de méxico', 'de argentina', 'de santander',
-                        'de acuerdo', 'de nada', 'de verdad', 'de hecho'
-                    ]):
-                        continue
-            return True
-
-    # Spanish phrase checks (only as phrases)
-    if language == 'es':
-        if any(phrase in sentence_lower for phrase in ['por qué', 'de quién', 'a quién']):
-            return True
-    
-    # Check for question marks already present
-    if '?' in sentence:
-        return True
-    
-    # Additional Spanish-specific checks to avoid false positives
-    if language == 'es':
-        # Check if sentence starts with common non-question patterns
-        if sentence_lower.startswith(('hola ', 'buenos días ', 'buenas tardes ', 'buenas noches ', 'gracias ', 'por favor ')):
-            return False
-        
-        # Check if sentence contains common statement patterns
-        if any(pattern in sentence_lower for pattern in [
-            'el proyecto', 'la reunión', 'necesito', 'quiero', 'voy a', 'tengo que',
-            'es importante', 'es necesario', 'es correcto', 'está bien'
-        ]):
-            # Only consider it a question if it has strong question indicators
-            has_strong_question = any(word in sentence_lower for word in ES_QUESTION_WORDS_CORE[:-1])
-            if not has_strong_question:
-                return False
-        
-        # Prevent false positives with "ser" and "estar" verbs in statements
-        # These are common in introductions and descriptions
-        if any(pattern in sentence_lower for pattern in [
-            'yo soy', 'yo es', 'yo estoy', 'yo está', 'yo están',
-            'soy de', 'es de', 'estoy de', 'está de', 'están de',
-            'mi nombre es', 'me llamo', 'vivo en', 'trabajo en'
-        ]):
-            # Only consider it a question if it has strong question indicators
-            has_strong_question = any(word in sentence_lower for word in ES_QUESTION_WORDS_CORE[:-1])
-            if not has_strong_question:
-                return False
-        
-        # Additional comprehensive check for introduction and statement patterns
-        # These patterns are almost never questions in Spanish
-        introduction_patterns = [
-            'soy', 'es', 'estoy', 'está', 'están', 'somos', 'son',
-            'mi nombre', 'me llamo', 'vivo en', 'trabajo en', 'estudio en',
-            'soy de', 'es de', 'estoy de', 'está de', 'están de',
-            'de acuerdo', 'de colombia', 'de españa', 'de méxico', 'de argentina'
-        ]
-        
-        # If the sentence contains these patterns and doesn't have strong question words, it's likely a statement
-        if any(pattern in sentence_lower for pattern in introduction_patterns):
-            # Check for strong question indicators
-            strong_question_words = ES_QUESTION_WORDS_CORE
-            has_strong_question = any(word in sentence_lower for word in strong_question_words)
-            
-            # Also check if it starts with a question word
-            starts_with_question = any(sentence_lower.startswith(word + ' ') for word in strong_question_words)
-            
-            if not has_strong_question and not starts_with_question:
-                return False
-    
-    # Check for question intonation patterns (common in speech)
-    if language == 'en':
-        # Common question patterns in English
-        if any(pattern in sentence_lower for pattern in [
-            'can you', 'could you', 'would you', 'will you', 'do you', 'does', 'did you',
-            'are you', 'is this', 'is that', 'are they', 'is it', 'am i'
-        ]):
-            return True
-    elif language == 'es':
-        # Common question patterns in Spanish
-        # Be more specific to avoid false positives with "ser" and "estar" verbs
-        if any(pattern in sentence_lower for pattern in [
-            'puedes', 'puede', 'podrías', 'podría', 'vas a', 'va a', 'vas', 'va',
-            'tienes', 'tiene', 'tienes que', 'tiene que', 'necesitas', 'necesita',
-            'sabes', 'sabe', 'conoces', 'conoce', 'hay',
-            'te gusta', 'le gusta', 'te gustaría', 'le gustaría', 'quieres', 'quiere',
-            'te parece', 'le parece', 'crees', 'cree', 'piensas', 'piensa'
-        ]):
-            return True
-        # Check for Spanish question word combinations
-        if any(pattern in sentence_lower for pattern in [
-            'qué hora', 'qué día', 'qué fecha', 'qué tiempo', 'qué tal', 'qué pasa',
-            'dónde está', 'dónde vas', 'dónde queda', 'dónde puedo',
-            'cuándo es', 'cuándo va', 'cuándo viene', 'cuándo sale',
-            'cómo está', 'cómo va', 'cómo te', 'cómo se', 'cómo puedo',
-            'quién es', 'quién está', 'quién va', 'quién puede',
-            'cuál es', 'cuáles son', 'cuál prefieres', 'cuál te gusta'
-        ]):
-            return True
-    
-    return False
-
-
-def is_exclamation_semantic(sentence: str, model, language: str) -> bool:
-    """Determine if a sentence is an exclamation using semantic similarity."""
-    if cosine_similarity is None:
-        return False
-    exclamation_patterns = _get_exclamation_patterns(language)
-    if not exclamation_patterns:
-        return False
-    
-    try:
-        # Encode sentence and re-use cached pattern embeddings
-        sentence_embedding = model.encode([sentence])[0]
-        cached = _get_exclamation_pattern_embeddings(language, model)
-        if cached is None:
-            return False
-        exclamation_embeddings = cached
-        
-        similarities = []
-        for e_emb in exclamation_embeddings:
-            similarity = cosine_similarity(np.asarray([sentence_embedding]), np.asarray([e_emb]))[0][0]
-            similarities.append(similarity)
-        
-        return max(similarities) > 0.7
-        
-    except Exception:
-        return False
-
-
-def _get_exclamation_patterns(language):
-    """
-    Get exclamation patterns for semantic similarity comparison.
-    
-    Args:
-        language (str): Language code
-    
-    Returns:
-        list: List of exclamation patterns
-    """
-    exclamation_patterns = {
-        'en': [
-            "That's amazing!",
-            "How wonderful!",
-            "What a surprise!",
-            "I can't believe it!",
-            "That's incredible!",
-            "How exciting!",
-            "What a great idea!",
-            "That's fantastic!",
-            "How beautiful!",
-            "What a relief!"
-        ],
-        'es': [
-            "¡Qué increíble!",
-            "¡Qué maravilloso!",
-            "¡Qué sorpresa!",
-            "¡No puedo creerlo!",
-            "¡Qué fantástico!",
-            "¡Qué emocionante!",
-            "¡Qué gran idea!",
-            "¡Qué alivio!",
-            "¡Qué hermoso!",
-            "¡Qué bueno!"
-        ],
-        'de': [
-            "Das ist unglaublich!",
-            "Wie wunderbar!",
-            "Was für eine Überraschung!",
-            "Ich kann es nicht glauben!",
-            "Das ist fantastisch!",
-            "Wie aufregend!",
-            "Was für eine tolle Idee!",
-            "Was für eine Erleichterung!",
-            "Wie schön!",
-            "Das ist großartig!"
-        ],
-        'fr': [
-            "C'est incroyable!",
-            "Comme c'est merveilleux!",
-            "Quelle surprise!",
-            "Je n'en reviens pas!",
-            "C'est fantastique!",
-            "Comme c'est excitant!",
-            "Quelle excellente idée!",
-            "Quel soulagement!",
-            "Comme c'est beau!",
-            "C'est génial!"
-        ],
-        'pt': [
-            "Que incrível!",
-            "Que maravilha!",
-            "Que surpresa!",
-            "Não acredito!",
-            "Que fantástico!",
-            "Que emocionante!",
-            "Que grande ideia!",
-            "Que alívio!",
-            "Que lindo!",
-            "Isso é ótimo!"
-        ]
-    }
-
-    # A generic language has no seeds: scoring it against English exclamations
-    # would be guessing, so is_exclamation_semantic() returns False instead.
-    if not is_tailored(language):
-        return []
-    return exclamation_patterns.get(language, exclamation_patterns['en'])
 
 def _format_non_spanish_text(text: str, language: str) -> str:
     """Basic capitalization and comma heuristics for non-Spanish languages.
@@ -2224,118 +1587,5 @@ def _capitalize_german_nouns_after_determiners(sentence: str) -> str:
         return prefix + cap
 
     return regex.sub(repl, sentence)
-
-def _get_question_patterns(language):
-    """
-    Get question patterns for semantic similarity comparison.
-    
-    Args:
-        language (str): Language code
-    
-    Returns:
-        list: List of question patterns
-    """
-    question_patterns = {
-        'en': [
-            "What is this?",
-            "Where are you?",
-            "When will it happen?",
-            "Why did you do that?",
-            "How does it work?",
-            "Who is there?",
-            "Which one do you prefer?",
-            "Can you help me?",
-            "Could you explain?",
-            "Would you like to go?",
-            "Will you come?",
-            "Do you understand?",
-            "Are you ready?"
-        ],
-        'es': [
-            "¿Qué es esto?",
-            "¿Dónde estás?",
-            "¿Cuándo pasará?",
-            "¿Por qué lo hiciste?",
-            "¿Cómo funciona?",
-            "¿Quién está ahí?",
-            "¿Cuál prefieres?",
-            "¿Puedes ayudarme?",
-            "¿Podrías explicar?",
-            "¿Te gustaría ir?",
-            "¿Vas a venir?",
-            "¿Haces esto?",
-            "¿Eres listo?",
-            "¿Qué hora es?",
-            "¿Qué día es hoy?",
-            "¿Dónde está la reunión?",
-            "¿Cuándo es la cita?",
-            "¿Cómo estás?",
-            "¿Quién puede ayudarme?",
-            "¿Cuál es tu nombre?",
-            "¿Puedes enviarme la agenda?",
-            "¿Tienes tiempo?",
-            "¿Sabes dónde queda?",
-            "¿Hay algo más?",
-            "¿Está todo bien?",
-            "¿Te parece bien?",
-            "¿Quieres que vayamos?",
-            "¿Crees que es correcto?",
-            "¿Necesitas ayuda?",
-            "¿Va a llover hoy?",
-            "¿Estás listo?",
-            "¿Puedo ayudarte?"
-        ],
-        'de': [
-            "Was ist das?",
-            "Wo bist du?",
-            "Wann passiert es?",
-            "Warum hast du das gemacht?",
-            "Wie funktioniert es?",
-            "Wer ist da?",
-            "Welches bevorzugst du?",
-            "Kannst du mir helfen?",
-            "Könntest du erklären?",
-            "Würdest du gerne gehen?",
-            "Wirst du kommen?",
-            "Machst du das?",
-            "Bist du bereit?"
-        ],
-        'fr': [
-            "Qu'est-ce que c'est?",
-            "Où es-tu?",
-            "Quand cela arrivera-t-il?",
-            "Pourquoi as-tu fait cela?",
-            "Comment ça marche?",
-            "Qui est là?",
-            "Lequel préfères-tu?",
-            "Peux-tu m'aider?",
-            "Pourrais-tu expliquer?",
-            "Voudrais-tu aller?",
-            "Vas-tu venir?",
-            "Fais-tu cela?",
-            "Es-tu prêt?"
-        ],
-        'pt': [
-            "O que é isso?",
-            "Onde você está?",
-            "Quando isso vai acontecer?",
-            "Por que você fez isso?",
-            "Como funciona?",
-            "Quem está aí?",
-            "Qual você prefere?",
-            "Você pode me ajudar?",
-            "Poderia explicar?",
-            "Você gostaria de ir?",
-            "Você vem?",
-            "Você entende?",
-            "Está pronto?"
-        ]
-    }
-
-    # A generic language has no seeds (see _get_exclamation_patterns).
-    if not is_tailored(language):
-        return []
-    return question_patterns.get(language, question_patterns['en'])
-
 
 # (Module has no __main__ block; import-only.)

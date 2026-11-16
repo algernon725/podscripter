@@ -6,7 +6,7 @@ Test the specific Spanish "y 184" splitting bug.
 import pytest
 
 from conftest import restore_punctuation
-from punctuation_restorer import _get_language_config, _load_sentence_transformer
+from punctuation_restorer import _get_language_config
 from sentence_splitter import SentenceSplitter
 
 pytestmark = pytest.mark.core
@@ -17,10 +17,8 @@ def test_spanish_y_number():
 
     text = "puedes ir al episodio 147, 151, 156, 164, 170, 177 y 184"
 
-    model = _load_sentence_transformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
-
     text_with_period = text + "."
-    splitter = SentenceSplitter('es', model, _get_language_config('es'))
+    splitter = SentenceSplitter('es', _get_language_config('es'))
     sentence_objs, _ = splitter.split(text_with_period, mode='semantic')
     sentences = [s.text for s in sentence_objs]
 

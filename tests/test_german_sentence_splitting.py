@@ -26,6 +26,7 @@ GERMAN_SPLITTING_CASES = [
         "hallo wie geht es dir heute",
         "Hallo, wie geht es dir heute?",
         id="greeting-with-question",
+        marks=pytest.mark.xfail(reason="Accepted limitation (#12, #13): no '?' in the input; implicit questions are not detected from text alone"),
     ),
     pytest.param(
         "ich heiße anna und ich wohne in münchen",
@@ -87,6 +88,7 @@ GERMAN_SPLITTING_CASES = [
         "wie schön das ist",
         "Wie schön das ist!",
         id="exclamation-form",
+        marks=pytest.mark.xfail(reason="Accepted limitation (#13): punctuation missing from the input is not invented"),
     ),
     pytest.param(
         "ich glaube dass er kommt weil er zugesagt hat",
