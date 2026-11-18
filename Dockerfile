@@ -5,14 +5,15 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libsndfile1 \
     git \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies in fewer layers for better caching
 # pyannote.audio 4.x requires torch>=2.8, torchaudio>=2.8, torchcodec>=0.7
+# torchaudio is version-locked to torch; podscripter itself does not use it for audio loading
 # torchcodec 0.8 is incompatible with torch 2.8 (ABI mismatch), pin to 0.7.0
 # av 19 removed av.open(metadata_errors=...), which faster-whisper <=1.2.1 still passes
+# (faster-whisper's decode_audio also decodes audio for speaker diarization)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     faster-whisper \
@@ -21,7 +22,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
     torch==2.8.0 \
     torchaudio==2.8.0 \
     torchcodec==0.7.0 \
-    soundfile \
     pyannote.audio==4.0.4 \
     pytest \
     jiwer \
