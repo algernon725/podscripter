@@ -35,24 +35,6 @@ import logging
 import warnings
 from pathlib import Path
 
-# Suppress torchaudio warning about MPEG_LAYER_III subtype (harmless MP3 metadata issue)
-warnings.filterwarnings(
-    "ignore",
-    message="The MPEG_LAYER_III subtype is unknown to TorchAudio",
-    category=UserWarning,
-    module="torchaudio"
-)
-
-# Suppress torchaudio 2.8 deprecation warning about switching to torchcodec in 2.9.
-# We intentionally use torchaudio.load() with the soundfile backend to bypass
-# torchcodec's MP3 chunk decoding issues. Pinned to torchaudio==2.8.0.
-warnings.filterwarnings(
-    "ignore",
-    message="In 2.9, this function's implementation will be changed",
-    category=UserWarning,
-    module="torchaudio"
-)
-
 # Suppress pyannote pooling warning when processing very short audio segments
 # This occurs when std() is called on tensors with only 1 sample (degrees of freedom = 0)
 # It's a harmless numerical edge case that doesn't affect output quality
@@ -67,6 +49,7 @@ logger = logging.getLogger("podscripter")
 # Default settings
 DEFAULT_DIARIZATION_DEVICE = "cpu"
 DIARIZATION_MODEL_ID = "pyannote/speaker-diarization-community-1"
+DIARIZATION_SAMPLE_RATE = 16000  # pyannote's model rate, so the pipeline never resamples
 SPEAKER_BOUNDARY_EPSILON_SEC = 1.0  # Merge boundaries within 1 second
 MIN_SPEAKER_SEGMENT_SEC = 0.5  # Ignore very short speaker segments (< 0.5s likely noise)
 
@@ -159,11 +142,17 @@ def diarize_audio(
         if max_speakers is not None:
             params["max_speakers"] = max_speakers
         
-        # Pre-load audio with torchaudio to bypass torchcodec's MP3 chunk
-        # decoding issues (sample count mismatches with lossy formats).
-        import torchaudio
-        waveform, sample_rate = torchaudio.load(str(media_file))
-        audio_input = {"waveform": waveform, "sample_rate": sample_rate}
+        # Pre-decode with PyAV, the same decoder faster-whisper uses for
+        # transcription, and pass pyannote an in-memory waveform. This bypasses
+        # torchcodec's chunked MP3 decoding (sample-count mismatches at lossy
+        # frame boundaries) and handles video containers (MP4, etc.).
+        import torch
+        from faster_whisper.audio import decode_audio
+        audio = decode_audio(str(media_file), sampling_rate=DIARIZATION_SAMPLE_RATE)
+        audio_input = {
+            "waveform": torch.from_numpy(audio).unsqueeze(0),  # (channel, time)
+            "sample_rate": DIARIZATION_SAMPLE_RATE,
+        }
         
         # Run diarization
         logger.info(f"Running speaker diarization on {media_path.name}...")

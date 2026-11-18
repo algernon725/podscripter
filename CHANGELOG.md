@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-11-18
+
+Speaker detection (`--diarize`) now works on video files. On an MP4 (or any other format the old audio loader couldn't read), diarization failed with a "Speaker diarization failed … Format not recognised" warning, and the transcript came out without paragraph breaks at speaker changes. Diarization now reads audio the same way transcription does, so every file podscripter can transcribe can also be diarized. The Docker image also installs two fewer packages.
+
+### Fixed
+- **`--diarize` works on MP4 and other video files.** Transcripts of video files now get a paragraph break at each speaker change, just like audio files.
+
+### Upgrading
+- Rebuild the image (`docker build -t podscripter .`). Nothing else changes: same flags, same model cache.
+
+### Developers
+- **Cause**: `diarize_audio()` pre-loaded audio with `torchaudio.load()` to keep pyannote off torchcodec's chunked MP3 decoding, which gets sample counts wrong at lossy frame boundaries. In the image torchaudio 2.8's only backend is `soundfile` (its ffmpeg backend doesn't load against the system's FFmpeg 7), and libsndfile 1.2.2 reads MP3 but not MP4, so `torchaudio.load()` raised `LibsndfileError: Format not recognised` on video input. `podscripter.py` catches `DiarizationError`, logs a warning and carries on without speaker boundaries. `torchaudio.load()` is also deprecated in 2.8 and moves onto torchcodec in 2.9, which blocked upgrading the torch stack (#14).
+- **Fix**: `diarize_audio()` decodes with `faster_whisper.audio.decode_audio()` (PyAV, the decoder transcription already uses) at 16 kHz mono (`DIARIZATION_SAMPLE_RATE`, pyannote's model rate) and passes `{"waveform": (1, time) tensor, "sample_rate": 16000}`. The whole stream is decoded, so the MP3 frame-boundary issue stays bypassed. pyannote no longer resamples, and the in-memory waveform is about 5× smaller than native-rate stereo (Episodio310, 26 min: 547 MB → 99 MB).
+- **Removed**: the two `torchaudio` warning filters in `speaker_diarization.py` (`MPEG_LAYER_III`, and "In 2.9, this function's implementation will be changed"); both came only from `torchaudio.load()`. Dockerfile: `soundfile` (pip) and `libsndfile1` (apt); nothing else uses them.
+- **Unchanged**: the `torch==2.8.0` / `torchaudio==2.8.0` / `torchcodec==0.7.0` pins. pyannote 4.0.4 still imports torchaudio itself (`functional.resample`, `compliance.kaldi`), so torchaudio stays installed, version-locked to torch. Upgrading the pins is now unblocked on our side, but it's a separate change. `"av<19"` now protects diarization too.
+- **Verified**: confirmed the cause first: on a generated MP4 `torchaudio.load()` raises `Format not recognised`, and `decode_audio()` returns the expected length for both MP3 and MP4. A 2-minute MP4 cut from Episodio310 now diarizes through `diarize_audio()` (3 speakers, 2 boundaries). On the full Episodio310 MP3, pyannote fed the old input versus the new: same 3 speakers, 57 vs 58 speaker boundaries with 55 of the new ones within 0.5 s of an old one, total speech 1,462 s vs 1,444 s, same runtime (~495 s on CPU). The new input yields more segments (213 → 256), but the extra ones split runs of the same speaker and don't add speaker changes. The small differences come from the input itself: PyAV downmixes and resamples to 16 kHz, where before pyannote did that with torchaudio. `import speaker_diarization` raises no `UserWarning` with the filters gone.
+
+### Tests
+- No new test: the change swaps one decoder call for another inside `diarize_audio()`, and a unit test would only check a mocked dict's shape. Suite unchanged: **783 passed / 37 xfailed**. The `-m transcription` tier (fixture WER/DER thresholds, all diarized): 30 passed, 2 failed. Both failures happen identically on v0.18.1 and don't involve diarization: `librispeech_test_clean_1221_135767_0010[single]` (WER 0.391) and `test_greeting_and_question_formatting` (text-only `restore_punctuation()`).
+
 ## [0.18.1] - 2026-11-16
 
 Transcription works again in a freshly built Docker image. An image built from scratch stopped right after diarization with `Error during transcription: open() got an unexpected keyword argument 'metadata_errors'`, so no transcript was written. It hit any image rebuilt after PyAV 19 came out, including the 0.18.0 rebuild (the Dockerfile change in 0.18.0 made Docker reinstall all Python packages).
