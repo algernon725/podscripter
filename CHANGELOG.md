@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-11-22
+
+Spanish transcripts keep the ellipses Whisper hears. A trailing-off "..." used to come out as a single period, so a sentence that continued after a pause read "Wow, suena. quiero ir yo también." (a period, then a lowercase word), and an unfinished thought like "Son como..." looked like a complete sentence ("Son como."). A "…" at the end of a sentence also got an extra period ("cuidan….").
+
+### Fixed
+- **Ellipses in Spanish transcripts stay as written.** "Wow, suena... quiero ir yo también.", "Son como...", "¿Fue como algo extraño o...?" and "Sí, los que cuidan…" now appear in the transcript exactly as Whisper wrote them. Other languages already kept them.
+
+### Developers
+- **Cause**: the Spanish branch of `_split_and_punctuate()` reduced every `[.!?]{2,}` run in a sentence to its first mark ("Clean up duplicates") and every sentence-final run to its last (`sentence.rstrip('.!?') + sentence[-1]`), so `...` became `.`. `…` wasn't in the branch's terminal check, so `_should_add_terminal_punctuation()` appended a `.` after it. Not a recent regression: the v0.16.2 harness baseline already dropped all 25 `...` in Episodio310–315. It went unnoticed because every one of those was at the end of a Whisper segment, where a period looks plausible. Episodio318 has the first mid-segment `... lowercase` case.
+- **Fix**: new `_collapse_terminal_run()` keeps a leading `...` or `…` plus at most one `?`/`!`, and otherwise reduces the run to its first or last mark as before (`!!` -> `!`, `.?` -> `?` at a sentence end). Both spots in the Spanish branch use it, and `…` now counts as a terminal there. This matches what `_normalize_mixed_terminal_punctuation()` already documented ("Preserve ellipses").
+- **Verified**: harness rebuild of Episodio310–315 against v0.18.0 output: all 28 ellipses (25 `...`, 3 `…`) now kept, 27 tokens changed (one `…` was already intact), and no other token, word count, sentence break or paragraph changed. Episodio318: one token (`suena.` -> `suena...`).
+
+### Tests
+- `test_spanish_domains_and_ellipses.py::test_ellipsis_survives_to_txt`: four real Whisper lines (Episodio312/313/314/318) through `_assemble_sentences()` -> `_write_txt()`. All four fail on v0.19.0. The existing `test_ellipsis_not_split` only counted sentences, so it passed while `...` was being collapsed. Suite: **787 passed / 37 xfailed**.
+
 ## [0.19.0] - 2026-11-18
 
 Speaker detection (`--diarize`) now works on video files. On an MP4 (or any other format the old audio loader couldn't read), diarization failed with a "Speaker diarization failed … Format not recognised" warning, and the transcript came out without paragraph breaks at speaker changes. Diarization now reads audio the same way transcription does, so every file podscripter can transcribe can also be diarized. The Docker image also installs two fewer packages.

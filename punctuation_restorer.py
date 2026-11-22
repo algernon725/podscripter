@@ -231,6 +231,22 @@ def _split_sentences_preserving_delims(text: str) -> list:
     return PUNCT_SPLIT_RE.split(text)
 
 
+def _collapse_terminal_run(run: str, keep_last: bool = False) -> str:
+    """Reduce a run of '.', '!', '?' to one mark, keeping an ellipsis Whisper wrote.
+
+    "!!" -> "!", ".?" -> "?" (keep_last) or "." (first). A run that starts with
+    "..." or "…" keeps it, plus the run's first or last '!'/'?': "suena... quiero"
+    and "Son como…" stay as written, and "o...?" stays a question. Collapsing "..."
+    to "." made "Wow, suena. quiero ir" (period, then lowercase) out of Whisper's
+    "Wow, suena... quiero ir" (v0.19.1).
+    """
+    for ellipsis in ('...', '…'):
+        if run.startswith(ellipsis):
+            marks = run.replace('.', '').replace('…', '')
+            return ellipsis + (marks[-1:] if keep_last else marks[:1])
+    return run[-1] if keep_last else run[0]
+
+
 def _normalize_mixed_terminal_punctuation(text: str) -> str:
     """Normalize mixed terminal punctuation like '?.', '!.', '!?'.
 
@@ -1020,14 +1036,15 @@ def _split_and_punctuate(text: str, language: str = 'en', whisper_segments: list
                     sentence = sentence[0].upper() + sentence[1:]
 
             # Ensure sentence ends with single terminal punctuation
-            if not sentence.endswith(('.', '!', '?')):
+            if not sentence.endswith(('.', '!', '?', '…')):
                 # Strip trailing commas before adding terminal punctuation
                 sentence = sentence.rstrip(',;: ')
                 # Use centralized punctuation logic for Spanish (no question-word
                 # guess: a substring match put '?' on statements, #34)
                 sentence = _should_add_terminal_punctuation(sentence, language, PunctuationContext.SPANISH_SPECIFIC)
             else:
-                sentence = sentence.rstrip('.!?') + sentence[-1]
+                body = sentence.rstrip('.!?…')
+                sentence = body + _collapse_terminal_run(sentence[len(body):], keep_last=True)
 
             # Add inverted question mark if needed (without re-splitting)
             # Only add if sentence doesn't already have an embedded ¿ (to avoid double inverted marks)
@@ -1045,7 +1062,7 @@ def _split_and_punctuate(text: str, language: str = 'en', whisper_segments: list
                     sentence = '¿' + sentence
             
             # Clean up duplicates
-            sentence = re.sub(r'[.!?]{2,}', lambda m: m.group(0)[0], sentence)
+            sentence = re.sub(r'[.!?]{2,}', lambda m: _collapse_terminal_run(m.group(0)), sentence)
             sentence = re.sub(r'¿{2,}', '¿', sentence)
             formatted_sentences.append(sentence)
             
