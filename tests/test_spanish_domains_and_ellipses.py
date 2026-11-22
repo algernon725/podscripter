@@ -11,7 +11,7 @@ Verifies that:
 import re
 
 import pytest
-from conftest import restore_punctuation
+from conftest import restore_punctuation, transcript
 
 pytestmark = pytest.mark.core
 
@@ -108,3 +108,17 @@ def test_ellipsis_not_split():
         assert "rota" in out[0]
 
 
+@pytest.mark.parametrize("whisper_text", [
+    "Wow, suena... quiero ir yo también.",   # Episodio318: was "suena. quiero"
+    "Son como...",                           # Episodio312: was "Son como."
+    "¿Fue como algo extraño o...?",          # Episodio314: was "o?"
+    "Sí, los que cuidan…",                   # Episodio313: was "cuidan…."
+])
+def test_ellipsis_survives_to_txt(whisper_text, tmp_path):
+    """Whisper's ellipsis reaches the transcript as written (v0.19.1).
+
+    The Spanish formatting pass collapsed every run of '.!?' to one mark, so "..."
+    became "." (a period followed by a lowercase word, mid-sentence), and added a
+    '.' after "…".
+    """
+    assert transcript(whisper_text, 'es', tmp_path) == whisper_text
